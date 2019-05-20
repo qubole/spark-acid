@@ -1,6 +1,7 @@
 The repository for acid datasource (in development)
 
 This has the following sbt projects:
+
 1. acid-datasource: The main project for the datasource. This has the actual code for the datasource
 2. hive-shaded-exec-metastore: This is an sbt projec to create the shaded hive metastore and hive exec jars combined into a fat jar(hive-shaded-exec-metastore-assembly-0.1.jar referred below). This jar has been created already and packaged into the lib folder of acid-datasource as an umnanaged dependency 
 
