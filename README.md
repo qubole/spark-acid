@@ -7,9 +7,12 @@ This has the following sbt projects:
 
 
 To use the datasource:
+
 1. Go to the acid-datasource directory
 2. sbt package. This will create the acid-datasource_2.11-0.1.jar jar
-3. 
+3.
+
+
 spark-shell --jars /Users/asomani/src/acid-ds/acid-datasource/target/scala-2.11/acid-datasource_2.11-0.1.jar,/Users/asomani/src/acid-ds/acid-datasource/lib/hive-shaded-exec-metastore-assembly-0.1.jar.
 
 scala> var df = spark.read.format("com.qubole.spark.HiveAcidDataSource").options(Map("table" -> "default.newtest_hello_mm")).load()
@@ -19,4 +22,5 @@ df.collect()
 
 
 Notes:
+
 1. This will work only with an external HMS, even in spark local mode.
