@@ -7,11 +7,13 @@ scalaVersion := "2.11.12"
 
 
 assemblyShadeRules in assembly := Seq(
-  ShadeRule.rename("org.apache.hadoop.hive.**" -> "com.qubole.shaded.hive.@1").inAll
+  ShadeRule.rename("org.apache.hadoop.hive.**" -> "com.qubole.shaded.hive.@1").inAll,
+  ShadeRule.rename("org.apache.orc.**" -> "com.qubole.shaded.orc.@1").inAll
 )
 
 libraryDependencies += "org.apache.hive" % "hive-metastore" % "3.1.1"
 libraryDependencies += "org.apache.hive" % "hive-exec" % "3.1.1" exclude("org.apache.calcite", "calcite-core")
+libraryDependencies += "org.apache.orc" % "orc-core" % "1.5.1"
 
 
 
