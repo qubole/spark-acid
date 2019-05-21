@@ -20,6 +20,7 @@ package com.qubole.spark
 import java.util.Locale
 
 import com.qubole.shaded.hive.conf.HiveConf
+import com.qubole.shaded.hive.metastore.api.FieldSchema
 import com.qubole.shaded.hive.ql.exec.Utilities
 import com.qubole.shaded.hive.ql.metadata.HiveUtils
 import com.qubole.shaded.hive.ql.plan.TableDesc
@@ -67,7 +68,7 @@ object HiveAcidDataSource extends Logging {
   def configureJobPropertiesForStorageHandler(
                                                tableDesc: TableDesc, conf: Configuration, input: Boolean) {
     val property = tableDesc.getProperties.getProperty(
-      org.apache.hadoop.hive.metastore.api.hive_metastoreConstants.META_TABLE_STORAGE
+      com.qubole.shaded.hive.metastore.api.hive_metastoreConstants.META_TABLE_STORAGE
     )
     val storageHandler =
       HiveUtils.getStorageHandler(conf, property)
@@ -81,13 +82,6 @@ object HiveAcidDataSource extends Logging {
       if (!jobProperties.isEmpty) {
         tableDesc.setJobProperties(jobProperties)
       }
-    }
-  }
-
-  def getCatalystDatatypeFromHiveDatatype(hiveDatatype: String): DataType = {
-    hiveDatatype match {
-      case "" => IntegerType
-      case _ => StringType
     }
   }
 

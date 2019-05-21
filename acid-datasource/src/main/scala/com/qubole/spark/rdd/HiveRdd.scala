@@ -25,9 +25,10 @@ import java.util.{Date, Locale, Properties}
 import org.apache.commons.io.IOUtils
 import org.apache.hadoop.conf.{Configurable, Configuration}
 import org.apache.hadoop.fs.FileStatus
-import org.apache.hadoop.hive.ql.io.orc.{OrcSerde, OrcSplit}
-import org.apache.hadoop.hive.serde2.objectinspector.{ObjectInspectorConverters, StructObjectInspector}
-import org.apache.hadoop.hive.serde2.objectinspector.primitive._
+import com.qubole.shaded.hive.ql.io.orc.{OrcSerde, OrcSplit}
+import com.qubole.shaded.hive.serde2.objectinspector.{ObjectInspectorConverters, StructObjectInspector}
+import com.qubole.shaded.hive.serde2.objectinspector.primitive._
+import com.qubole.spark.HiveAcidFileIndex
 import org.apache.hadoop.io.Writable
 import org.apache.hadoop.mapred._
 import org.apache.hadoop.mapred.lib.CombineFileSplit
@@ -71,8 +72,9 @@ import scala.util.Try
  * to discover all the files based on all the input partition dirs.
  */
 
-private[spark] class HiveRDD(
+class HiveRDD(
                        sc: SparkContext,
+                       acidState: HiveAcidFileIndex,
                        broadcastedConf: Broadcast[SerializableConfiguration],
                        initLocalJobConfFuncOpt: Option[JobConf => Unit],
                        inputFormatClass: Class[_ <: InputFormat[Writable, Writable]],
@@ -93,8 +95,8 @@ private[spark] class HiveRDD(
 //  }
 
   def getInputFormatClassString: String = {
-    if (inputFormatClass.getName == "org.apache.hadoop.hive.ql.io.orc.OrcInputFormats") {
-      return "org.apache.hadoop.hive.ql.io.HiveInputFormat"
+    if (inputFormatClass.getName == "com.qubole.shaded.hive.ql.io.orc.OrcInputFormats") {
+      return "com.qubole.shaded.hive.ql.io.HiveInputFormat"
     } else {
       return inputFormatClass.getName
     }
@@ -145,25 +147,32 @@ private[spark] class HiveRDD(
         logDebug("Re-using user-broadcasted JobConf")
         conf.asInstanceOf[JobConf]
       } else {
-        Option(HiveRDD.getCachedMetadata(jobConfCacheKey))
-          .map { conf =>
-            logDebug("Re-using cached JobConf")
-            conf.asInstanceOf[JobConf]
-          }
-          .getOrElse {
-            // Create a JobConf that will be cached and used across this RDD's getJobConf() calls in
-            // the local process. The local cache is accessed through HiveRDD.putCachedMetadata().
-            // The caching helps minimize GC, since a JobConf can contain ~10KB of temporary
-            // objects. Synchronize to prevent ConcurrentModificationException (SPARK-1097,
-            // HADOOP-10456).
-            HiveRDD.CONFIGURATION_INSTANTIATION_LOCK.synchronized {
-              logDebug("Creating new JobConf and caching it for later re-use")
-              val newJobConf = new JobConf(conf)
-              initLocalJobConfFuncOpt.foreach(f => f(newJobConf))
-              HiveRDD.putCachedMetadata(jobConfCacheKey, newJobConf)
-              newJobConf
-            }
-          }
+        HiveRDD.CONFIGURATION_INSTANTIATION_LOCK.synchronized {
+          logDebug("Creating new JobConf and caching it for later re-use")
+          val newJobConf = new JobConf(conf)
+          initLocalJobConfFuncOpt.foreach(f => f(newJobConf))
+          HiveRDD.putCachedMetadata(jobConfCacheKey, newJobConf)
+          newJobConf
+        }
+
+        //          .map { conf =>
+        //            logDebug("Re-using cached JobConf")
+        //            conf.asInstanceOf[JobConf]
+        //          }
+        //          .getOrElse {
+        //            // Create a JobConf that will be cached and used across this RDD's getJobConf() calls in
+        //            // the local process. The local cache is accessed through HiveRDD.putCachedMetadata().
+        //            // The caching helps minimize GC, since a JobConf can contain ~10KB of temporary
+        //            // objects. Synchronize to prevent ConcurrentModificationException (SPARK-1097,
+        //            // HADOOP-10456).
+        //            HiveRDD.CONFIGURATION_INSTANTIATION_LOCK.synchronized {
+        //              logDebug("Creating new JobConf and caching it for later re-use")
+        //              val newJobConf = new JobConf(conf)
+        //              initLocalJobConfFuncOpt.foreach(f => f(newJobConf))
+        //              HiveRDD.putCachedMetadata(jobConfCacheKey, newJobConf)
+        //              newJobConf
+        //            }
+        //          }
       }
     }
     jConf.set("schema.evolution.columns", schemaColNames)
@@ -192,7 +201,7 @@ private[spark] class HiveRDD(
 
     val loader = new IsolatedClientLoaderHive(
       execJars = jars.toSeq,
-      //sharedPrefixes = Seq("org.apache.hadoop.hive.ql.io.orc.OrcStruct"),
+      //sharedPrefixes = Seq("com.qubole.shaded.hive.ql.io.orc.OrcStruct"),
       isolationOn = true)
 
     val original = Thread.currentThread().getContextClassLoader
@@ -312,9 +321,9 @@ private[spark] class HiveRDD(
 //          InputFileBlockHolder.unset()
 //      }
 //
-//      //      if (split.inputSplit.value.isInstanceOf[org.apache.hadoop.hive.ql.io.orc.OrcSplit]) {
+//      //      if (split.inputSplit.value.isInstanceOf[com.qubole.shaded.hive.ql.io.orc.OrcSplit]) {
 //      //        logWarning(s"Total delta file in split: " +
-//      //          s"${split.inputSplit.value.asInstanceOf[org.apache.hadoop.hive.ql.io.orc.OrcSplit].getDeltas}")
+//      //          s"${split.inputSplit.value.asInstanceOf[com.qubole.shaded.hive.ql.io.orc.OrcSplit].getDeltas}")
 //      //      }
 //      //
 //      // Find a function that will return the FileSystem bytes read by this thread. Do this before
@@ -431,7 +440,7 @@ private[spark] class HiveRDD(
 //      }
 //    }
 //      logInfo("------------------------------------ Checkpoint 1")
-//      import org.apache.hadoop.hive.serde2.Deserializer
+//      import com.qubole.shaded.hive.serde2.Deserializer
 //      logInfo("------------------------------------ Checkpoint 2")
 //
 //
@@ -626,14 +635,14 @@ class IsolatedClientLoaderHive(
   extends Logging {
 
   // Check to make sure that the root classloader does not know about Hive.
-  assert(Try(rootClassLoader.loadClass("org.apache.hadoop.hive.conf.HiveConf")).isFailure)
+  assert(Try(rootClassLoader.loadClass("com.qubole.shaded.hive.conf.HiveConf")).isFailure)
 
   /** All jars used by the hive specific classloader. */
   private def allJars = execJars.toArray
 
   def isSharedClass(name: String): Boolean = {
     val isHadoopClass =
-      name.startsWith("org.apache.hadoop.") && !name.startsWith("org.apache.hadoop.hive.")
+      name.startsWith("org.apache.hadoop.") && !name.startsWith("com.qubole.shaded.hive.")
 
     !name.startsWith("org.apache.spark.sql.hive3") && (
       name.startsWith("org.slf4j") ||
@@ -669,7 +678,7 @@ class IsolatedClientLoaderHive(
           override def loadClass(name: String, resolve: Boolean): Class[_] = {
             val loaded = findLoadedClass(name)
             val l = if (loaded == null) doLoadClass(name, resolve) else loaded
-//            if (name.startsWith("org.apache.hadoop.hive")) {
+//            if (name.startsWith("com.qubole.shaded.hive")) {
 //              if (l != null && l.getClassLoader != null) {
 //                logWarning(s"Loading $name class from ${l.getClassLoader.toString}")
 //              } else if (l != null) {

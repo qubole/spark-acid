@@ -27,7 +27,7 @@ import com.qubole.shaded.hive.ql.metadata
 import com.qubole.shaded.hive.ql.metadata.Hive
 import com.qubole.shaded.hive.ql.plan.TableDesc
 import com.qubole.spark.rdd.HiveRDD
-import com.qubole.spark.util.SerializableConfiguration
+import com.qubole.spark.util.{SerializableConfiguration, Util}
 import org.apache.hadoop.io.Writable
 import org.apache.hadoop.mapred.InputFormat
 import org.apache.spark.SparkException
@@ -73,7 +73,7 @@ class HiveAcidRelation(var sqlContext: SQLContext,
 
 
 
-  val acid_state = new HiveAcidFileIndex(sqlContext.sparkSession, table,
+  val acidState = new HiveAcidFileIndex(sqlContext.sparkSession, table,
     sqlContext.sparkSession.sessionState.conf.defaultSizeInBytes, client, partitionSchema)
 
 
@@ -92,8 +92,10 @@ class HiveAcidRelation(var sqlContext: SQLContext,
 
   override def sizeInBytes: Long = {
     val compressionFactor = sqlContext.sparkSession.sessionState.conf.fileCompressionFactor
-    (acid_state.sizeInBytes * compressionFactor).toLong
+    (acidState.sizeInBytes * compressionFactor).toLong
   }
+
+  override val needConversion: Boolean = false
 
   private def getColName(f: StructField): String = {
     if (sqlContext.sparkSession.sessionState.conf.caseSensitiveAnalysis) {
@@ -107,15 +109,15 @@ class HiveAcidRelation(var sqlContext: SQLContext,
     sqlContext.sparkSession.listenerManager.register(new QueryExecutionListener {
       override def onFailure(funcName: String, qe: QueryExecution, exception: Exception): Unit = {
         println("Somani job end, closing _acid_state");
-        if (acid_state != null) {
-          acid_state.close()
+        if (acidState != null) {
+          acidState.close()
         }
       }
 
       override def onSuccess(funcName: String, qe: QueryExecution, durationNs: Long): Unit = {
         println("Somani job end, closing _acid_state");
-        if (acid_state != null) {
-          acid_state.close()
+        if (acidState != null) {
+          acidState.close()
         }
       }
     })
@@ -153,8 +155,9 @@ class HiveAcidRelation(var sqlContext: SQLContext,
       hTable.getMetadata)
     val initializeJobConfFunc = HiveAcidDataSource.initializeLocalJobConfFunc(
       hTable.getPath.toString , tableDesc) _
-    val ifc = hTable.getInputFormatClass
-      .asInstanceOf[java.lang.Class[InputFormat[Writable, Writable]]]
+    val ifcName = hTable.getInputFormatClass.getName.replaceFirst(
+      "org.apache.hadoop.hive.", "com.qubole.shaded.hive.")
+    val ifc = Util.classForName(ifcName).asInstanceOf[java.lang.Class[InputFormat[Writable, Writable]]]
     val _minSplitsPerRDD = math.max(
       sqlContext.sparkContext.hadoopConfiguration.getInt("mapreduce.job.maps", 1),
       sqlContext.sparkContext.defaultMinPartitions)
@@ -167,12 +170,13 @@ class HiveAcidRelation(var sqlContext: SQLContext,
     val requiredHiveFields = requiredColumns.map(x => allHiveCols.find(_.getName == x).get)
 
     val dataTypes = requiredHiveFields.map {
-      case x => HiveAcidDataSource.getCatalystDatatypeFromHiveDatatype(x.getType)
+      case x => getSparkSQLDataType(x)
     }
     val mutableRow = new SpecificInternalRow(dataTypes)
     val attrsWithIndex = requiredHiveFields.map { x => UnresolvedAttribute(x.getName)}.zipWithIndex
 
     new HiveRDD(sqlContext.sparkContext,
+      acidState,
       broadcastedHadoopConf,
       Some(initializeJobConfFunc),
       ifc,
