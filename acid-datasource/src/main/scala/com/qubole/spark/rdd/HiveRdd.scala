@@ -28,7 +28,7 @@ import org.apache.hadoop.fs.FileStatus
 import com.qubole.shaded.hive.ql.io.orc.{OrcSerde, OrcSplit}
 import com.qubole.shaded.hive.serde2.objectinspector.{ObjectInspectorConverters, StructObjectInspector}
 import com.qubole.shaded.hive.serde2.objectinspector.primitive._
-import com.qubole.spark.HiveAcidFileIndex
+import com.qubole.spark.HiveAcidState
 import org.apache.hadoop.io.Writable
 import org.apache.hadoop.mapred._
 import org.apache.hadoop.mapred.lib.CombineFileSplit
@@ -74,7 +74,6 @@ import scala.util.Try
 
 class HiveRDD(
                        sc: SparkContext,
-                       acidState: HiveAcidFileIndex,
                        broadcastedConf: Broadcast[SerializableConfiguration],
                        initLocalJobConfFuncOpt: Option[JobConf => Unit],
                        inputFormatClass: Class[_ <: InputFormat[Writable, Writable]],

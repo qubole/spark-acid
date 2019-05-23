@@ -28,6 +28,14 @@ object HiveAcidErrors {
     new IllegalArgumentException("The specified table is not an acid table")
   }
 
+  def couldNotAcquireLockException(exception: Exception): Throwable = {
+    new RuntimeException("Could not acquire lock", exception)
+  }
+
+  def txnClosedException: Throwable = {
+    new RuntimeException("The transaction has been closed")
+  }
+
 }
 
 class AnalysisException (

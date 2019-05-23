@@ -17,6 +17,7 @@
 
 package com.qubole.spark
 
+import java.util.concurrent.TimeUnit
 import java.util.{List, Locale}
 
 import com.qubole.shaded.hive.conf.HiveConf
@@ -26,7 +27,7 @@ import com.qubole.shaded.hive.metastore.utils.MetaStoreUtils.{getColumnNamesFrom
 import com.qubole.shaded.hive.ql.metadata
 import com.qubole.shaded.hive.ql.metadata.Hive
 import com.qubole.shaded.hive.ql.plan.TableDesc
-import com.qubole.spark.rdd.HiveRDD
+import com.qubole.spark.rdd.{HadoopTableReader, Hive3RDD}
 import com.qubole.spark.util.{SerializableConfiguration, Util}
 import org.apache.hadoop.io.Writable
 import org.apache.hadoop.mapred.InputFormat
@@ -36,11 +37,11 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.{Row, SQLContext}
 import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute
-import org.apache.spark.sql.catalyst.expressions.SpecificInternalRow
+import org.apache.spark.sql.catalyst.expressions.{PrettyAttribute, SpecificInternalRow}
 import org.apache.spark.sql.catalyst.parser.{CatalystSqlParser, ParseException}
-import org.apache.spark.sql.execution.QueryExecution
+import org.apache.spark.sql.execution.{QueryExecution, RowDataSourceScanExec}
 import org.apache.spark.sql.sources.{BaseRelation, Filter, PrunedFilteredScan}
-import org.apache.spark.sql.types.{DataType, HIVE_TYPE_STRING, Metadata, MetadataBuilder, StructField, StructType}
+import org.apache.spark.sql.types._
 import org.apache.spark.sql.util.QueryExecutionListener
 
 import scala.collection.mutable
@@ -61,7 +62,18 @@ class HiveAcidRelation(var sqlContext: SQLContext,
   val hive: Hive = Hive.get(hiveConf)
   val hTable: metadata.Table = hive.getTable(tableName.split('.')(0), tableName.split('.')(1))
 
+
   val table: Table  = client.getTable(tableName.split('.')(0), tableName.split('.')(1))
+
+  if (table.getParameters.get("transactional") != "true") {
+    throw HiveAcidErrors.tableNotAcidException
+  }
+  var isFullAcidTable: Boolean = _
+  if (table.getParameters.containsKey("insert_only") && (table.getParameters.get("insert_only") == "true")) {
+    isFullAcidTable = false
+  } else {
+    isFullAcidTable = true
+  }
 
   val cols: scala.List[FieldSchema] = table.getSd.getCols.toList
   val partitionCols: scala.List[FieldSchema] = table.getPartitionKeys.toList
@@ -71,13 +83,11 @@ class HiveAcidRelation(var sqlContext: SQLContext,
   val broadcastedHadoopConf: Broadcast[SerializableConfiguration] = sqlContext.sparkContext.broadcast(
     new SerializableConfiguration(sqlContext.sparkContext.hadoopConfiguration))
 
+  val acidState = new HiveAcidState(sqlContext.sparkSession, hiveConf, table,
+    sqlContext.sparkSession.sessionState.conf.defaultSizeInBytes, client, partitionSchema,
+  HiveConf.getTimeVar(hiveConf, HiveConf.ConfVars.HIVE_TXN_TIMEOUT, TimeUnit.MILLISECONDS) / 2, isFullAcidTable)
 
-
-  val acidState = new HiveAcidFileIndex(sqlContext.sparkSession, table,
-    sqlContext.sparkSession.sessionState.conf.defaultSizeInBytes, client, partitionSchema)
-
-
-  registerQEListener(sqlContext)
+  //registerQEListener(sqlContext)
   val overlappedPartCols = mutable.Map.empty[String, StructField]
 
   partitionSchema.foreach { partitionField =>
@@ -108,17 +118,20 @@ class HiveAcidRelation(var sqlContext: SQLContext,
   private def registerQEListener(sqlContext: SQLContext): Unit = {
     sqlContext.sparkSession.listenerManager.register(new QueryExecutionListener {
       override def onFailure(funcName: String, qe: QueryExecution, exception: Exception): Unit = {
-        println("Somani job end, closing _acid_state");
         if (acidState != null) {
           acidState.close()
         }
+        //sqlContext.sparkSession.listenerManager.unregister(this)
       }
 
       override def onSuccess(funcName: String, qe: QueryExecution, durationNs: Long): Unit = {
-        println("Somani job end, closing _acid_state");
-        if (acidState != null) {
-          acidState.close()
-        }
+        val acidStates = qe.executedPlan.collect {
+          case RowDataSourceScanExec(_, _, _, _, _, relation: HiveAcidRelation, _)
+            if relation == HiveAcidRelation.this =>
+            relation.acidState
+        }.filter(_ != null)
+        acidStates.foreach(_.close())
+        //sqlContext.sparkSession.listenerManager.unregister(this)
       }
     })
   }
@@ -150,40 +163,25 @@ class HiveAcidRelation(var sqlContext: SQLContext,
   }
 
   override def buildScan(requiredColumns: Array[String], filters: Array[Filter]): RDD[Row] = {
-
     val tableDesc = new TableDesc(hTable.getInputFormatClass, hTable.getOutputFormatClass,
       hTable.getMetadata)
-    val initializeJobConfFunc = HiveAcidDataSource.initializeLocalJobConfFunc(
-      hTable.getPath.toString , tableDesc) _
-    val ifcName = hTable.getInputFormatClass.getName.replaceFirst(
-      "org.apache.hadoop.hive.", "com.qubole.shaded.hive.")
-    val ifc = Util.classForName(ifcName).asInstanceOf[java.lang.Class[InputFormat[Writable, Writable]]]
-    val _minSplitsPerRDD = math.max(
-      sqlContext.sparkContext.hadoopConfiguration.getInt("mapreduce.job.maps", 1),
-      sqlContext.sparkContext.defaultMinPartitions)
-    val deserializerClassName = tableDesc.getSerdeClassName.replaceFirst(
-      "org.apache.hadoop.hive.", "com.qubole.shaded.hive.")
-    val colNames = getColumnNamesFromFieldSchema(hTable.getSd.getCols)
-    val colTypes = getColumnTypesFromFieldSchema(hTable.getSd.getCols)
-
     val allHiveCols = hTable.getAllCols
     val requiredHiveFields = requiredColumns.map(x => allHiveCols.find(_.getName == x).get)
-
-    val dataTypes = requiredHiveFields.map {
-      case x => getSparkSQLDataType(x)
+    val attributes = requiredHiveFields.map { x =>
+      PrettyAttribute(x.getName, getSparkSQLDataType(x))
     }
-    val mutableRow = new SpecificInternalRow(dataTypes)
-    val attrsWithIndex = requiredHiveFields.map { x => UnresolvedAttribute(x.getName)}.zipWithIndex
 
-    new HiveRDD(sqlContext.sparkContext,
+    // TODO: Add support for partitioning
+    val partCols = Seq()
+
+    val hadoopReader = new HadoopTableReader(
+      attributes,
+      partCols,
+      tableDesc,
+      sqlContext.sparkSession,
       acidState,
-      broadcastedHadoopConf,
-      Some(initializeJobConfFunc),
-      ifc,
-      new java.lang.Integer(_minSplitsPerRDD),
-      deserializerClassName, mutableRow, attrsWithIndex, tableDesc.getProperties,
-      colNames, colTypes
-    )
-  }.asInstanceOf[RDD[Row]]
+      sqlContext.sparkSession.sessionState.newHadoopConf())
+    hadoopReader.makeRDDForTable(hTable).asInstanceOf[RDD[Row]]
+  }
 
 }
