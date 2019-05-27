@@ -124,6 +124,20 @@ class HiveAcidState(sparkSession: SparkSession,
     txnWriteIds.getTableValidWriteIdList(table.getDbName  + "." + table.getTableName)
   }
 
+  // Use this instead of open(), acquireLocks(), getValidWriteIds() and close() if not doing transaction management.
+  def getValidWriteIdsNoTxn: ValidWriteIdList = {
+    val validTxns = client.getValidTxns()
+    //validWriteIds = TxnUtils.createValidTxnWriteIdList(txnId, client.getValidWriteIds(Seq(dbName + "." + tableName),
+    //validTxns.writeToString()))
+    val txnWriteIds: ValidTxnWriteIdList = TxnUtils.createValidTxnWriteIdList(txnId, client.getValidWriteIds(Seq(dbName + "." + tableName),
+      validTxns.writeToString()))
+    // store in conf txnWriteIds.toString()
+    //val writeIdStr = txnWriteIds.toString();
+    //    conf.set(ValidTxnWriteIdList.VALID_TABLES_WRITEIDS_KEY, writeIdStr);
+    //val validTxnList: ValidTxnWriteIdList = new ValidTxnWriteIdList(writeIdStr)
+    txnWriteIds.getTableValidWriteIdList(table.getDbName  + "." + table.getTableName)
+  }
+
   def open(): Unit = {
     if (txnId == -1) {
       // 1. Open transaction

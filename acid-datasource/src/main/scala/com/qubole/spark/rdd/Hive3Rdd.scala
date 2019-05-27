@@ -167,10 +167,12 @@ class Hive3RDD[K, V](
   }
 
   override def getPartitions: Array[Partition] = {
-    acidState.open()
-    acidState.acquireLocks()
+//    acidState.open()
+//    acidState.acquireLocks()
     val jobConf = getJobConf()
-    AcidUtils.setValidWriteIdList(jobConf, acidState.getValidWriteIds)
+//    AcidUtils.setValidWriteIdList(jobConf, acidState.getValidWriteIds)
+
+    AcidUtils.setValidWriteIdList(jobConf, acidState.getValidWriteIdsNoTxn)
     // add the credentials here as this can be called before SparkContext initialized
     SparkHadoopUtil.get.addCredentials(jobConf)
     try {
