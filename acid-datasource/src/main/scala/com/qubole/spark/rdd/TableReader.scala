@@ -249,7 +249,7 @@ class HadoopTableReader(
       new EmptyRDD[InternalRow](sparkSession.sparkContext)
     } else {
       new AcidLockUnionRDD[InternalRow](hivePartitionRDDs(0).context, hivePartitionRDDs,
-        partitionStrings, hiveAcidState)
+        partitionStrings, acidState)
     }
   }
 
@@ -290,9 +290,7 @@ class HadoopTableReader(
       inputFormatClass,
       classOf[Writable],
       classOf[Writable],
-      _minSplitsPerRDD,
-      acquireLocks,
-      hiveAcidState)
+      _minSplitsPerRDD)
 
     // Only take the value (skip the key) because Hive works only with values.
     rdd.map(_._2)

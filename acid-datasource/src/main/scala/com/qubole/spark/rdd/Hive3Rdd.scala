@@ -77,9 +77,7 @@ class Hive3RDD[K, V](
             inputFormatClass: Class[_ <: InputFormat[K, V]],
             keyClass: Class[K],
             valueClass: Class[V],
-            minPartitions: Int,
-            acquireLocks: Boolean,
-            @transient hiveAcidState: HiveAcidState) = {
+            minPartitions: Int) = {
     this(
       sc,
       acidState,
@@ -89,9 +87,7 @@ class Hive3RDD[K, V](
       inputFormatClass,
       keyClass,
       valueClass,
-      minPartitions,
-      acquireLocks,
-      hiveAcidState)
+      minPartitions)
   }
 
   protected val jobConfCacheKey: String = "rdd_%d_job_conf".format(id)
