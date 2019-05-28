@@ -90,8 +90,7 @@ class HiveAcidRelation(var sqlContext: SQLContext,
   val acidState = new HiveAcidState(sqlContext.sparkSession, hiveConf, table,
     sqlContext.sparkSession.sessionState.conf.defaultSizeInBytes, client, partitionSchema,
   HiveConf.getTimeVar(hiveConf, HiveConf.ConfVars.HIVE_TXN_TIMEOUT, TimeUnit.MILLISECONDS) / 2, isFullAcidTable)
-
-  //registerQEListener(sqlContext)
+  
   val overlappedPartCols = mutable.Map.empty[String, StructField]
 
   partitionSchema.foreach { partitionField =>
@@ -117,27 +116,6 @@ class HiveAcidRelation(var sqlContext: SQLContext,
     } else {
       f.name.toLowerCase(Locale.ROOT)
     }
-  }
-
-  private def registerQEListener(sqlContext: SQLContext): Unit = {
-    sqlContext.sparkSession.listenerManager.register(new QueryExecutionListener {
-      override def onFailure(funcName: String, qe: QueryExecution, exception: Exception): Unit = {
-        if (acidState != null) {
-          acidState.close()
-        }
-        //sqlContext.sparkSession.listenerManager.unregister(this)
-      }
-
-      override def onSuccess(funcName: String, qe: QueryExecution, durationNs: Long): Unit = {
-        val acidStates = qe.executedPlan.collect {
-          case RowDataSourceScanExec(_, _, _, _, _, relation: HiveAcidRelation, _)
-            if relation == HiveAcidRelation.this =>
-            relation.acidState
-        }.filter(_ != null)
-        acidStates.foreach(_.close())
-        //sqlContext.sparkSession.listenerManager.unregister(this)
-      }
-    })
   }
 
   private def fromHiveColumn(hc: FieldSchema): StructField = {

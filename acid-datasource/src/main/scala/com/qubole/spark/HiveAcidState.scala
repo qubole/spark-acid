@@ -20,7 +20,7 @@ package com.qubole.spark
 import com.qubole.shaded.hive.common.ValidTxnWriteIdList
 import org.apache.hadoop.conf.Configuration
 import com.qubole.shaded.hive.conf.HiveConf
-import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.{SQLContext, SparkSession}
 import org.apache.spark.sql.execution.datasources.{CatalogFileIndex, FileIndex, FileStatusCache, InMemoryFileIndex, PartitionDirectory, PartitionPath, PartitionSpec, PrunedInMemoryFileIndex}
 import com.qubole.shaded.hive.metastore.HiveMetaStoreClient
 import com.qubole.shaded.hive.metastore.api.{DataOperationType, HeartbeatTxnRangeRequest, LockRequest, LockResponse, LockState, MetaException, Table, TableValidWriteIds}
@@ -29,7 +29,6 @@ import com.qubole.shaded.hive.ql.lockmgr.LockException
 import org.apache.spark.sql.catalyst.expressions.{Cast, Expression, GenericInternalRow, Literal}
 import org.apache.thrift.TException
 import org.apache.hadoop.fs.Path
-
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.unsafe.types.UTF8String
@@ -37,6 +36,8 @@ import java.util.concurrent.{Executors, ScheduledExecutorService, ThreadFactory,
 
 import com.qubole.shaded.hive.common.ValidWriteIdList
 import com.qubole.shaded.hive.metastore.{LockComponentBuilder, LockRequestBuilder}
+import org.apache.spark.sql.execution.{QueryExecution, RowDataSourceScanExec}
+import org.apache.spark.sql.util.QueryExecutionListener
 
 import scala.collection.JavaConversions._
 
@@ -158,6 +159,7 @@ class HiveAcidState(sparkSession: SparkSession,
         (heartbeatInterval * 0.75 * Math.random()).asInstanceOf[Long],
         heartbeatInterval,
         TimeUnit.MILLISECONDS)
+      registerQEListener(sparkSession.sqlContext)
     } else {
       //TODO: Throw and exception here
       logWarning("Not opening a transaction as transaction with id " + txnId + " already open")
@@ -251,6 +253,30 @@ class HiveAcidState(sparkSession: SparkSession,
       case e: InterruptedException =>
 
     }
+  }
+
+  private def registerQEListener(sqlContext: SQLContext): Unit = {
+    sqlContext.sparkSession.listenerManager.register(new QueryExecutionListener {
+      override def onFailure(funcName: String, qe: QueryExecution, exception: Exception): Unit = {
+        close()
+        //sqlContext.sparkSession.listenerManager.unregister(this)
+      }
+
+      override def onSuccess(funcName: String, qe: QueryExecution, durationNs: Long): Unit = {
+        close()
+        //compareAndClose(qe)
+        //sqlContext.sparkSession.listenerManager.unregister(this)
+      }
+    })
+  }
+
+  private def compareAndClose(qe: QueryExecution): Unit = {
+    val acidStates = qe.executedPlan.collect {
+      case RowDataSourceScanExec(_, _, _, _, _, relation: HiveAcidRelation, _)
+        if relation.acidState == this =>
+        relation.acidState
+    }.filter(_ != null)
+    acidStates.foreach(_.close())
   }
 
 //  def getValidWriteIds()
