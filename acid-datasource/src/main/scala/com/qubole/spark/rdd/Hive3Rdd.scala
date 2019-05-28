@@ -2,20 +2,22 @@ package com.qubole.spark.rdd;
 
 import java.io.{FileNotFoundException, IOException}
 import java.text.SimpleDateFormat
-import java.util.{Date, Locale}
+import java.util.{ArrayList, Date, List, Locale}
 import java.io.{EOFException, IOException}
+import java.util
 
-import com.qubole.shaded.hive.ql.io.AcidUtils
+import com.qubole.shaded.hive.common.ValidWriteIdList
 import com.qubole.spark.HiveAcidState
 import com.qubole.spark.rdd.Hive3RDD.Hive3PartitionsWithSplitRDD
 import com.qubole.spark.util.{NextIterator, SerializableConfiguration, SerializableWritable, Util}
+import com.qubole.shaded.hive.ql.io.{AcidUtils, HiveInputFormat}
 
 import scala.reflect.ClassTag
 import org.apache.hadoop.conf.{Configurable, Configuration}
-import org.apache.hadoop.mapred._
+import org.apache.hadoop.mapred.{FileInputFormat, _}
 import org.apache.hadoop.mapred.lib.CombineFileSplit
 import org.apache.hadoop.mapreduce.TaskType
-import org.apache.hadoop.mapreduce.lib.input.FileInputFormat
+//import org.apache.hadoop.mapreduce.lib.input.FileInputFormat
 import org.apache.hadoop.util.ReflectionUtils
 import org.apache.spark._
 import org.apache.spark.annotation.DeveloperApi
@@ -25,8 +27,14 @@ import org.apache.spark.executor.InputMetrics
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import com.qubole.spark.util.InputFileBlockHolder
+import org.apache.hadoop.fs.{FileSystem, Path}
+import org.apache.hadoop.hive.ql.exec.Utilities
+import org.apache.hive.common.util.Ref
 import org.apache.spark.scheduler.{HDFSCacheTaskLocation, HostTaskLocation}
 import org.apache.spark.storage.StorageLevel
+
+import scala.collection.mutable.ListBuffer
+import scala.collection.JavaConversions._
 
 
 class Hive3Partition(rddId: Int, override val index: Int, s: InputSplit)
@@ -169,10 +177,37 @@ class Hive3RDD[K, V](
   override def getPartitions: Array[Partition] = {
 //    acidState.open()
 //    acidState.acquireLocks()
-    val jobConf = getJobConf()
+    var jobConf = getJobConf()
 //    AcidUtils.setValidWriteIdList(jobConf, acidState.getValidWriteIds)
 
-    AcidUtils.setValidWriteIdList(jobConf, acidState.getValidWriteIdsNoTxn)
+    //TODO: Utilities.copyTablePropertiesToConf(table, conf)?
+    if (acidState.isFullAcidTable) {
+      // If full ACID table, just set the right writeIds, the OrcInputFormat.getSplits() will take care of the rest
+      AcidUtils.setValidWriteIdList(jobConf, acidState.getValidWriteIdsNoTxn)
+      jobConf.setBoolean(FileInputFormat.INPUT_DIR_RECURSIVE, true)
+    } else {
+      var finalPaths = new ListBuffer[Path]()
+      var pathsWithFileOriginals = new ListBuffer[Path]()
+      HiveInputFormat.processPathsForMmRead(Seq(acidState.location), jobConf, acidState.getValidWriteIdsNoTxn,
+        finalPaths, pathsWithFileOriginals) //TODO: AllowOriginals: Need to do something about that
+//      processPathsForMMTable(acidState.location, jobConf, acidState.getValidWriteIdsNoTxn, allowOriginals = false /* TODO: False for now*/,
+//        finalPaths, pathsWithFileOriginals)
+
+      if (finalPaths.nonEmpty) {
+        FileInputFormat.setInputPaths(jobConf, finalPaths.toList: _*)
+        jobConf.setBoolean(FileInputFormat.INPUT_DIR_RECURSIVE, true)
+      }
+
+      if (pathsWithFileOriginals.nonEmpty) {
+        // We are going to add splits for these directories with recursive = false, so we ignore
+        // any subdirectories (deltas or original directories) and only read the original files.
+        // The fact that there's a loop calling addSplitsForGroup already implies it's ok to
+        // the real input format multiple times... however some split concurrency/etc configs
+        // that are applied separately in each call will effectively be ignored for such splits.
+        jobConf = HiveInputFormat.createConfForMmOriginalsSplit(jobConf, pathsWithFileOriginals)
+      }
+
+    }
     // add the credentials here as this can be called before SparkContext initialized
     SparkHadoopUtil.get.addCredentials(jobConf)
     try {
@@ -193,9 +228,66 @@ class Hive3RDD[K, V](
       array
     } catch {
       case e: InvalidInputException if ignoreMissingFiles =>
-        logWarning(s"${jobConf.get(FileInputFormat.INPUT_DIR)} doesn't exist and no" +
+        logWarning(s"${jobConf.get(org.apache.hadoop.mapreduce.lib.input.FileInputFormat.INPUT_DIR)} doesn't exist and no" +
           s" partitions returned from this path.", e)
         Array.empty[Partition]
+    }
+  }
+
+
+  def processPathsForMMTable(dir: Path, conf: Configuration, validWriteIdList: ValidWriteIdList, allowOriginals: Boolean,
+    finalPaths: ListBuffer[Path], pathsWithFileOriginals: ListBuffer[Path]): Unit = {
+
+    val fs = dir.getFileSystem(conf)
+
+    var hasOriginalFiles: Boolean = false
+    var hasAcidDirs: Boolean = false
+    val originalDirectories: ListBuffer[Path] = new ListBuffer[Path]
+
+    for (file <- fs.listStatus(dir, AcidUtils.hiddenFileFilter)) {
+      val currDir: Path = file.getPath
+      if (!file.isDirectory) {
+        hasOriginalFiles = true
+      } else if (AcidUtils.extractWriteId(currDir) == null) {
+        if (allowOriginals) {
+          originalDirectories += currDir // Add as is; it would become a recursive split.
+        } else {
+          logDebug("Ignoring unknown (original?) directory " + currDir)
+        }
+      }
+      else hasAcidDirs = true
+    }
+
+    if (hasAcidDirs) {
+      val dirInfo = AcidUtils.getAcidState(dir, conf, validWriteIdList, Ref.from(false), true, null)
+      // Find the base, created for IOW.
+      val base = dirInfo.getBaseDirectory
+      if (base != null) {
+        logDebug("Adding input " +  base)
+        finalPaths += base
+        // Base means originals no longer matter.
+        originalDirectories.clear()
+        hasOriginalFiles = false
+      }
+      // Find the parsed delta files.
+      for (delta <- dirInfo.getCurrentDirectories) {
+        logDebug("Adding input " + delta.getPath)
+        finalPaths += delta.getPath
+      }
+    }
+
+    if (originalDirectories.nonEmpty) {
+      logDebug("Adding original directories " + originalDirectories)
+      finalPaths.addAll(originalDirectories)
+    }
+
+    if (hasOriginalFiles) {
+      if (allowOriginals) {
+        logDebug("Directory has original files " + dir)
+        pathsWithFileOriginals.add(dir)
+      } else {
+        logDebug("Ignoring unknown (original?) files in " + dir)
+      }
     }
   }
 

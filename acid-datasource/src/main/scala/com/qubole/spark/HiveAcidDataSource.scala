@@ -55,19 +55,20 @@ class HiveAcidDataSource
 }
 
 object HiveAcidDataSource extends Logging {
-  def initializeLocalJobConfFunc(path: String, tableDesc: TableDesc,
-                                 schemaColNames: String, schemaColTypes: String)(jobConf: JobConf) {
-    FileInputFormat.setInputPaths(jobConf, Seq[Path](new Path(path)): _*)
-    if (tableDesc != null) {
-      HiveAcidDataSource.configureJobPropertiesForStorageHandler(tableDesc, jobConf, true)
-      Utilities.copyTableJobPropertiesToConf(tableDesc, jobConf)
-    }
-    val bufferSize = System.getProperty("spark.buffer.size", "65536")
-    jobConf.set("io.file.buffer.size", bufferSize)
-    jobConf.set("schema.evolution.columns", schemaColNames)
-    jobConf.set("schema.evolution.columns.types", schemaColTypes)
-    jobConf.setBoolean("hive.transactional.table.scan", true)
-  }
+  //TODO Somani: This doesn't seem to be used?
+//  def initializeLocalJobConfFunc(path: String, tableDesc: TableDesc,
+//                                 schemaColNames: String, schemaColTypes: String)(jobConf: JobConf) {
+//    FileInputFormat.setInputPaths(jobConf, Seq[Path](new Path(path)): _*)
+//    if (tableDesc != null) {
+//      HiveAcidDataSource.configureJobPropertiesForStorageHandler(tableDesc, jobConf, true)
+//      Utilities.copyTableJobPropertiesToConf(tableDesc, jobConf)
+//    }
+//    val bufferSize = System.getProperty("spark.buffer.size", "65536")
+//    jobConf.set("io.file.buffer.size", bufferSize)
+//    jobConf.set("schema.evolution.columns", schemaColNames)
+//    jobConf.set("schema.evolution.columns.types", schemaColTypes)
+//    jobConf.setBoolean("hive.transactional.table.scan", true)
+//  }
 
   def configureJobPropertiesForStorageHandler(
                                                tableDesc: TableDesc, conf: Configuration, input: Boolean) {

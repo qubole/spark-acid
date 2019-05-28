@@ -69,11 +69,15 @@ class HiveAcidRelation(var sqlContext: SQLContext,
     throw HiveAcidErrors.tableNotAcidException
   }
   var isFullAcidTable: Boolean = _
-  if (table.getParameters.containsKey("insert_only") && (table.getParameters.get("insert_only") == "true")) {
+  // 'transactional_properties'='insert_only'
+  if (table.getParameters.containsKey("transactional_properties") &&
+    (table.getParameters.get("transactional_properties") == "insert_only")) {
     isFullAcidTable = false
   } else {
     isFullAcidTable = true
   }
+  logInfo("Somani: insert_only: " + !isFullAcidTable)
+
 
   val cols: scala.List[FieldSchema] = table.getSd.getCols.toList
   val partitionCols: scala.List[FieldSchema] = table.getPartitionKeys.toList
