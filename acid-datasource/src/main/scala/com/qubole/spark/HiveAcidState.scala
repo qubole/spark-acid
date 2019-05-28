@@ -40,6 +40,8 @@ import org.apache.spark.sql.execution.{QueryExecution, RowDataSourceScanExec}
 import org.apache.spark.sql.util.QueryExecutionListener
 
 import scala.collection.JavaConversions._
+import scala.concurrent.Future
+import scala.concurrent.ExecutionContext.Implicits.global
 
 class HiveAcidState(sparkSession: SparkSession,
                     val hiveConf: HiveConf,
@@ -99,6 +101,7 @@ class HiveAcidState(sparkSession: SparkSession,
       heartBeater.shutdown()
       heartBeater = null
     } else {
+      println("Transaction already closed")
       logWarning("Transaction already closed")
     }
   }
@@ -259,13 +262,21 @@ class HiveAcidState(sparkSession: SparkSession,
     sqlContext.sparkSession.listenerManager.register(new QueryExecutionListener {
       override def onFailure(funcName: String, qe: QueryExecution, exception: Exception): Unit = {
         close()
-        //sqlContext.sparkSession.listenerManager.unregister(this)
+        Future {
+          // Doing this in a Future as both unregister and onSuccess take the same lock
+          // to avoid modification of the queue while it is being processed
+          sqlContext.sparkSession.listenerManager.unregister(this)
+        }
       }
 
       override def onSuccess(funcName: String, qe: QueryExecution, durationNs: Long): Unit = {
         close()
         //compareAndClose(qe)
-        //sqlContext.sparkSession.listenerManager.unregister(this)
+        Future {
+          // Doing this in a Future as both unregister and onSuccess take the same lock
+          // to avoid modification of the queue while it is being processed
+          sqlContext.sparkSession.listenerManager.unregister(this)
+        }
       }
     })
   }
