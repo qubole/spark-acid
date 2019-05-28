@@ -184,7 +184,6 @@ class Hive3RDD[K, V](
     if (acidState.isFullAcidTable) {
       // If full ACID table, just set the right writeIds, the OrcInputFormat.getSplits() will take care of the rest
       AcidUtils.setValidWriteIdList(jobConf, acidState.getValidWriteIdsNoTxn)
-      jobConf.setBoolean(FileInputFormat.INPUT_DIR_RECURSIVE, true)
     } else {
       var finalPaths = new ListBuffer[Path]()
       var pathsWithFileOriginals = new ListBuffer[Path]()
@@ -195,6 +194,12 @@ class Hive3RDD[K, V](
 
       if (finalPaths.nonEmpty) {
         FileInputFormat.setInputPaths(jobConf, finalPaths.toList: _*)
+        // Need recursive to be set to true because MM Tables can have a directory structure like:
+        // ~/warehouse/hello_mm/base_0000034/HIVE_UNION_SUBDIR_1/000000_0
+        // ~/warehouse/hello_mm/base_0000034/HIVE_UNION_SUBDIR_2/000000_0
+        // ~/warehouse/hello_mm/delta_0000033_0000033_0001/HIVE_UNION_SUBDIR_1/000000_0
+        // ~/warehouse/hello_mm/delta_0000033_0000033_0002/HIVE_UNION_SUBDIR_2/000000_0
+        // ... which is created on UNION ALL operations
         jobConf.setBoolean(FileInputFormat.INPUT_DIR_RECURSIVE, true)
       }
 
