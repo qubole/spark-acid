@@ -34,7 +34,7 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.expressions.PrettyAttribute
 import org.apache.spark.sql.catalyst.parser.{CatalystSqlParser, ParseException}
-import org.apache.spark.sql.sources.{BaseRelation, Filter, PrunedFilteredScan}
+import org.apache.spark.sql.sources.{BaseRelation, Filter, PrunedFilteredScan, _}
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.{Row, SQLContext}
 
@@ -85,6 +85,27 @@ class HiveAcidRelation(var sqlContext: SQLContext,
     sqlContext.sparkSession.sessionState.conf.defaultSizeInBytes, client, partitionSchema,
   HiveConf.getTimeVar(hiveConf, HiveConf.ConfVars.HIVE_TXN_TIMEOUT, TimeUnit.MILLISECONDS) / 2, isFullAcidTable)
 
+  def getRawPartitions(filters: Array[Filter]): Seq[metadata.Partition] = {
+    logWarning(s"total filters passed: ${filters.size}: $filters")
+    val partitionKeyIds = hTable.getPartColNames.toSet
+    val (pruningPredicates, otherPredicates) = filters.partition { predicate =>
+      !predicate.references.isEmpty &&
+        predicate.references.toSet.subsetOf(partitionKeyIds)
+    }
+    val prunedPartitions =
+      if (sqlContext.sparkSession.sessionState.conf.metastorePartitionPruning &&
+        pruningPredicates.size > 0) {
+        val normalizedFilters = convertFilters(hTable.getTTable, pruningPredicates)
+        hive.getPartitionsByFilter(hTable, normalizedFilters)
+      } else {
+        // sqlContext.sparkSession.sessionState.catalog.listPartitions(tIdentifier, None)
+        hive.getPartitions(hTable)
+      }
+    logWarning(s"partition count = ${prunedPartitions.size()}")
+    prunedPartitions.toSeq
+  }
+
+  //registerQEListener(sqlContext)
   val overlappedPartCols = mutable.Map.empty[String, StructField]
 
   partitionSchema.foreach { partitionField =>
@@ -142,22 +163,75 @@ class HiveAcidRelation(var sqlContext: SQLContext,
     val tableDesc = new TableDesc(hTable.getInputFormatClass, hTable.getOutputFormatClass,
       hTable.getMetadata)
     val allHiveCols = hTable.getAllCols
+    val partitionedHiveCols = hTable.getPartitionKeys
     val requiredHiveFields = requiredColumns.map(x => allHiveCols.find(_.getName == x).get)
     val attributes = requiredHiveFields.map { x =>
       PrettyAttribute(x.getName, getSparkSQLDataType(x))
     }
-
-    // TODO: Add support for partitioning
-    val partCols = Seq()
+    val partitionAttributes = partitionedHiveCols.map { x =>
+      PrettyAttribute(x.getName, getSparkSQLDataType(x))
+    }
 
     val hadoopReader = new HadoopTableReader(
       attributes,
-      partCols,
+      partitionAttributes,
       tableDesc,
       sqlContext.sparkSession,
       acidState,
       sqlContext.sparkSession.sessionState.newHadoopConf())
-    hadoopReader.makeRDDForTable(hTable).asInstanceOf[RDD[Row]]
+    if (hTable.isPartitioned) {
+      hadoopReader.makeRDDForPartitionedTable(getRawPartitions(filters)).asInstanceOf[RDD[Row]]
+    } else {
+      hadoopReader.makeRDDForTable(hTable).asInstanceOf[RDD[Row]]
+    }
   }
+
+  private def convertFilters(table: Table, filters: Seq[Filter]): String = {
+    def convertInToOr(name: String, values: Seq[Any]): String = {
+      values.map(value => s"$name = $value").mkString("(", " or ", ")")
+    }
+
+    def convert(filter: Filter): Option[String] = filter match {
+      case In (name, values) =>
+        Some(convertInToOr(name, values))
+
+      case EqualTo(name, value) =>
+        Some(s"$name = $value")
+
+      case GreaterThan(name, value) =>
+        Some(s"$name > $value")
+
+      case GreaterThanOrEqual(name, value) =>
+        Some(s"$name >= $value")
+
+      case LessThan(name, value) =>
+        Some(s"$name < $value")
+
+      case LessThanOrEqual(name, value) =>
+        Some(s"$name <= $value")
+
+      case And(filter1, filter2) =>
+        val converted = convert(filter1) ++ convert(filter2)
+        if (converted.isEmpty) {
+          None
+        } else {
+          Some(converted.mkString("(", " and ", ")"))
+        }
+
+      case Or(filter1, filter2) =>
+        for {
+          left <- convert(filter1)
+          right <- convert(filter2)
+        } yield s"($left or $right)"
+
+      case _ => None
+    }
+
+
+    filters.flatMap(convert).mkString(" and ")
+  }
+
+
+
 
 }
