@@ -69,16 +69,14 @@ class HiveAcidState(sparkSession: SparkSession,
       heartBeater.shutdown()
       heartBeater = null
     } else {
-      println("Transaction already closed")
       logWarning("Transaction already closed")
     }
   }
 
   def acquireLocks(partitionNames: Seq[String] = null): Unit = {
     if (isTxnClosed || (txnId == -1)) {
-      logWarning("Transaction already closed")
-      //TODO: throw exception
-      return
+      logError("Transaction already closed")
+      throw HiveAcidErrors.txnClosedException
     }
     val req: LockRequest = createLockRequest(partitionNames)
     lock(req)
@@ -113,7 +111,7 @@ class HiveAcidState(sparkSession: SparkSession,
           def newThread(r: Runnable) = new HeartBeaterThread(r, "AcidDataSourceHeartBeater")
         })
       } else {
-        //TODO: throw exception
+        throw HiveAcidErrors.heartBeaterAlreadyExists
       }
       heartBeater.scheduleAtFixedRate(new HeartbeatRunnable(),
         (heartbeatInterval * 0.75 * Math.random()).asInstanceOf[Long],
@@ -121,8 +119,7 @@ class HiveAcidState(sparkSession: SparkSession,
         TimeUnit.MILLISECONDS)
       registerQEListener(sparkSession.sqlContext)
     } else {
-      //TODO: Throw and exception here
-      logWarning("Not opening a transaction as transaction with id " + txnId + " already open")
+      throw HiveAcidErrors.txnAlreadyOpen(txnId)
     }
   }
 
@@ -196,7 +193,7 @@ class HiveAcidState(sparkSession: SparkSession,
         res = client.checkLock(res.getLockid)
       }
       if (res.getState != LockState.ACQUIRED) {
-        //throw exception
+        throw HiveAcidErrors.couldNotAcquireLockException()
       }
     } catch {
       case e: TException =>
