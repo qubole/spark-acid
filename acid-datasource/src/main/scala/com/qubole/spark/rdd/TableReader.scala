@@ -18,30 +18,27 @@ package com.qubole.spark.rdd
  */
 
 import java.util
-import java.util.{List, Properties}
+import java.util.Properties
 
 import com.qubole.shaded.hive.metastore.api.FieldSchema
-import com.qubole.shaded.hive.serde2.objectinspector.primitive.{BinaryObjectInspector, BooleanObjectInspector, ByteObjectInspector, DateObjectInspector, DoubleObjectInspector, FloatObjectInspector, HiveCharObjectInspector, HiveDecimalObjectInspector, HiveVarcharObjectInspector, IntObjectInspector, LongObjectInspector, ShortObjectInspector, TimestampObjectInspector}
-import com.qubole.spark.util.{EmptyRDD, SerializableConfiguration, Util}
-
-import scala.collection.JavaConverters._
-import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.fs.{Path, PathFilter}
 import com.qubole.shaded.hive.metastore.api.hive_metastoreConstants._
 import com.qubole.shaded.hive.metastore.utils.MetaStoreUtils.{getColumnNamesFromFieldSchema, getColumnTypesFromFieldSchema}
 import com.qubole.shaded.hive.ql.exec.Utilities
 import com.qubole.shaded.hive.ql.metadata.{Partition => HiveJarPartition, Table => HiveTable}
 import com.qubole.shaded.hive.ql.plan.TableDesc
 import com.qubole.shaded.hive.serde2.Deserializer
-import com.qubole.shaded.hive.serde2.objectinspector.{ObjectInspectorConverters, StructObjectInspector}
 import com.qubole.shaded.hive.serde2.objectinspector.primitive._
+import com.qubole.shaded.hive.serde2.objectinspector.{ObjectInspectorConverters, StructObjectInspector}
 import com.qubole.spark.HiveAcidState
+import com.qubole.spark.util.{EmptyRDD, SerializableConfiguration, Util}
+import org.apache.hadoop.conf.Configuration
+import org.apache.hadoop.fs.{Path, PathFilter}
 import org.apache.hadoop.io.Writable
 import org.apache.hadoop.mapred.{FileInputFormat, InputFormat, JobConf}
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.deploy.SparkHadoopUtil
 import org.apache.spark.internal.Logging
-import org.apache.spark.rdd.{RDD, UnionRDD}
+import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.CastSupport
@@ -49,6 +46,8 @@ import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.unsafe.types.UTF8String
+
+import scala.collection.JavaConverters._
 
 /**
   * A trait for subclasses that handle table scans.

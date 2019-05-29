@@ -2,25 +2,18 @@ package com.qubole.spark.rdd;
 
 import java.io.{FileNotFoundException, IOException}
 import java.text.SimpleDateFormat
-import java.util.{ArrayList, Date, List, Locale}
-import java.io.{EOFException, IOException}
-import java.util
+import java.util.{Date, Locale}
 
 import com.qubole.shaded.hive.common.ValidWriteIdList
-import com.qubole.spark.{HiveAcidRelation, HiveAcidState}
-import com.qubole.spark.rdd.Hive3RDD.Hive3PartitionsWithSplitRDD
-import com.qubole.spark.util.{NextIterator, SerializableConfiguration, SerializableWritable, Util}
 import com.qubole.shaded.hive.ql.io.{AcidUtils, HiveInputFormat}
-
-import scala.reflect.ClassTag
+import com.qubole.spark.HiveAcidState
+import com.qubole.spark.rdd.Hive3RDD.Hive3PartitionsWithSplitRDD
+import com.qubole.spark.util.{SerializableWritable => _, _}
 import org.apache.hadoop.conf.{Configurable, Configuration}
-import org.apache.hadoop.mapred.{FileInputFormat, _}
+import org.apache.hadoop.fs.Path
 import org.apache.hadoop.mapred.lib.CombineFileSplit
+import org.apache.hadoop.mapred.{FileInputFormat, _}
 import org.apache.hadoop.mapreduce.TaskType
-import org.apache.spark.sql.SQLContext
-import org.apache.spark.sql.execution.{QueryExecution, RowDataSourceScanExec}
-import org.apache.spark.sql.util.QueryExecutionListener
-//import org.apache.hadoop.mapreduce.lib.input.FileInputFormat
 import org.apache.hadoop.util.ReflectionUtils
 import org.apache.spark._
 import org.apache.spark.annotation.DeveloperApi
@@ -29,15 +22,11 @@ import org.apache.spark.deploy.SparkHadoopUtil
 import org.apache.spark.executor.InputMetrics
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
-import com.qubole.spark.util.InputFileBlockHolder
-import org.apache.hadoop.fs.{FileSystem, Path}
-import org.apache.hadoop.hive.ql.exec.Utilities
-import org.apache.hive.common.util.Ref
-import org.apache.spark.scheduler.{HDFSCacheTaskLocation, HostTaskLocation}
 import org.apache.spark.storage.StorageLevel
 
-import scala.collection.mutable.ListBuffer
 import scala.collection.JavaConversions._
+import scala.collection.mutable.ListBuffer
+import scala.reflect.ClassTag
 
 
 class Hive3Partition(rddId: Int, override val index: Int, s: InputSplit)

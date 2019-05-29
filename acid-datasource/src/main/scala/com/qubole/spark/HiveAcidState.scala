@@ -18,20 +18,15 @@
 package com.qubole.spark
 
 import com.qubole.shaded.hive.common.ValidTxnWriteIdList
-import org.apache.hadoop.conf.Configuration
 import com.qubole.shaded.hive.conf.HiveConf
 import org.apache.spark.sql.{SQLContext, SparkSession}
-import org.apache.spark.sql.execution.datasources.{CatalogFileIndex, FileIndex, FileStatusCache, InMemoryFileIndex, PartitionDirectory, PartitionPath, PartitionSpec, PrunedInMemoryFileIndex}
 import com.qubole.shaded.hive.metastore.HiveMetaStoreClient
-import com.qubole.shaded.hive.metastore.api.{DataOperationType, HeartbeatTxnRangeRequest, LockRequest, LockResponse, LockState, MetaException, Table, TableValidWriteIds}
+import com.qubole.shaded.hive.metastore.api.{DataOperationType, LockRequest, LockResponse, LockState, Table}
 import com.qubole.shaded.hive.metastore.txn.TxnUtils
-import com.qubole.shaded.hive.ql.lockmgr.LockException
-import org.apache.spark.sql.catalyst.expressions.{Cast, Expression, GenericInternalRow, Literal}
 import org.apache.thrift.TException
 import org.apache.hadoop.fs.Path
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.types.StructType
-import org.apache.spark.unsafe.types.UTF8String
 import java.util.concurrent.{Executors, ScheduledExecutorService, ThreadFactory, TimeUnit}
 
 import com.qubole.shaded.hive.common.ValidWriteIdList
@@ -65,36 +60,9 @@ class HiveAcidState(sparkSession: SparkSession,
   var MAX_SLEEP: Long = _
 
 
-
-
-//  def rootPath: Seq[Path] = Seq(new Path(table.getSd.getLocation)) //.map(new Path(_)).toSeq
-//
-//  private val fileStatusCache = FileStatusCache.getOrCreate(sparkSession)
-//
-//  override def refresh(): Unit = fileStatusCache.invalidateAll()
-//
-//  override def partitionSchema: StructType = pSchema
-//
-//  override def inputFiles: Array[String] = new InMemoryFileIndex(
-//    sparkSession, rootPaths, Option(table.getSd.getSerdeInfo.getParameters)
-//      .map(_.toMap).orNull, userSpecifiedSchema = None).inputFiles
-//
-//  override def listFiles(
-//                          partitionFilters: Seq[Expression], dataFilters: Seq[Expression]): Seq[PartitionDirectory] = {
-//    if (_txnId == -1) {
-//      _txnId = client.openTxn("HiveAcidDataSource")
-//    }
-//    // Somani: Need to take care partitioning here
-//    var validTxns = client.getValidTxns(_txnId)
-//    var validWriteIds = client.getValidWriteIds(Seq(table.getDbName + "." + table.getTableName), client.getValidTxns(_txnId).writeToString())
-//    new InMemoryFileIndex(
-//      sparkSession, rootPaths, Option(table.getSd.getSerdeInfo.getParameters)
-//        .map(_.toMap).orNull, userSpecifiedSchema = None).listFiles(Nil, dataFilters)
-//  }
-
   def close(): Unit = {
     if (txnId != -1 && !isTxnClosed) {
-      println("Somani job end, closing _acid_state txn id: " + txnId)
+      logInfo("Closing txnid: " + txnId + " for table " + dbName + "." + tableName)
       client.commitTxn(txnId)
       txnId = -1
       isTxnClosed = true
@@ -118,28 +86,18 @@ class HiveAcidState(sparkSession: SparkSession,
 
   lazy val getValidWriteIds: ValidWriteIdList = {
     val validTxns = client.getValidTxns(txnId)
-    //validWriteIds = TxnUtils.createValidTxnWriteIdList(txnId, client.getValidWriteIds(Seq(dbName + "." + tableName),
-    //validTxns.writeToString()))
-    val txnWriteIds: ValidTxnWriteIdList = TxnUtils.createValidTxnWriteIdList(txnId, client.getValidWriteIds(Seq(dbName + "." + tableName),
-      validTxns.writeToString()))
-    // store in conf txnWriteIds.toString()
-    //val writeIdStr = txnWriteIds.toString();
-    //    conf.set(ValidTxnWriteIdList.VALID_TABLES_WRITEIDS_KEY, writeIdStr);
-    //val validTxnList: ValidTxnWriteIdList = new ValidTxnWriteIdList(writeIdStr)
+    val txnWriteIds: ValidTxnWriteIdList = TxnUtils.createValidTxnWriteIdList(txnId,
+      client.getValidWriteIds(Seq(dbName + "." + tableName),
+        validTxns.writeToString()))
     txnWriteIds.getTableValidWriteIdList(table.getDbName  + "." + table.getTableName)
   }
 
-  // Use this instead of open(), acquireLocks(), getValidWriteIds() and close() if not doing transaction management.
+  /* Use this instead of open(), acquireLocks(), getValidWriteIds() and close() if not doing transaction management. */
   lazy val getValidWriteIdsNoTxn: ValidWriteIdList = {
     val validTxns = client.getValidTxns()
-    //validWriteIds = TxnUtils.createValidTxnWriteIdList(txnId, client.getValidWriteIds(Seq(dbName + "." + tableName),
-    //validTxns.writeToString()))
-    val txnWriteIds: ValidTxnWriteIdList = TxnUtils.createValidTxnWriteIdList(txnId, client.getValidWriteIds(Seq(dbName + "." + tableName),
-      validTxns.writeToString()))
-    // store in conf txnWriteIds.toString()
-    //val writeIdStr = txnWriteIds.toString();
-    //    conf.set(ValidTxnWriteIdList.VALID_TABLES_WRITEIDS_KEY, writeIdStr);
-    //val validTxnList: ValidTxnWriteIdList = new ValidTxnWriteIdList(writeIdStr)
+    val txnWriteIds: ValidTxnWriteIdList = TxnUtils.createValidTxnWriteIdList(txnId,
+      client.getValidWriteIds(Seq(dbName + "." + tableName),
+        validTxns.writeToString()))
     txnWriteIds.getTableValidWriteIdList(table.getDbName  + "." + table.getTableName)
   }
 
@@ -147,7 +105,7 @@ class HiveAcidState(sparkSession: SparkSession,
     if (txnId == -1) {
       // 1. Open transaction
       txnId = client.openTxn(HiveAcidDataSource.agentName) // TODO change this to user instead
-      println("Somani opened txnid: " + txnId)
+      logInfo("Opened txnid: " + txnId + " for table " + dbName + "." + tableName)
       isTxnClosed = false
       // 2. Start HeartBeater
       if (heartBeater == null) {
@@ -157,7 +115,6 @@ class HiveAcidState(sparkSession: SparkSession,
       } else {
         //TODO: throw exception
       }
-
       heartBeater.scheduleAtFixedRate(new HeartbeatRunnable(),
         (heartbeatInterval * 0.75 * Math.random()).asInstanceOf[Long],
         heartbeatInterval,

@@ -20,18 +20,13 @@ package com.qubole.spark
 import java.util.Locale
 
 import com.qubole.shaded.hive.conf.HiveConf
-import com.qubole.shaded.hive.metastore.api.FieldSchema
-import com.qubole.shaded.hive.ql.exec.Utilities
 import com.qubole.shaded.hive.ql.metadata.HiveUtils
 import com.qubole.shaded.hive.ql.plan.TableDesc
 import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.fs.Path
-import org.apache.hadoop.mapred.{FileInputFormat, JobConf}
 import org.apache.spark.SparkContext
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql._
 import org.apache.spark.sql.sources._
-import org.apache.spark.sql.types.{DataType, _}
 
 import scala.collection.JavaConversions._
 

@@ -17,35 +17,29 @@
 
 package com.qubole.spark
 
+import java.util.Locale
 import java.util.concurrent.TimeUnit
-import java.util.{List, Locale}
 
 import com.qubole.shaded.hive.conf.HiveConf
 import com.qubole.shaded.hive.metastore.HiveMetaStoreClient
 import com.qubole.shaded.hive.metastore.api.{FieldSchema, Table}
-import com.qubole.shaded.hive.metastore.utils.MetaStoreUtils.{getColumnNamesFromFieldSchema, getColumnTypesFromFieldSchema}
 import com.qubole.shaded.hive.ql.metadata
 import com.qubole.shaded.hive.ql.metadata.Hive
 import com.qubole.shaded.hive.ql.plan.TableDesc
-import com.qubole.spark.rdd.{HadoopTableReader, Hive3RDD}
-import com.qubole.spark.util.{SerializableConfiguration, Util}
-import org.apache.hadoop.io.Writable
-import org.apache.hadoop.mapred.InputFormat
+import com.qubole.spark.rdd.HadoopTableReader
+import com.qubole.spark.util.SerializableConfiguration
 import org.apache.spark.SparkException
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.{Row, SQLContext}
-import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute
-import org.apache.spark.sql.catalyst.expressions.{PrettyAttribute, SpecificInternalRow}
+import org.apache.spark.sql.catalyst.expressions.PrettyAttribute
 import org.apache.spark.sql.catalyst.parser.{CatalystSqlParser, ParseException}
-import org.apache.spark.sql.execution.{QueryExecution, RowDataSourceScanExec}
 import org.apache.spark.sql.sources.{BaseRelation, Filter, PrunedFilteredScan}
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.util.QueryExecutionListener
+import org.apache.spark.sql.{Row, SQLContext}
 
-import scala.collection.mutable
 import scala.collection.JavaConversions._
+import scala.collection.mutable
 
 class HiveAcidRelation(var sqlContext: SQLContext,
     parameters: Map[String, String])
@@ -90,7 +84,7 @@ class HiveAcidRelation(var sqlContext: SQLContext,
   val acidState = new HiveAcidState(sqlContext.sparkSession, hiveConf, table,
     sqlContext.sparkSession.sessionState.conf.defaultSizeInBytes, client, partitionSchema,
   HiveConf.getTimeVar(hiveConf, HiveConf.ConfVars.HIVE_TXN_TIMEOUT, TimeUnit.MILLISECONDS) / 2, isFullAcidTable)
-  
+
   val overlappedPartCols = mutable.Map.empty[String, StructField]
 
   partitionSchema.foreach { partitionField =>
