@@ -53,6 +53,7 @@ class HiveAcidRelation(var sqlContext: SQLContext,
 
   val hiveConf: HiveConf = HiveAcidDataSource.createHiveConf(sqlContext.sparkContext)
   //TODO: We should try to get rid of one of the below two clients (`client` and `hive`). They make two connections.
+  //TODO: These clients needs to be closed as well
   val client = new HiveMetaStoreClient(hiveConf, null, false)
   val hive: Hive = Hive.get(hiveConf)
   val hTable: metadata.Table = hive.getTable(tableName.split('.')(0), tableName.split('.')(1))

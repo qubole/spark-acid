@@ -55,6 +55,7 @@ class HiveAcidState(sparkSession: SparkSession,
   var validWriteIds: ValidTxnWriteIdList = _
   var isTxnClosed = false
   var heartBeater: ScheduledExecutorService = _
+  lazy val heartBeaterClient: HiveMetaStoreClient = new HiveMetaStoreClient(hiveConf,null, false)
 
   var nextSleep: Long = _
   var MAX_SLEEP: Long = _
@@ -62,12 +63,16 @@ class HiveAcidState(sparkSession: SparkSession,
 
   def close(): Unit = {
     if (txnId != -1 && !isTxnClosed) {
-      logInfo("Closing txnid: " + txnId + " for table " + dbName + "." + tableName)
-      client.commitTxn(txnId)
-      txnId = -1
-      isTxnClosed = true
-      heartBeater.shutdown()
-      heartBeater = null
+      try {
+        logInfo("Closing txnid: " + txnId + " for table " + dbName + "." + tableName)
+        client.commitTxn(txnId)
+        txnId = -1
+        isTxnClosed = true
+        heartBeater.shutdown()
+        heartBeater = null
+      } finally {
+        heartBeaterClient.close()
+      }
     } else {
       logWarning("Transaction already closed")
     }
@@ -127,12 +132,13 @@ class HiveAcidState(sparkSession: SparkSession,
     override def run(): Unit = {
       try {
         if (txnId > 0 && !isTxnClosed) {
-          val resp = client.heartbeatTxnRange(txnId, txnId)
+          val resp = heartBeaterClient.heartbeatTxnRange(txnId, txnId)
           if (!resp.getAborted.isEmpty || !resp.getNosuch.isEmpty) {
             logError("Heartbeat failure: " + resp.toString)
             isTxnClosed = true
             heartBeater.shutdown()
             heartBeater = null
+            heartBeaterClient.close()
           } else {
             logInfo("Heartbeat sent for txnId: " + txnId)
           }
