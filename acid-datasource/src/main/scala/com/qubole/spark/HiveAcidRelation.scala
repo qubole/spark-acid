@@ -52,32 +52,21 @@ class HiveAcidRelation(var sqlContext: SQLContext,
   })
 
   val hiveConf: HiveConf = HiveAcidDataSource.createHiveConf(sqlContext.sparkContext)
+  //TODO: We should try to get rid of one of the below two clients (`client` and `hive`). They make two connections.
   val client = new HiveMetaStoreClient(hiveConf, null, false)
   val hive: Hive = Hive.get(hiveConf)
   val hTable: metadata.Table = hive.getTable(tableName.split('.')(0), tableName.split('.')(1))
-
-
   val table: Table  = client.getTable(tableName.split('.')(0), tableName.split('.')(1))
 
   if (table.getParameters.get("transactional") != "true") {
     throw HiveAcidErrors.tableNotAcidException
   }
-  var isFullAcidTable: Boolean = _
-  // 'transactional_properties'='insert_only'
-  if (table.getParameters.containsKey("transactional_properties") &&
-    (table.getParameters.get("transactional_properties") == "insert_only")) {
-    isFullAcidTable = false
-  } else {
-    isFullAcidTable = true
-  }
-  logInfo("Somani: insert_only: " + !isFullAcidTable)
+  var isFullAcidTable: Boolean = table.getParameters.containsKey("transactional_properties") &&
+    table.getParameters.get("transactional_properties").equals("insert_only")
+  logInfo("Insert Only table: " + !isFullAcidTable)
 
-
-  val cols: scala.List[FieldSchema] = table.getSd.getCols.toList
-  val partitionCols: scala.List[FieldSchema] = table.getPartitionKeys.toList
-
-  val dataSchema = StructType(cols.map(fromHiveColumn).toArray)
-  val partitionSchema = StructType(partitionCols.map(fromHiveColumn).toArray)
+  val dataSchema = StructType(table.getSd.getCols.toList.map(fromHiveColumn).toArray)
+  val partitionSchema = StructType(table.getPartitionKeys.toList.map(fromHiveColumn).toArray)
   val broadcastedHadoopConf: Broadcast[SerializableConfiguration] = sqlContext.sparkContext.broadcast(
     new SerializableConfiguration(sqlContext.sparkContext.hadoopConfiguration))
 
@@ -85,27 +74,6 @@ class HiveAcidRelation(var sqlContext: SQLContext,
     sqlContext.sparkSession.sessionState.conf.defaultSizeInBytes, client, partitionSchema,
   HiveConf.getTimeVar(hiveConf, HiveConf.ConfVars.HIVE_TXN_TIMEOUT, TimeUnit.MILLISECONDS) / 2, isFullAcidTable)
 
-  def getRawPartitions(filters: Array[Filter]): Seq[metadata.Partition] = {
-    logWarning(s"total filters passed: ${filters.size}: $filters")
-    val partitionKeyIds = hTable.getPartColNames.toSet
-    val (pruningPredicates, otherPredicates) = filters.partition { predicate =>
-      !predicate.references.isEmpty &&
-        predicate.references.toSet.subsetOf(partitionKeyIds)
-    }
-    val prunedPartitions =
-      if (sqlContext.sparkSession.sessionState.conf.metastorePartitionPruning &&
-        pruningPredicates.size > 0) {
-        val normalizedFilters = convertFilters(hTable.getTTable, pruningPredicates)
-        hive.getPartitionsByFilter(hTable, normalizedFilters)
-      } else {
-        // sqlContext.sparkSession.sessionState.catalog.listPartitions(tIdentifier, None)
-        hive.getPartitions(hTable)
-      }
-    logWarning(s"partition count = ${prunedPartitions.size()}")
-    prunedPartitions.toSeq
-  }
-
-  //registerQEListener(sqlContext)
   val overlappedPartCols = mutable.Map.empty[String, StructField]
 
   partitionSchema.foreach { partitionField =>
@@ -113,7 +81,8 @@ class HiveAcidRelation(var sqlContext: SQLContext,
       overlappedPartCols += getColName(partitionField) -> partitionField
     }
   }
-  val schema: StructType = {
+
+  override val schema: StructType = {
     StructType(dataSchema.map(f => overlappedPartCols.getOrElse(getColName(f), f)) ++
       partitionSchema.filterNot(f => overlappedPartCols.contains(getColName(f))))
   }
@@ -232,6 +201,25 @@ class HiveAcidRelation(var sqlContext: SQLContext,
   }
 
 
+  def getRawPartitions(filters: Array[Filter]): Seq[metadata.Partition] = {
+    logWarning(s"total filters passed: ${filters.size}: $filters")
+    val partitionKeyIds = hTable.getPartColNames.toSet
+    val (pruningPredicates, otherPredicates) = filters.partition { predicate =>
+      !predicate.references.isEmpty &&
+        predicate.references.toSet.subsetOf(partitionKeyIds)
+    }
+    val prunedPartitions =
+      if (sqlContext.sparkSession.sessionState.conf.metastorePartitionPruning &&
+        pruningPredicates.size > 0) {
+        val normalizedFilters = convertFilters(hTable.getTTable, pruningPredicates)
+        hive.getPartitionsByFilter(hTable, normalizedFilters)
+      } else {
+        // sqlContext.sparkSession.sessionState.catalog.listPartitions(tIdentifier, None)
+        hive.getPartitions(hTable)
+      }
+    logWarning(s"partition count = ${prunedPartitions.size()}")
+    prunedPartitions.toSeq
+  }
 
 
 }
