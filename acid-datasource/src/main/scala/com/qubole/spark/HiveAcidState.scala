@@ -78,7 +78,7 @@ class HiveAcidState(sparkSession: SparkSession,
     }
   }
 
-  def acquireLocks(partitionNames: Seq[String] = null): Unit = {
+  def acquireLocks(partitionNames: Seq[String]): Unit = {
     if (isTxnClosed || (txnId == -1)) {
       logError("Transaction already closed")
       throw HiveAcidErrors.txnClosedException
@@ -136,6 +136,7 @@ class HiveAcidState(sparkSession: SparkSession,
           if (!resp.getAborted.isEmpty || !resp.getNosuch.isEmpty) {
             logError("Heartbeat failure: " + resp.toString)
             isTxnClosed = true
+            // TODO: IS SHUTDOWN THE RIGHTTHING TO DO HERE?
             heartBeater.shutdown()
             heartBeater = null
             heartBeaterClient.close()
@@ -159,7 +160,7 @@ class HiveAcidState(sparkSession: SparkSession,
     val requestBuilder = new LockRequestBuilder(HiveAcidDataSource.agentName)
     requestBuilder.setUser(user)
     requestBuilder.setTransactionId(txnId)
-    if (partNames == null) {
+    if (partNames.isEmpty) {
       val lockCompBuilder = new LockComponentBuilder()
         .setDbName(dbName)
         .setTableName(tableName)

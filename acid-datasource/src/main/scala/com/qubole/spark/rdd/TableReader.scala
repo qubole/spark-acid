@@ -33,6 +33,7 @@ import com.qubole.spark.HiveAcidState
 import com.qubole.spark.util.{EmptyRDD, SerializableConfiguration, Util}
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{Path, PathFilter}
+import com.qubole.shaded.hive.ql.io.AcidUtils
 import org.apache.hadoop.io.Writable
 import org.apache.hadoop.mapred.{FileInputFormat, InputFormat, JobConf}
 import org.apache.spark.broadcast.Broadcast
@@ -132,7 +133,8 @@ class HadoopTableReader(
     val ifcName = hiveTable.getInputFormatClass.getName.replaceFirst(
       "org.apache.hadoop.hive.", "com.qubole.shaded.hive.")
     val ifc = Util.classForName(ifcName).asInstanceOf[java.lang.Class[InputFormat[Writable, Writable]]]
-    val hadoopRDD = createHadoopRdd(localTableDesc, hiveTable.getSd.getCols, inputPathStr, true, ifc)
+    val hadoopRDD = createHadoopRdd(localTableDesc, hiveTable.getSd.getCols,
+      hiveTable.getParameters, inputPathStr, true, ifc)
 
     val attrsWithIndex = attributes.zipWithIndex
     val mutableRow = new SpecificInternalRow(attributes.map(_.dataType))
@@ -144,7 +146,8 @@ class HadoopTableReader(
       HadoopTableReader.fillObject(iter, deserializer, attrsWithIndex, mutableRow, deserializer)
     }
 
-    deserializedHadoopRDD
+    new AcidLockUnionRDD[InternalRow](sparkSession.sparkContext, Seq(deserializedHadoopRDD),
+      Seq(), acidState)
   }
 
   override def makeRDDForPartitionedTable(partitions: Seq[HiveJarPartition]): RDD[InternalRow] = {
@@ -173,8 +176,9 @@ class HadoopTableReader(
                                   filterOpt: Option[PathFilter]): RDD[InternalRow] = {
 
     val partitionStrings = partitionToDeserializer.map { case (partition, _) =>
-      val partKeysFieldSchema = partition.getTable.getPartitionKeys.asScala
-      partKeysFieldSchema.map(_.getName).mkString("/")
+      //      val partKeysFieldSchema = partition.getTable.getPartitionKeys.asScala
+      //      partKeysFieldSchema.map(_.getName).mkString("/")
+      partition.getName
     }.toSeq
 
     val hivePartitionRDDs = partitionToDeserializer.map { case (partition, partDeserializer) =>
@@ -220,7 +224,7 @@ class HadoopTableReader(
 
       // Create local references so that the outer object isn't serialized.
       val localTableDesc = tableDesc
-      createHadoopRdd(localTableDesc,  partition.getCols, inputPathStr, false,
+      createHadoopRdd(localTableDesc,  partition.getCols, partition.getTable.getParameters, inputPathStr, false,
         ifc).mapPartitions { iter =>
         val hconf = broadcastedHiveConf.value.value
         val deserializer = localDeserializer.newInstance()
@@ -276,13 +280,14 @@ class HadoopTableReader(
   private def createHadoopRdd(
                                tableDesc: TableDesc,
                                cols: util.List[FieldSchema],
+                               tableParameters: util.Map[String, String],
                                path: String,
                                acquireLocks: Boolean,
                                inputFormatClass: Class[InputFormat[Writable, Writable]]): RDD[Writable] = {
 
     val colNames = getColumnNamesFromFieldSchema(cols)
     val colTypes = getColumnTypesFromFieldSchema(cols)
-    val initializeJobConfFunc = HadoopTableReader.initializeLocalJobConfFunc(path, tableDesc,
+    val initializeJobConfFunc = HadoopTableReader.initializeLocalJobConfFunc(path, tableDesc, tableParameters,
       colNames, colTypes) _
     val rdd = new Hive3RDD(
       sparkSession.sparkContext,
@@ -329,6 +334,7 @@ object HadoopTableReader extends Hive3Inspectors with Logging {
     * instantiate a HadoopRDD.
     */
   def initializeLocalJobConfFunc(path: String, tableDesc: TableDesc,
+                                 tableParameters: util.Map[String, String],
                                  schemaColNames: String,
                                  schemaColTypes: String)(jobConf: JobConf) {
     FileInputFormat.setInputPaths(jobConf, Seq[Path](new Path(path)): _*)
@@ -340,7 +346,15 @@ object HadoopTableReader extends Hive3Inspectors with Logging {
     jobConf.set("io.file.buffer.size", bufferSize)
     jobConf.set("schema.evolution.columns", schemaColNames)
     jobConf.set("schema.evolution.columns.types", schemaColTypes)
-    jobConf.setBoolean("hive.transactional.table.scan", true)
+
+    // Set HiveACID related properties in jobConf
+    val isTranscationalTable = AcidUtils.isTransactionalTable(tableParameters)
+    val acidProps = if (isTranscationalTable) {
+      AcidUtils.getAcidOperationalProperties(tableParameters)
+    } else {
+      null
+    }
+    AcidUtils.setAcidOperationalProperties(jobConf, isTranscationalTable, acidProps)
   }
 
   /**

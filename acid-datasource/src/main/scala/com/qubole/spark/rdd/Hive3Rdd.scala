@@ -167,9 +167,6 @@ class Hive3RDD[K, V](
   }
 
   override def getPartitions: Array[Partition] = {
-    acidState.open()
-    //TODO: For partitioned tables, pass in the list of partitions to acquire locks on.
-    acidState.acquireLocks()
     val validWriteIds: ValidWriteIdList = acidState.getValidWriteIds
     //val ValidWriteIdList = acidState.getValidWriteIdsNoTxn
     var jobConf = getJobConf()
@@ -234,7 +231,6 @@ class Hive3RDD[K, V](
 
   override def clearDependencies(): Unit = {
     super.clearDependencies()
-    acidState.close()
   }
 
   override def compute(theSplit: Partition, context: TaskContext): InterruptibleIterator[(K, V)] = {

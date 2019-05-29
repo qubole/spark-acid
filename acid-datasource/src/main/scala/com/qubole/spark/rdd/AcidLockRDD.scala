@@ -10,9 +10,12 @@ class AcidLockUnionRDD[T: ClassTag](
    sc: SparkContext,
    rddSeq: Seq[RDD[T]],
    partitionList: Seq[String],
-   @transient hiveAcidState: HiveAcidState) extends UnionRDD[T](sc, rddSeq) {
+   @transient acidState: HiveAcidState) extends UnionRDD[T](sc, rddSeq) {
 
   override def getPartitions: Array[Partition] = {
+    acidState.open()
+    //TODO: For partitioned tables, pass in the list of partitions to acquire locks on.
+    acidState.acquireLocks(partitionList)
     // use partitionList and hiveAcidState here and take locks over partition and find write IDs
     super.getPartitions
   }
