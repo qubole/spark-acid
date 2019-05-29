@@ -62,7 +62,7 @@ class HiveAcidRelation(var sqlContext: SQLContext,
     throw HiveAcidErrors.tableNotAcidException
   }
   var isFullAcidTable: Boolean = table.getParameters.containsKey("transactional_properties") &&
-    table.getParameters.get("transactional_properties").equals("insert_only")
+    !table.getParameters.get("transactional_properties").equals("insert_only")
   logInfo("Insert Only table: " + !isFullAcidTable)
 
   val dataSchema = StructType(table.getSd.getCols.toList.map(fromHiveColumn).toArray)
