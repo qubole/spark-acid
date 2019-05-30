@@ -1,5 +1,5 @@
 
-name := "hive-shaded-exec-metastore"
+name := "shaded-oss-dependencies"
 
 version := "0.1"
 

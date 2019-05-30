@@ -26,8 +26,10 @@ import com.qubole.shaded.hive.metastore.api.{FieldSchema, Table}
 import com.qubole.shaded.hive.ql.metadata
 import com.qubole.shaded.hive.ql.metadata.Hive
 import com.qubole.shaded.hive.ql.plan.TableDesc
+import com.qubole.spark.orc.OrcFilters
 import com.qubole.spark.rdd.HadoopTableReader
 import com.qubole.spark.util.SerializableConfiguration
+import org.apache.orc.mapreduce.OrcInputFormat
 import org.apache.spark.SparkException
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.internal.Logging
@@ -132,25 +134,42 @@ class HiveAcidRelation(var sqlContext: SQLContext,
   override def buildScan(requiredColumns: Array[String], filters: Array[Filter]): RDD[Row] = {
     val tableDesc = new TableDesc(hTable.getInputFormatClass, hTable.getOutputFormatClass,
       hTable.getMetadata)
-    val allHiveCols = hTable.getAllCols
-    val partitionedHiveCols = hTable.getPartitionKeys
-    val requiredHiveFields = requiredColumns.map(x => allHiveCols.find(_.getName == x).get)
-    val attributes = requiredHiveFields.map { x =>
+    val requiredHiveFields = requiredColumns.map(x => hTable.getAllCols.find(_.getName == x).get)
+    val requiredAttributes = requiredHiveFields.map { x =>
       PrettyAttribute(x.getName, getSparkSQLDataType(x))
     }
-    val partitionAttributes = partitionedHiveCols.map { x =>
+    val partitionAttributes = hTable.getPartitionKeys.map { x =>
       PrettyAttribute(x.getName, getSparkSQLDataType(x))
     }
 
+    val hadoopConf = sqlContext.sparkSession.sessionState.newHadoopConf()
+    val (pruningFilters, otherFilters) = filters.partition { predicate =>
+      !predicate.references.isEmpty &&
+        predicate.references.toSet.subsetOf(hTable.getPartColNames.toSet)
+    }
+    val dataFilters = otherFilters.filter(_
+      .references.intersect(hTable.getPartColNames).isEmpty
+    )
+    logInfo(s"total filters : ${filters.size}: " +
+      s"dataFilters: ${dataFilters.size} " +
+      s"pruiningFilters: ${pruningFilters.size}")
+
+    if (sqlContext.sparkSession.sessionState.conf.orcFilterPushDown) {
+      OrcFilters.createFilter(dataSchema, dataFilters).foreach { f =>
+        OrcInputFormat.setSearchArgument(hadoopConf, f, dataSchema.fieldNames)
+      }
+    }
+
     val hadoopReader = new HadoopTableReader(
-      attributes,
+      requiredAttributes,
       partitionAttributes,
       tableDesc,
       sqlContext.sparkSession,
       acidState,
-      sqlContext.sparkSession.sessionState.newHadoopConf())
+      hadoopConf)
     if (hTable.isPartitioned) {
-      hadoopReader.makeRDDForPartitionedTable(getRawPartitions(filters)).asInstanceOf[RDD[Row]]
+      val requiredPartitions = getRawPartitions(pruningFilters)
+      hadoopReader.makeRDDForPartitionedTable(requiredPartitions).asInstanceOf[RDD[Row]]
     } else {
       hadoopReader.makeRDDForTable(hTable).asInstanceOf[RDD[Row]]
     }
@@ -202,17 +221,11 @@ class HiveAcidRelation(var sqlContext: SQLContext,
   }
 
 
-  def getRawPartitions(filters: Array[Filter]): Seq[metadata.Partition] = {
-    logWarning(s"total filters passed: ${filters.size}: $filters")
-    val partitionKeyIds = hTable.getPartColNames.toSet
-    val (pruningPredicates, otherPredicates) = filters.partition { predicate =>
-      !predicate.references.isEmpty &&
-        predicate.references.toSet.subsetOf(partitionKeyIds)
-    }
+  def getRawPartitions(pruningFilters: Array[Filter]): Seq[metadata.Partition] = {
     val prunedPartitions =
       if (sqlContext.sparkSession.sessionState.conf.metastorePartitionPruning &&
-        pruningPredicates.size > 0) {
-        val normalizedFilters = convertFilters(hTable.getTTable, pruningPredicates)
+        pruningFilters.size > 0) {
+        val normalizedFilters = convertFilters(hTable.getTTable, pruningFilters)
         hive.getPartitionsByFilter(hTable, normalizedFilters)
       } else {
         // sqlContext.sparkSession.sessionState.catalog.listPartitions(tIdentifier, None)
