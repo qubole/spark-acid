@@ -75,7 +75,8 @@ class HiveAcidRelation(var sqlContext: SQLContext,
 
   val acidState = new HiveAcidState(sqlContext.sparkSession, hiveConf, table,
     sqlContext.sparkSession.sessionState.conf.defaultSizeInBytes, client, partitionSchema,
-  HiveConf.getTimeVar(hiveConf, HiveConf.ConfVars.HIVE_TXN_TIMEOUT, TimeUnit.MILLISECONDS) / 2, isFullAcidTable)
+    HiveConf.getTimeVar(hiveConf, HiveConf.ConfVars.HIVE_TXN_TIMEOUT, TimeUnit.MILLISECONDS) / 2,
+    isFullAcidTable)
 
   val overlappedPartCols = mutable.Map.empty[String, StructField]
 

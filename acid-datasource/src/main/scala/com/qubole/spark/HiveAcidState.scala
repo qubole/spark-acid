@@ -31,6 +31,7 @@ import java.util.concurrent.{Executors, ScheduledExecutorService, ThreadFactory,
 
 import com.qubole.shaded.hive.common.ValidWriteIdList
 import com.qubole.shaded.hive.metastore.{LockComponentBuilder, LockRequestBuilder}
+import com.qubole.spark.util.Util
 import org.apache.spark.sql.execution.{QueryExecution, RowDataSourceScanExec}
 import org.apache.spark.sql.util.QueryExecutionListener
 
@@ -62,16 +63,23 @@ class HiveAcidState(sparkSession: SparkSession,
 
 
   def close(): Unit = {
+
     if (txnId != -1 && !isTxnClosed) {
-      try {
-        logInfo("Closing txnid: " + txnId + " for table " + dbName + "." + tableName)
-        client.commitTxn(txnId)
-        txnId = -1
-        isTxnClosed = true
-        heartBeater.shutdown()
-        heartBeater = null
-      } finally {
-        heartBeaterClient.close()
+      synchronized {
+        if (txnId != -1 && !isTxnClosed) {
+          try {
+            logInfo("Closing txnid: " + txnId + " for table " + dbName + "." + tableName)
+            client.commitTxn(txnId)
+            txnId = -1
+            isTxnClosed = true
+            heartBeater.shutdown()
+            heartBeater = null
+          } finally {
+            heartBeaterClient.close()
+          }
+        } else {
+          logWarning("Transaction already closed")
+        }
       }
     } else {
       logWarning("Transaction already closed")
@@ -135,11 +143,14 @@ class HiveAcidState(sparkSession: SparkSession,
           val resp = heartBeaterClient.heartbeatTxnRange(txnId, txnId)
           if (!resp.getAborted.isEmpty || !resp.getNosuch.isEmpty) {
             logError("Heartbeat failure: " + resp.toString)
-            isTxnClosed = true
-            // TODO: IS SHUTDOWN THE RIGHTTHING TO DO HERE?
-            heartBeater.shutdown()
-            heartBeater = null
-            heartBeaterClient.close()
+            try {
+              isTxnClosed = true
+              // TODO: IS SHUTDOWN THE RIGHTTHING TO DO HERE?
+              heartBeater.shutdown()
+              heartBeater = null
+            } finally {
+              heartBeaterClient.close()
+            }
           } else {
             logInfo("Heartbeat sent for txnId: " + txnId)
           }
@@ -147,7 +158,7 @@ class HiveAcidState(sparkSession: SparkSession,
       }
       catch {
         case e: TException =>
-          logWarning("Failure to heartbeat for txnId: " + txnId)
+          logWarning("Failure to heartbeat for txnId: " + txnId, e)
       }
     }
   }
@@ -204,6 +215,7 @@ class HiveAcidState(sparkSession: SparkSession,
       }
     } catch {
       case e: TException =>
+        logWarning("Unable to acquire lock", e)
         throw HiveAcidErrors.couldNotAcquireLockException(e)
     }
   }
@@ -222,21 +234,23 @@ class HiveAcidState(sparkSession: SparkSession,
   private def registerQEListener(sqlContext: SQLContext): Unit = {
     sqlContext.sparkSession.listenerManager.register(new QueryExecutionListener {
       override def onFailure(funcName: String, qe: QueryExecution, exception: Exception): Unit = {
-        close()
+        compareAndClose(qe)
         Future {
           // Doing this in a Future as both unregister and onSuccess take the same lock
           // to avoid modification of the queue while it is being processed
           sqlContext.sparkSession.listenerManager.unregister(this)
+          logDebug(s"listener unregistered for ${HiveAcidState.this}")
         }
       }
 
       override def onSuccess(funcName: String, qe: QueryExecution, durationNs: Long): Unit = {
-        close()
+        compareAndClose(qe)
         //compareAndClose(qe)
         Future {
           // Doing this in a Future as both unregister and onSuccess take the same lock
           // to avoid modification of the queue while it is being processed
           sqlContext.sparkSession.listenerManager.unregister(this)
+          logDebug(s"listener unregistered for ${HiveAcidState.this}")
         }
       }
     })
