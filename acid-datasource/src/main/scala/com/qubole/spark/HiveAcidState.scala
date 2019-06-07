@@ -247,7 +247,7 @@ class HiveAcidState(sparkSession: SparkSession,
   private def registerQEListener(sqlContext: SQLContext): Unit = {
     sqlContext.sparkSession.listenerManager.register(new QueryExecutionListener {
       override def onFailure(funcName: String, qe: QueryExecution, exception: Exception): Unit = {
-        compareAndClose(qe)
+        //compareAndClose(qe)
         Future {
           // Doing this in a Future as both unregister and onSuccess take the same lock
           // to avoid modification of the queue while it is being processed
@@ -257,7 +257,6 @@ class HiveAcidState(sparkSession: SparkSession,
       }
 
       override def onSuccess(funcName: String, qe: QueryExecution, durationNs: Long): Unit = {
-        compareAndClose(qe)
         //compareAndClose(qe)
         Future {
           // Doing this in a Future as both unregister and onSuccess take the same lock
