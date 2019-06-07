@@ -270,14 +270,14 @@ class HiveAcidState(sparkSession: SparkSession,
     })
   }
 
-  private def compareAndClose(qe: QueryExecution): Unit = {
-    val acidStates = qe.executedPlan.collect {
-      case RowDataSourceScanExec(_, _, _, _, _, relation: HiveAcidRelation, _)
-        if relation.acidState == this =>
-        relation.acidState
-    }.filter(_ != null)
-    acidStates.foreach(_.close())
-  }
+//  private def compareAndClose(qe: QueryExecution): Unit = {
+//    val acidStates = qe.executedPlan.collect {
+//      case RowDataSourceScanExec(_, _, _, _, _, relation: HiveAcidRelation, _)
+//        if relation.acidState == this =>
+//        relation.acidState
+//    }.filter(_ != null)
+//    acidStates.foreach(_.close())
+//  }
 
 //  def getValidWriteIds()
 }
