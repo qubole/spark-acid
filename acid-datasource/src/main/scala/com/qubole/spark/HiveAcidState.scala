@@ -32,6 +32,7 @@ import java.util.concurrent.{Executors, ScheduledExecutorService, ThreadFactory,
 import com.qubole.shaded.hive.common.ValidWriteIdList
 import com.qubole.shaded.hive.metastore.{LockComponentBuilder, LockRequestBuilder}
 import com.qubole.spark.util.Util
+import com.qubole.shaded.hive.ql.metadata
 import org.apache.spark.sql.execution.{QueryExecution, RowDataSourceScanExec}
 import org.apache.spark.sql.util.QueryExecutionListener
 
@@ -41,14 +42,14 @@ import scala.concurrent.ExecutionContext.Implicits.global
 
 class HiveAcidState(sparkSession: SparkSession,
                     val hiveConf: HiveConf,
-                    val table: Table,
+                    val table: metadata.Table,
                     val sizeInBytes: Long,
-                    val client: HiveMetaStoreClient,
                     val pSchema: StructType,
                     val heartbeatInterval: Long,
                     val isFullAcidTable: Boolean) extends Logging {
 
   val user: String = sparkSession.sparkContext.sparkUser
+  var _client: HiveMetaStoreClient = _
   val dbName: String = table.getDbName
   val tableName: String = table.getTableName
   val location: Path = new Path(table.getSd.getLocation)
@@ -61,6 +62,17 @@ class HiveAcidState(sparkSession: SparkSession,
   var nextSleep: Long = _
   var MAX_SLEEP: Long = _
 
+  def client: HiveMetaStoreClient = {
+    if (_client == null) {
+      _client = new HiveMetaStoreClient(hiveConf, null, false)
+    }
+    _client
+  }
+
+  def closeClient(): Unit = {
+    _client.close()
+    _client = null
+  }
 
   def close(): Unit = {
 
@@ -70,6 +82,7 @@ class HiveAcidState(sparkSession: SparkSession,
           try {
             logInfo("Closing txnid: " + txnId + " for table " + dbName + "." + tableName)
             client.commitTxn(txnId)
+            closeClient()
             txnId = -1
             isTxnClosed = true
             heartBeater.shutdown()
@@ -256,14 +269,14 @@ class HiveAcidState(sparkSession: SparkSession,
     })
   }
 
-  private def compareAndClose(qe: QueryExecution): Unit = {
-    val acidStates = qe.executedPlan.collect {
-      case RowDataSourceScanExec(_, _, _, _, _, relation: HiveAcidRelation, _)
-        if relation.acidState == this =>
-        relation.acidState
-    }.filter(_ != null)
-    acidStates.foreach(_.close())
-  }
+//  private def compareAndClose(qe: QueryExecution): Unit = {
+//    val acidStates = qe.executedPlan.collect {
+//      case RowDataSourceScanExec(_, _, _, _, _, relation: HiveAcidRelation, _)
+//        if relation.acidState == this =>
+//        relation.acidState
+//    }.filter(_ != null)
+//    acidStates.foreach(_.close())
+//  }
 
 //  def getValidWriteIds()
 }

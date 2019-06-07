@@ -21,7 +21,6 @@ import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 import com.qubole.shaded.hive.conf.HiveConf
-import com.qubole.shaded.hive.metastore.HiveMetaStoreClient
 import com.qubole.shaded.hive.metastore.api.{FieldSchema, Table}
 import com.qubole.shaded.hive.ql.metadata
 import com.qubole.shaded.hive.ql.metadata.Hive
@@ -55,28 +54,22 @@ class HiveAcidRelation(var sqlContext: SQLContext,
 
   val hiveConf: HiveConf = HiveAcidDataSource.createHiveConf(sqlContext.sparkContext)
   //TODO: We should try to get rid of one of the below two clients (`client` and `hive`). They make two connections.
-  //TODO: These clients needs to be closed as well
-  val client = new HiveMetaStoreClient(hiveConf, null, false)
-  val hive: Hive = Hive.get(hiveConf)
+  var hive: Hive = Hive.get(hiveConf)
   val hTable: metadata.Table = hive.getTable(tableName.split('.')(0), tableName.split('.')(1))
-  val table: Table  = client.getTable(tableName.split('.')(0), tableName.split('.')(1))
+  Hive.closeCurrent()
+  hive = null
 
-  if (table.getParameters.get("transactional") != "true") {
+  if (hTable.getParameters.get("transactional") != "true") {
     throw HiveAcidErrors.tableNotAcidException
   }
-  var isFullAcidTable: Boolean = table.getParameters.containsKey("transactional_properties") &&
-    !table.getParameters.get("transactional_properties").equals("insert_only")
+  var isFullAcidTable: Boolean = hTable.getParameters.containsKey("transactional_properties") &&
+    !hTable.getParameters.get("transactional_properties").equals("insert_only")
   logInfo("Insert Only table: " + !isFullAcidTable)
 
-  val dataSchema = StructType(table.getSd.getCols.toList.map(fromHiveColumn).toArray)
-  val partitionSchema = StructType(table.getPartitionKeys.toList.map(fromHiveColumn).toArray)
+  val dataSchema = StructType(hTable.getSd.getCols.toList.map(fromHiveColumn).toArray)
+  val partitionSchema = StructType(hTable.getPartitionKeys.toList.map(fromHiveColumn).toArray)
   val broadcastedHadoopConf: Broadcast[SerializableConfiguration] = sqlContext.sparkContext.broadcast(
     new SerializableConfiguration(sqlContext.sparkContext.hadoopConfiguration))
-
-  val acidState = new HiveAcidState(sqlContext.sparkSession, hiveConf, table,
-    sqlContext.sparkSession.sessionState.conf.defaultSizeInBytes, client, partitionSchema,
-    HiveConf.getTimeVar(hiveConf, HiveConf.ConfVars.HIVE_TXN_TIMEOUT, TimeUnit.MILLISECONDS) / 2,
-    isFullAcidTable)
 
   val overlappedPartCols = mutable.Map.empty[String, StructField]
 
@@ -93,7 +86,7 @@ class HiveAcidRelation(var sqlContext: SQLContext,
 
   override def sizeInBytes: Long = {
     val compressionFactor = sqlContext.sparkSession.sessionState.conf.fileCompressionFactor
-    (acidState.sizeInBytes * compressionFactor).toLong
+    (sqlContext.sparkSession.sessionState.conf.defaultSizeInBytes * compressionFactor).toLong
   }
 
   override val needConversion: Boolean = false
@@ -161,6 +154,10 @@ class HiveAcidRelation(var sqlContext: SQLContext,
       }
     }
 
+    val acidState = new HiveAcidState(sqlContext.sparkSession, hiveConf, hTable,
+      sqlContext.sparkSession.sessionState.conf.defaultSizeInBytes, partitionSchema,
+      HiveConf.getTimeVar(hiveConf, HiveConf.ConfVars.HIVE_TXN_TIMEOUT, TimeUnit.MILLISECONDS) / 2, isFullAcidTable)
+
     val hadoopReader = new HadoopTableReader(
       requiredAttributes,
       partitionAttributes,
@@ -227,10 +224,22 @@ class HiveAcidRelation(var sqlContext: SQLContext,
       if (sqlContext.sparkSession.sessionState.conf.metastorePartitionPruning &&
         pruningFilters.size > 0) {
         val normalizedFilters = convertFilters(hTable.getTTable, pruningFilters)
-        hive.getPartitionsByFilter(hTable, normalizedFilters)
+        if (hive == null) {
+          hive = Hive.get(hiveConf)
+        }
+        val ret = hive.getPartitionsByFilter(hTable, normalizedFilters)
+        Hive.closeCurrent()
+        hive = null
+        ret
       } else {
         // sqlContext.sparkSession.sessionState.catalog.listPartitions(tIdentifier, None)
-        hive.getPartitions(hTable)
+        if (hive == null) {
+          hive = Hive.get(hiveConf)
+        }
+        val ret = hive.getPartitions(hTable)
+        Hive.closeCurrent()
+        hive = null
+        ret
       }
     logWarning(s"partition count = ${prunedPartitions.size()}")
     prunedPartitions.toSeq
