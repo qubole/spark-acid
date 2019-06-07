@@ -33,6 +33,8 @@ import com.qubole.shaded.hive.common.ValidWriteIdList
 import com.qubole.shaded.hive.metastore.{LockComponentBuilder, LockRequestBuilder}
 import com.qubole.spark.util.Util
 import com.qubole.shaded.hive.ql.metadata
+import com.qubole.spark.rdd.AcidLockUnionRDD
+import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.execution.{QueryExecution, RowDataSourceScanExec}
 import org.apache.spark.sql.util.QueryExecutionListener
 
@@ -247,8 +249,7 @@ class HiveAcidState(sparkSession: SparkSession,
   private def registerQEListener(sqlContext: SQLContext): Unit = {
     sqlContext.sparkSession.listenerManager.register(new QueryExecutionListener {
       override def onFailure(funcName: String, qe: QueryExecution, exception: Exception): Unit = {
-        //compareAndClose(qe)
-        close()
+        compareAndClose(qe)
         Future {
           // Doing this in a Future as both unregister and onSuccess take the same lock
           // to avoid modification of the queue while it is being processed
@@ -258,8 +259,7 @@ class HiveAcidState(sparkSession: SparkSession,
       }
 
       override def onSuccess(funcName: String, qe: QueryExecution, durationNs: Long): Unit = {
-        //compareAndClose(qe)
-        close()
+        compareAndClose(qe)
         Future {
           // Doing this in a Future as both unregister and onSuccess take the same lock
           // to avoid modification of the queue while it is being processed
@@ -270,14 +270,12 @@ class HiveAcidState(sparkSession: SparkSession,
     })
   }
 
-//  private def compareAndClose(qe: QueryExecution): Unit = {
-//    val acidStates = qe.executedPlan.collect {
-//      case RowDataSourceScanExec(_, _, _, _, _, relation: HiveAcidRelation, _)
-//        if relation.acidState == this =>
-//        relation.acidState
-//    }.filter(_ != null)
-//    acidStates.foreach(_.close())
-//  }
-
-//  def getValidWriteIds()
+  private def compareAndClose(qe: QueryExecution): Unit = {
+    val acidStates = qe.executedPlan.collect {
+      case RowDataSourceScanExec(_, _, _, _, rdd: AcidLockUnionRDD[InternalRow],
+                                 _, _) if rdd.getAcidState == this =>
+        rdd.getAcidState()
+    }
+    acidStates.foreach(_.close())
+  }
 }
