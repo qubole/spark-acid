@@ -248,6 +248,7 @@ class HiveAcidState(sparkSession: SparkSession,
     sqlContext.sparkSession.listenerManager.register(new QueryExecutionListener {
       override def onFailure(funcName: String, qe: QueryExecution, exception: Exception): Unit = {
         //compareAndClose(qe)
+        close()
         Future {
           // Doing this in a Future as both unregister and onSuccess take the same lock
           // to avoid modification of the queue while it is being processed
@@ -258,6 +259,7 @@ class HiveAcidState(sparkSession: SparkSession,
 
       override def onSuccess(funcName: String, qe: QueryExecution, durationNs: Long): Unit = {
         //compareAndClose(qe)
+        close()
         Future {
           // Doing this in a Future as both unregister and onSuccess take the same lock
           // to avoid modification of the queue while it is being processed
@@ -268,14 +270,14 @@ class HiveAcidState(sparkSession: SparkSession,
     })
   }
 
-//  private def compareAndClose(qe: QueryExecution): Unit = {
-//    val acidStates = qe.executedPlan.collect {
-//      case RowDataSourceScanExec(_, _, _, _, _, relation: HiveAcidRelation, _)
-//        if relation.acidState == this =>
-//        relation.acidState
-//    }.filter(_ != null)
-//    acidStates.foreach(_.close())
-//  }
+  private def compareAndClose(qe: QueryExecution): Unit = {
+    val acidStates = qe.executedPlan.collect {
+      case RowDataSourceScanExec(_, _, _, _, _, relation: HiveAcidRelation, _)
+        if relation.acidState == this =>
+        relation.acidState
+    }.filter(_ != null)
+    acidStates.foreach(_.close())
+  }
 
 //  def getValidWriteIds()
 }
