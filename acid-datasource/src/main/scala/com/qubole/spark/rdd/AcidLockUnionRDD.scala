@@ -17,10 +17,7 @@ class AcidLockUnionRDD[T: ClassTag](
   }
 
   override def getPartitions: Array[Partition] = {
-    acidState.open()
-    //TODO: For partitioned tables, pass in the list of partitions to acquire locks on.
-    acidState.acquireLocks(partitionList)
-    // use partitionList and hiveAcidState here and take locks over partition and find write IDs
+    acidState.begin(partitionList)
     super.getPartitions
   }
 }

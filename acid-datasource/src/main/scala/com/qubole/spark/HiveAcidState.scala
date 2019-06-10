@@ -50,34 +50,45 @@ class HiveAcidState(sparkSession: SparkSession,
                     val heartbeatInterval: Long,
                     val isFullAcidTable: Boolean) extends Logging {
 
-  val user: String = sparkSession.sparkContext.sparkUser
-  var _client: HiveMetaStoreClient = _
-  val dbName: String = table.getDbName
-  val tableName: String = table.getTableName
-  val location: Path = new Path(table.getSd.getLocation)
-  var txnId: Long = -1
-  var validWriteIds: ValidTxnWriteIdList = _
-  var isTxnClosed = false
-  var heartBeater: ScheduledExecutorService = _
-  lazy val heartBeaterClient: HiveMetaStoreClient = new HiveMetaStoreClient(hiveConf,null, false)
+  private val user: String = sparkSession.sparkContext.sparkUser
+  private var _client: HiveMetaStoreClient = _
+  private val dbName: String = table.getDbName
+  private val tableName: String = table.getTableName
+  private var txnId: Long = -1
+  private var isTxnClosed = false
+  private var heartBeater: ScheduledExecutorService = _
+  private lazy val heartBeaterClient: HiveMetaStoreClient = new HiveMetaStoreClient(hiveConf,null, false)
+  private var nextSleep: Long = _
+  private var MAX_SLEEP: Long = _
 
-  var nextSleep: Long = _
-  var MAX_SLEEP: Long = _
+  val location: Path = table.getDataLocation
 
-  def client: HiveMetaStoreClient = {
-    if (_client == null) {
-      _client = new HiveMetaStoreClient(hiveConf, null, false)
+  def begin(partitionNames: Seq[String]): Unit = {
+    if (txnId != -1) {
+      throw HiveAcidErrors.txnAlreadyOpen(txnId)
     }
-    _client
+    // 1. Open transaction
+    txnId = client.openTxn(HiveAcidDataSource.agentName) // TODO change this to user instead
+    logInfo("Opened txnid: " + txnId + " for table " + dbName + "." + tableName)
+    isTxnClosed = false
+    // 2. Start HeartBeater
+    if (heartBeater == null) {
+      heartBeater = Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
+        def newThread(r: Runnable) = new HeartBeaterThread(r, "AcidDataSourceHeartBeater")
+      })
+    } else {
+      throw HiveAcidErrors.heartBeaterAlreadyExists
+    }
+    heartBeater.scheduleAtFixedRate(new HeartbeatRunnable(),
+      (heartbeatInterval * 0.75 * Math.random()).asInstanceOf[Long],
+      heartbeatInterval,
+      TimeUnit.MILLISECONDS)
+    registerQEListener(sparkSession.sqlContext)
+    // 3. Acquire locks
+    acquireLocks(partitionNames)
   }
 
-  def closeClient(): Unit = {
-    _client.close()
-    _client = null
-  }
-
-  def close(): Unit = {
-
+  def end(): Unit = {
     if (txnId != -1 && !isTxnClosed) {
       synchronized {
         if (txnId != -1 && !isTxnClosed) {
@@ -87,7 +98,7 @@ class HiveAcidState(sparkSession: SparkSession,
             closeClient()
             txnId = -1
             isTxnClosed = true
-            heartBeater.shutdown()
+            heartBeater.shutdown() //TODO: is this ok to call from here?
             heartBeater = null
           } finally {
             heartBeaterClient.close()
@@ -101,7 +112,25 @@ class HiveAcidState(sparkSession: SparkSession,
     }
   }
 
-  def acquireLocks(partitionNames: Seq[String]): Unit = {
+  private def client: HiveMetaStoreClient = {
+    synchronized {
+      if (_client == null) {
+        _client = new HiveMetaStoreClient(hiveConf, null, false)
+      }
+      _client
+    }
+  }
+
+  private def closeClient(): Unit = {
+    synchronized {
+      if (_client != null) {
+        _client.close()
+        _client = null
+      }
+    }
+  }
+
+  private def acquireLocks(partitionNames: Seq[String]): Unit = {
     if (isTxnClosed || (txnId == -1)) {
       logError("Transaction already closed")
       throw HiveAcidErrors.txnClosedException
@@ -118,37 +147,15 @@ class HiveAcidState(sparkSession: SparkSession,
     txnWriteIds.getTableValidWriteIdList(table.getDbName  + "." + table.getTableName)
   }
 
-  /* Use this instead of open(), acquireLocks(), getValidWriteIds() and close() if not doing transaction management. */
+  /* Unused for now.
+   * Use this instead of open(), acquireLocks(), getValidWriteIds() and close() if not doing transaction management.
+   */
   lazy val getValidWriteIdsNoTxn: ValidWriteIdList = {
     val validTxns = client.getValidTxns()
     val txnWriteIds: ValidTxnWriteIdList = TxnUtils.createValidTxnWriteIdList(txnId,
       client.getValidWriteIds(Seq(dbName + "." + tableName),
         validTxns.writeToString()))
     txnWriteIds.getTableValidWriteIdList(table.getDbName  + "." + table.getTableName)
-  }
-
-  def open(): Unit = {
-    if (txnId == -1) {
-      // 1. Open transaction
-      txnId = client.openTxn(HiveAcidDataSource.agentName) // TODO change this to user instead
-      logInfo("Opened txnid: " + txnId + " for table " + dbName + "." + tableName)
-      isTxnClosed = false
-      // 2. Start HeartBeater
-      if (heartBeater == null) {
-        heartBeater = Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
-          def newThread(r: Runnable) = new HeartBeaterThread(r, "AcidDataSourceHeartBeater")
-        })
-      } else {
-        throw HiveAcidErrors.heartBeaterAlreadyExists
-      }
-      heartBeater.scheduleAtFixedRate(new HeartbeatRunnable(),
-        (heartbeatInterval * 0.75 * Math.random()).asInstanceOf[Long],
-        heartbeatInterval,
-        TimeUnit.MILLISECONDS)
-      registerQEListener(sparkSession.sqlContext)
-    } else {
-      throw HiveAcidErrors.txnAlreadyOpen(txnId)
-    }
   }
 
   private class HeartbeatRunnable() extends Runnable {
@@ -207,7 +214,7 @@ class HiveAcidState(sparkSession: SparkSession,
     requestBuilder.build
   }
 
-  def lock(lockReq: LockRequest): Unit = {
+  private def lock(lockReq: LockRequest): Unit = {
     nextSleep = 50
     /* MAX_SLEEP is the max time each backoff() will wait for, thus the total time to wait for
     successful lock acquisition is approximately (see backoff()) maxNumWaits * MAX_SLEEP.
@@ -276,6 +283,6 @@ class HiveAcidState(sparkSession: SparkSession,
                                  _, _) if rdd.getAcidState == this =>
         rdd.getAcidState()
     }
-    acidStates.foreach(_.close())
+    acidStates.foreach(_.end())
   }
 }

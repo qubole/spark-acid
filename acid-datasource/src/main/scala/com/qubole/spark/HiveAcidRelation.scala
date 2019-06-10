@@ -154,6 +154,7 @@ class HiveAcidRelation(var sqlContext: SQLContext,
       }
     }
 
+    //TODO: Introduce a configurable value for heartbeat interval
     val acidState = new HiveAcidState(sqlContext.sparkSession, hiveConf, hTable,
       sqlContext.sparkSession.sessionState.conf.defaultSizeInBytes, partitionSchema,
       HiveConf.getTimeVar(hiveConf, HiveConf.ConfVars.HIVE_TXN_TIMEOUT, TimeUnit.MILLISECONDS) / 2, isFullAcidTable)
