@@ -113,20 +113,17 @@ class HiveAcidState(sparkSession: SparkSession,
   }
 
   private def client: HiveMetaStoreClient = {
-    synchronized {
-      if (_client == null) {
-        _client = new HiveMetaStoreClient(hiveConf, null, false)
-      }
-      _client
+    if (_client == null) {
+      _client = new HiveMetaStoreClient(hiveConf, null, false)
     }
+    _client
+
   }
 
   private def closeClient(): Unit = {
-    synchronized {
-      if (_client != null) {
-        _client.close()
-        _client = null
-      }
+    if (_client != null) {
+      _client.close()
+      _client = null
     }
   }
 
@@ -167,7 +164,7 @@ class HiveAcidState(sparkSession: SparkSession,
             logError("Heartbeat failure: " + resp.toString)
             try {
               isTxnClosed = true
-              // TODO: IS SHUTDOWN THE RIGHTTHING TO DO HERE?
+              // TODO: IS SHUTDOWN THE RIGHT THING TO DO HERE?
               heartBeater.shutdown()
               heartBeater = null
             } finally {

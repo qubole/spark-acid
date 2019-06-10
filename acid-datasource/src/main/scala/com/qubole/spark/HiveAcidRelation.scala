@@ -27,10 +27,8 @@ import com.qubole.shaded.hive.ql.metadata.Hive
 import com.qubole.shaded.hive.ql.plan.TableDesc
 import com.qubole.spark.orc.OrcFilters
 import com.qubole.spark.rdd.HadoopTableReader
-import com.qubole.spark.util.SerializableConfiguration
 import org.apache.orc.mapreduce.OrcInputFormat
 import org.apache.spark.SparkException
-import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.expressions.PrettyAttribute
@@ -48,16 +46,18 @@ class HiveAcidRelation(var sqlContext: SQLContext,
     with PrunedFilteredScan
     with Logging {
 
-  val tableName: String = parameters.getOrElse("table", {
+  private val tableName: String = parameters.getOrElse("table", {
     throw HiveAcidErrors.tableNotSpecifiedException
   })
 
-  val hiveConf: HiveConf = HiveAcidDataSource.createHiveConf(sqlContext.sparkContext)
-  //TODO: We should try to get rid of one of the below two clients (`client` and `hive`). They make two connections.
-  var hive: Hive = Hive.get(hiveConf)
-  val hTable: metadata.Table = hive.getTable(tableName.split('.')(0), tableName.split('.')(1))
-  Hive.closeCurrent()
-  hive = null
+  private val hiveConf: HiveConf = HiveAcidDataSource.createHiveConf(sqlContext.sparkContext)
+
+  private val hTable: metadata.Table = {
+    val hive: Hive = Hive.get(hiveConf)
+    val hTable = hive.getTable(tableName.split('.')(0), tableName.split('.')(1))
+    Hive.closeCurrent()
+    hTable
+  }
 
   if (hTable.getParameters.get("transactional") != "true") {
     throw HiveAcidErrors.tableNotAcidException
@@ -68,18 +68,14 @@ class HiveAcidRelation(var sqlContext: SQLContext,
 
   val dataSchema = StructType(hTable.getSd.getCols.toList.map(fromHiveColumn).toArray)
   val partitionSchema = StructType(hTable.getPartitionKeys.toList.map(fromHiveColumn).toArray)
-  val broadcastedHadoopConf: Broadcast[SerializableConfiguration] = sqlContext.sparkContext.broadcast(
-    new SerializableConfiguration(sqlContext.sparkContext.hadoopConfiguration))
-
-  val overlappedPartCols = mutable.Map.empty[String, StructField]
-
-  partitionSchema.foreach { partitionField =>
-    if (dataSchema.exists(getColName(_) == getColName(partitionField))) {
-      overlappedPartCols += getColName(partitionField) -> partitionField
-    }
-  }
 
   override val schema: StructType = {
+    val overlappedPartCols = mutable.Map.empty[String, StructField]
+    partitionSchema.foreach { partitionField =>
+      if (dataSchema.exists(getColName(_) == getColName(partitionField))) {
+        overlappedPartCols += getColName(partitionField) -> partitionField
+      }
+    }
     StructType(dataSchema.map(f => overlappedPartCols.getOrElse(getColName(f), f)) ++
       partitionSchema.filterNot(f => overlappedPartCols.contains(getColName(f))))
   }
@@ -137,7 +133,7 @@ class HiveAcidRelation(var sqlContext: SQLContext,
     }
 
     val hadoopConf = sqlContext.sparkSession.sessionState.newHadoopConf()
-    val (pruningFilters, otherFilters) = filters.partition { predicate =>
+    val (partitionFilters, otherFilters) = filters.partition { predicate =>
       !predicate.references.isEmpty &&
         predicate.references.toSet.subsetOf(hTable.getPartColNames.toSet)
     }
@@ -146,7 +142,11 @@ class HiveAcidRelation(var sqlContext: SQLContext,
     )
     logInfo(s"total filters : ${filters.size}: " +
       s"dataFilters: ${dataFilters.size} " +
-      s"pruiningFilters: ${pruningFilters.size}")
+      s"partitionFilters: ${partitionFilters.size}")
+
+    //TODO: This has to be set only if its a Full ACID table, or if MM table with ORC...right Prakhar?
+    // We need to set filters for MM table with Parquet as well. Infact, there should be a generic way to set filters
+    // for anyInputformat and it should handle it if it can, right? How is it done generally in spark?
 
     if (sqlContext.sparkSession.sessionState.conf.orcFilterPushDown) {
       OrcFilters.createFilter(dataSchema, dataFilters).foreach { f =>
@@ -167,7 +167,7 @@ class HiveAcidRelation(var sqlContext: SQLContext,
       acidState,
       hadoopConf)
     if (hTable.isPartitioned) {
-      val requiredPartitions = getRawPartitions(pruningFilters)
+      val requiredPartitions = getRawPartitions(partitionFilters)
       hadoopReader.makeRDDForPartitionedTable(requiredPartitions).asInstanceOf[RDD[Row]]
     } else {
       hadoopReader.makeRDDForTable(hTable).asInstanceOf[RDD[Row]]
@@ -220,27 +220,20 @@ class HiveAcidRelation(var sqlContext: SQLContext,
   }
 
 
-  def getRawPartitions(pruningFilters: Array[Filter]): Seq[metadata.Partition] = {
+  def getRawPartitions(partitionFilters: Array[Filter]): Seq[metadata.Partition] = {
     val prunedPartitions =
       if (sqlContext.sparkSession.sessionState.conf.metastorePartitionPruning &&
-        pruningFilters.size > 0) {
-        val normalizedFilters = convertFilters(hTable.getTTable, pruningFilters)
-        if (hive == null) {
-          hive = Hive.get(hiveConf)
-        }
-        val ret = hive.getPartitionsByFilter(hTable, normalizedFilters)
+        partitionFilters.size > 0) {
+        val normalizedFilters = convertFilters(hTable.getTTable, partitionFilters)
+        val hive: Hive = Hive.get(hiveConf)
+        val hT = hive.getPartitionsByFilter(hTable, normalizedFilters)
         Hive.closeCurrent()
-        hive = null
-        ret
+        hT
       } else {
-        // sqlContext.sparkSession.sessionState.catalog.listPartitions(tIdentifier, None)
-        if (hive == null) {
-          hive = Hive.get(hiveConf)
-        }
-        val ret = hive.getPartitions(hTable)
+        val hive: Hive = Hive.get(hiveConf)
+        val hT = hive.getPartitions(hTable)
         Hive.closeCurrent()
-        hive = null
-        ret
+        hT
       }
     logWarning(s"partition count = ${prunedPartitions.size()}")
     prunedPartitions.toSeq

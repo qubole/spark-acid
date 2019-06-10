@@ -18,5 +18,5 @@
 package com.qubole.spark
 
 object HiveAcidUtils {
-  val NAME = "hiveAcid"
+  val NAME = "HiveAcid"
 }

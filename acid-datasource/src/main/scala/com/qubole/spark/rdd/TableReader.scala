@@ -100,8 +100,7 @@ class HadoopTableReader(
       Util.classForName(
         tableDesc.getSerdeClassName.replaceFirst(
           "org.apache.hadoop.hive.", "com.qubole.shaded.hive.")
-      ).asInstanceOf[Class[Deserializer]],
-      filterOpt = None)
+      ).asInstanceOf[Class[Deserializer]])
 
   /**
     * Creates a Hadoop RDD to read data from the target table's data directory. Returns a transformed
@@ -109,13 +108,10 @@ class HadoopTableReader(
     *
     * @param hiveTable Hive metadata for the table being scanned.
     * @param deserializerClass Class of the SerDe used to deserialize Writables read from Hadoop.
-    * @param filterOpt If defined, then the filter is used to reject files contained in the data
-    *                  directory being read. If None, then all files are accepted.
     */
   def makeRDDForTable(
                        hiveTable: HiveTable,
-                       deserializerClass: Class[_ <: Deserializer],
-                       filterOpt: Option[PathFilter]): RDD[InternalRow] = {
+                       deserializerClass: Class[_ <: Deserializer]): RDD[InternalRow] = {
 
     assert(!hiveTable.isPartitioned,
       "makeRDDForTable() cannot be called on a partitioned table, since input formats may " +
@@ -127,14 +123,13 @@ class HadoopTableReader(
     val broadcastedHadoopConf = _broadcastedHadoopConf
 
     val tablePath = hiveTable.getPath
-    val inputPathStr = applyFilterIfNeeded(tablePath, filterOpt)
 
     // logDebug("Table input: %s".format(tablePath))
     val ifcName = hiveTable.getInputFormatClass.getName.replaceFirst(
       "org.apache.hadoop.hive.", "com.qubole.shaded.hive.")
     val ifc = Util.classForName(ifcName).asInstanceOf[java.lang.Class[InputFormat[Writable, Writable]]]
     val hadoopRDD = createHadoopRdd(localTableDesc, hiveTable.getSd.getCols,
-      hiveTable.getParameters, inputPathStr, true, ifc)
+      hiveTable.getParameters, tablePath.toString, true, ifc)
 
     val attrsWithIndex = attributes.zipWithIndex
     val mutableRow = new SpecificInternalRow(attributes.map(_.dataType))
