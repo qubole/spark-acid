@@ -277,8 +277,8 @@ class HiveAcidState(sparkSession: SparkSession,
   private def compareAndClose(qe: QueryExecution): Unit = {
     val acidStates = qe.executedPlan.collect {
       case RowDataSourceScanExec(_, _, _, _, rdd: AcidLockUnionRDD[InternalRow],
-                                 _, _) if rdd.getAcidState == this =>
-        rdd.getAcidState()
+                                 _, _) if rdd.acidState == this =>
+        rdd.acidState
     }
     acidStates.foreach(_.end())
   }

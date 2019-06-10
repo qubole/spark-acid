@@ -64,7 +64,7 @@ sealed trait TableReader {
   * Helper class for scanning tables stored in Hadoop - e.g., to read Hive tables that reside in the
   * data warehouse directory.
   */
-class HadoopTableReader(
+class HiveTableReader(
                          @transient private val attributes: Seq[Attribute],
                          @transient private val partitionKeys: Seq[Attribute],
                          @transient private val tableDesc: TableDesc,
@@ -97,10 +97,9 @@ class HadoopTableReader(
   override def makeRDDForTable(hiveTable: HiveTable): RDD[InternalRow] =
     makeRDDForTable(
       hiveTable,
-      Util.classForName(
-        tableDesc.getSerdeClassName.replaceFirst(
-          "org.apache.hadoop.hive.", "com.qubole.shaded.hive.")
-      ).asInstanceOf[Class[Deserializer]])
+      Util.classForName(tableDesc.getSerdeClassName,
+        true).asInstanceOf[Class[Deserializer]]
+    )
 
   /**
     * Creates a Hadoop RDD to read data from the target table's data directory. Returns a transformed
@@ -125,23 +124,22 @@ class HadoopTableReader(
     val tablePath = hiveTable.getPath
 
     // logDebug("Table input: %s".format(tablePath))
-    val ifcName = hiveTable.getInputFormatClass.getName.replaceFirst(
-      "org.apache.hadoop.hive.", "com.qubole.shaded.hive.")
-    val ifc = Util.classForName(ifcName).asInstanceOf[java.lang.Class[InputFormat[Writable, Writable]]]
-    val hadoopRDD = createHadoopRdd(localTableDesc, hiveTable.getSd.getCols,
+    val ifcName = hiveTable.getInputFormatClass.getName
+    val ifc = Util.classForName(ifcName, true).asInstanceOf[java.lang.Class[InputFormat[Writable, Writable]]]
+    val hiveRDD = createRddForTable(localTableDesc, hiveTable.getSd.getCols,
       hiveTable.getParameters, tablePath.toString, true, ifc)
 
     val attrsWithIndex = attributes.zipWithIndex
     val mutableRow = new SpecificInternalRow(attributes.map(_.dataType))
 
-    val deserializedHadoopRDD = hadoopRDD.mapPartitions { iter =>
+    val deserializedHiveRDD = hiveRDD.mapPartitions { iter =>
       val hconf = broadcastedHadoopConf.value.value
       val deserializer = deserializerClass.newInstance()
       deserializer.initialize(hconf, localTableDesc.getProperties)
-      HadoopTableReader.fillObject(iter, deserializer, attrsWithIndex, mutableRow, deserializer)
+      HiveTableReader.fillObject(iter, deserializer, attrsWithIndex, mutableRow, deserializer)
     }
 
-    new AcidLockUnionRDD[InternalRow](sparkSession.sparkContext, Seq(deserializedHadoopRDD),
+    new AcidLockUnionRDD[InternalRow](sparkSession.sparkContext, Seq(deserializedHiveRDD),
       Seq(), acidState)
   }
 
@@ -149,15 +147,15 @@ class HadoopTableReader(
     val partitionToDeserializer = partitions.map{
       part =>
         val deserializerClassName = part.getTPartition.getSd.getSerdeInfo.getSerializationLib
-          .replaceFirst("org.apache.hadoop.hive.", "com.qubole.shaded.hive.")
-        val deserializer =  Util.classForName(deserializerClassName).asInstanceOf[Class[Deserializer]]
+        val deserializer =  Util.classForName(deserializerClassName, true)
+          .asInstanceOf[Class[Deserializer]]
         (part, deserializer)
     }.toMap
     makeRDDForPartitionedTable(partitionToDeserializer, filterOpt = None)
   }
 
   /**
-    * Create a HadoopRDD for every partition key specified in the query. Note that for on-disk Hive
+    * Create a Hive3RDD for every partition key specified in the query. Note that for on-disk Hive
     * tables, a data directory is created for each partition corresponding to keys specified using
     * 'PARTITION BY'.
     *
@@ -180,9 +178,8 @@ class HadoopTableReader(
       val partProps = partition.getMetadataFromPartitionSchema
       val partPath = partition.getDataLocation
       val inputPathStr = applyFilterIfNeeded(partPath, filterOpt)
-      val ifcString = partition.getTPartition.getSd.getInputFormat.replaceFirst(
-        "org.apache.hadoop.hive.", "com.qubole.shaded.hive.")
-      val ifc = Util.classForName(ifcString)
+      val ifcString = partition.getTPartition.getSd.getInputFormat
+      val ifc = Util.classForName(ifcString, true)
         .asInstanceOf[java.lang.Class[InputFormat[Writable, Writable]]]
       // Get partition field info
       val partSpec = partition.getSpec
@@ -219,7 +216,7 @@ class HadoopTableReader(
 
       // Create local references so that the outer object isn't serialized.
       val localTableDesc = tableDesc
-      createHadoopRdd(localTableDesc,  partition.getCols, partition.getTable.getParameters, inputPathStr, false,
+      createRddForTable(localTableDesc,  partition.getCols, partition.getTable.getParameters, inputPathStr, false,
         ifc).mapPartitions { iter =>
         val hconf = broadcastedHiveConf.value.value
         val deserializer = localDeserializer.newInstance()
@@ -234,13 +231,12 @@ class HadoopTableReader(
         }
         deserializer.initialize(hconf, props)
         // get the table deserializer
-        val tableSerDeClassName = localTableDesc.getSerdeClassName.replaceFirst(
-          "org.apache.hadoop.hive.", "com.qubole.shaded.hive.")
-        val tableSerDe = Util.classForName(tableSerDeClassName).newInstance().asInstanceOf[Deserializer]
+        val tableSerDeClassName = localTableDesc.getSerdeClassName
+        val tableSerDe = Util.classForName(tableSerDeClassName, true).newInstance().asInstanceOf[Deserializer]
         tableSerDe.initialize(hconf, localTableDesc.getProperties)
 
         // fill the non partition key attributes
-        HadoopTableReader.fillObject(iter, deserializer, nonPartitionKeyAttrs,
+        HiveTableReader.fillObject(iter, deserializer, nonPartitionKeyAttrs,
           mutableRow, tableSerDe)
       }
     }.toSeq
@@ -269,20 +265,20 @@ class HadoopTableReader(
   }
 
   /**
-    * Creates a HadoopRDD based on the broadcasted HiveConf and other job properties that will be
+    * Creates a Hive3RDD based on the broadcasted HiveConf and other job properties that will be
     * applied locally on each slave.
     */
-  private def createHadoopRdd(
-                               tableDesc: TableDesc,
-                               cols: util.List[FieldSchema],
-                               tableParameters: util.Map[String, String],
-                               path: String,
-                               acquireLocks: Boolean,
-                               inputFormatClass: Class[InputFormat[Writable, Writable]]): RDD[Writable] = {
+  private def createRddForTable(tableDesc: TableDesc,
+                                cols: util.List[FieldSchema],
+                                tableParameters: util.Map[String, String],
+                                path: String,
+                                acquireLocks: Boolean,
+                                inputFormatClass: Class[InputFormat[Writable, Writable]]
+                               ): RDD[Writable] = {
 
     val colNames = getColumnNamesFromFieldSchema(cols)
     val colTypes = getColumnTypesFromFieldSchema(cols)
-    val initializeJobConfFunc = HadoopTableReader.initializeLocalJobConfFunc(path, tableDesc, tableParameters,
+    val initializeJobConfFunc = HiveTableReader.initializeLocalJobConfFunc(path, tableDesc, tableParameters,
       colNames, colTypes) _
     val rdd = new Hive3RDD(
       sparkSession.sparkContext,
@@ -323,10 +319,10 @@ object HiveTableUtil {
   }
 }
 
-object HadoopTableReader extends Hive3Inspectors with Logging {
+object HiveTableReader extends Hive3Inspectors with Logging {
   /**
     * Curried. After given an argument for 'path', the resulting JobConf => Unit closure is used to
-    * instantiate a HadoopRDD.
+    * instantiate a Hive3RDD.
     */
   def initializeLocalJobConfFunc(path: String, tableDesc: TableDesc,
                                  tableParameters: util.Map[String, String],

@@ -26,9 +26,13 @@ import com.qubole.shaded.hive.ql.metadata
 import com.qubole.shaded.hive.ql.metadata.Hive
 import com.qubole.shaded.hive.ql.plan.TableDesc
 import com.qubole.spark.orc.OrcFilters
-import com.qubole.spark.rdd.HadoopTableReader
 import org.apache.orc.mapreduce.OrcInputFormat
 import org.apache.spark.SparkException
+import com.qubole.spark.rdd.HiveTableReader
+import com.qubole.spark.util.SerializableConfiguration
+import org.apache.orc.mapreduce.OrcInputFormat
+import org.apache.spark.{SparkContext, SparkException}
+import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.expressions.PrettyAttribute
@@ -50,7 +54,7 @@ class HiveAcidRelation(var sqlContext: SQLContext,
     throw HiveAcidErrors.tableNotSpecifiedException
   })
 
-  private val hiveConf: HiveConf = HiveAcidDataSource.createHiveConf(sqlContext.sparkContext)
+  private val hiveConf: HiveConf = HiveAcidRelation.createHiveConf(sqlContext.sparkContext)
 
   private val hTable: metadata.Table = {
     val hive: Hive = Hive.get(hiveConf)
@@ -159,7 +163,7 @@ class HiveAcidRelation(var sqlContext: SQLContext,
       sqlContext.sparkSession.sessionState.conf.defaultSizeInBytes, partitionSchema,
       HiveConf.getTimeVar(hiveConf, HiveConf.ConfVars.HIVE_TXN_TIMEOUT, TimeUnit.MILLISECONDS) / 2, isFullAcidTable)
 
-    val hadoopReader = new HadoopTableReader(
+    val hiveReader = new HiveTableReader(
       requiredAttributes,
       partitionAttributes,
       tableDesc,
@@ -168,9 +172,9 @@ class HiveAcidRelation(var sqlContext: SQLContext,
       hadoopConf)
     if (hTable.isPartitioned) {
       val requiredPartitions = getRawPartitions(partitionFilters)
-      hadoopReader.makeRDDForPartitionedTable(requiredPartitions).asInstanceOf[RDD[Row]]
+      hiveReader.makeRDDForPartitionedTable(requiredPartitions).asInstanceOf[RDD[Row]]
     } else {
-      hadoopReader.makeRDDForTable(hTable).asInstanceOf[RDD[Row]]
+      hiveReader.makeRDDForTable(hTable).asInstanceOf[RDD[Row]]
     }
   }
 
@@ -239,5 +243,24 @@ class HiveAcidRelation(var sqlContext: SQLContext,
     prunedPartitions.toSeq
   }
 
+}
+
+
+object HiveAcidRelation extends Logging {
+  def createHiveConf(sparkContext: SparkContext): HiveConf = {
+    val hiveConf = new HiveConf()
+    (sparkContext.hadoopConfiguration.iterator().map(kv => kv.getKey -> kv.getValue)
+      ++ sparkContext.getConf.getAll.toMap).foreach { case (k, v) =>
+      logDebug(
+        s"""
+           |Applying Hadoop/Hive/Spark and extra properties to Hive Conf:
+           |$k=${if (k.toLowerCase(Locale.ROOT).contains("password")) "xxx" else v}
+         """.stripMargin)
+      hiveConf.set(k, v)
+    }
+    hiveConf
+  }
+
+  val agentName: String = "HiveAcidDataSource"
 
 }

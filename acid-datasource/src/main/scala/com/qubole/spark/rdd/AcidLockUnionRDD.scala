@@ -10,11 +10,7 @@ class AcidLockUnionRDD[T: ClassTag](
    sc: SparkContext,
    rddSeq: Seq[RDD[T]],
    partitionList: Seq[String],
-   @transient acidState: HiveAcidState) extends UnionRDD[T](sc, rddSeq) {
-
-  def getAcidState(): HiveAcidState = {
-    acidState
-  }
+   @transient val acidState: HiveAcidState) extends UnionRDD[T](sc, rddSeq) {
 
   override def getPartitions: Array[Partition] = {
     acidState.begin(partitionList)

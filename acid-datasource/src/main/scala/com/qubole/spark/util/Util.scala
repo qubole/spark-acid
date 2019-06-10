@@ -18,9 +18,13 @@ object SplitFileSystemType extends Enumeration {
 
 object Util extends Logging {
 
-  def classForName(className: String): Class[_] = {
-    Class.forName(className, true, Thread.currentThread().getContextClassLoader)
-    // scalastyle:on classforname
+  def classForName(className: String, loadShaded: Boolean = false): Class[_] = {
+    val classToLoad = if (loadShaded) {
+      className.replaceFirst("org.apache.hadoop.hive.", "com.qubole.shaded.hive.")
+    } else {
+      className
+    }
+    Class.forName(classToLoad, true, Thread.currentThread().getContextClassLoader)
   }
 
   val fileSystemSchemes: List[String] = List("s3", "s3n", "s3a", "wasb", "adl",

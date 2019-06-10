@@ -17,18 +17,9 @@
 
 package com.qubole.spark
 
-import java.util.Locale
-
-import com.qubole.shaded.hive.conf.HiveConf
-import com.qubole.shaded.hive.ql.metadata.HiveUtils
-import com.qubole.shaded.hive.ql.plan.TableDesc
-import org.apache.hadoop.conf.Configuration
-import org.apache.spark.SparkContext
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql._
 import org.apache.spark.sql.sources._
-
-import scala.collection.JavaConversions._
 
 class HiveAcidDataSource
   extends RelationProvider
@@ -50,40 +41,5 @@ class HiveAcidDataSource
 }
 
 object HiveAcidDataSource extends Logging {
-  def configureJobPropertiesForStorageHandler(
-                                               tableDesc: TableDesc, conf: Configuration, input: Boolean) {
-    val property = tableDesc.getProperties.getProperty(
-      com.qubole.shaded.hive.metastore.api.hive_metastoreConstants.META_TABLE_STORAGE
-    )
-    val storageHandler =
-      HiveUtils.getStorageHandler(conf, property)
-    if (storageHandler != null) {
-      val jobProperties = new java.util.LinkedHashMap[String, String]
-      if (input) {
-        storageHandler.configureInputJobProperties(tableDesc, jobProperties)
-      } else {
-        storageHandler.configureOutputJobProperties(tableDesc, jobProperties)
-      }
-      if (!jobProperties.isEmpty) {
-        tableDesc.setJobProperties(jobProperties)
-      }
-    }
-  }
-
-  def createHiveConf(sparkContext: SparkContext): HiveConf = {
-    val hiveConf = new HiveConf()
-    (sparkContext.hadoopConfiguration.iterator().map(kv => kv.getKey -> kv.getValue)
-      ++ sparkContext.getConf.getAll.toMap).foreach { case (k, v) =>
-      logDebug(
-        s"""
-           |Applying Hadoop/Hive/Spark and extra properties to Hive Conf:
-           |$k=${if (k.toLowerCase(Locale.ROOT).contains("password")) "xxx" else v}
-         """.stripMargin)
-      hiveConf.set(k, v)
-    }
-    hiveConf
-  }
-
   val agentName: String = "HiveAcidDataSource"
-
 }
