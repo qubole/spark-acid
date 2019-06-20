@@ -11,9 +11,11 @@ assemblyShadeRules in assembly := Seq(
   ShadeRule.rename("org.apache.orc.**" -> "com.qubole.shaded.orc.@1").inAll
 )
 
-libraryDependencies += "org.apache.hive" % "hive-metastore" % "3.1.1-qds-1.0.1"
-libraryDependencies += "org.apache.hive" % "hive-exec" % "3.1.1-qds-1.0.1" exclude("org.apache.calcite", "calcite-core")
-libraryDependencies += "org.apache.orc" % "orc-core" % "1.5.1"
+libraryDependencies += "org.apache.hive" % "hive-metastore" % "3.1.1-qds-1.0.2-SNAPSHOT"
+libraryDependencies += "org.apache.hive" % "hive-exec" % "3.1.1-qds-1.0.2-SNAPSHOT" exclude("org.apache.calcite", "calcite-core")
+libraryDependencies += "org.apache.orc" % "orc-core" % "1.5.1-qds-2.0-SNAPSHOT"
+
+credentials += Credentials(Path.userHome / ".ivy2" / "credentials")
 
 
 
@@ -48,6 +50,8 @@ assemblyMergeStrategy in assembly := {
   case PathList("org", "slf4j", "impl", xs @ _*) => MergeStrategy.last
   case PathList("org", "slf4j", "helpers", xs @ _*) => MergeStrategy.last
   case PathList("org", "slf4j", xs @ _*) => MergeStrategy.last
+  case PathList("com", "hadoop", "compression", "lzo", xs @ _*) => MergeStrategy.last
+  case PathList("com", "quicklz", xs @ _*) => MergeStrategy.last
   //case "about.html" => MergeStrategy.rename
   case "META-INF/ECLIPSEF.RSA" => MergeStrategy.last
   case "META-INF/mailcap" => MergeStrategy.last
@@ -60,6 +64,7 @@ assemblyMergeStrategy in assembly := {
   case "META-INF/io.netty.versions.properties" => MergeStrategy.last
   case "META-INF/org/apache/logging/log4j/core/config/plugins/Log4j2Plugins.dat" => MergeStrategy.last
   case "codegen/config.fmpp" => MergeStrategy.first
+  case "build.properties" => MergeStrategy.first
   case x =>
     val oldStrategy = (assemblyMergeStrategy in assembly).value
     oldStrategy(x)
