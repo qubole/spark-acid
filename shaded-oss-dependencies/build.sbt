@@ -11,10 +11,21 @@ assemblyShadeRules in assembly := Seq(
   ShadeRule.rename("org.apache.orc.**" -> "com.qubole.shaded.orc.@1").inAll
 )
 
-libraryDependencies += "org.apache.hive" % "hive-metastore" % "3.1.1"
-libraryDependencies += "org.apache.hive" % "hive-exec" % "3.1.1" exclude("org.apache.calcite", "calcite-core")
-libraryDependencies += "org.apache.orc" % "orc-core" % "1.5.1"
+libraryDependencies += "org.apache.hive" % "hive-metastore" % "3.1.1" intransitive()
+libraryDependencies += "org.apache.hive" % "hive-exec" % "3.1.1" intransitive()
+libraryDependencies += "org.apache.orc" % "orc-core" % "1.5.1" intransitive()
 
+val distinctAndReplace: sbtassembly.MergeStrategy = new sbtassembly.MergeStrategy {
+  val name = "distinctAndReplace"
+  def apply(tempDir: File, path: String, files: Seq[File]): Either[String, Seq[(File, String)]] = {
+    val lines = files flatMap (IO.readLines(_, IO.utf8))
+    val unique = lines.distinct
+    val replaced = unique.map {  x => x.replace("org.apache.hadoop.hive", "com.qubole.shaded.hive")}
+    val file = sbtassembly.MergeStrategy.createMergeTarget(tempDir, path)
+    IO.writeLines(file, replaced, IO.utf8)
+    Right(Seq(file -> path))
+  }
+}
 
 
 assemblyMergeStrategy in assembly := {
@@ -48,6 +59,7 @@ assemblyMergeStrategy in assembly := {
   case PathList("org", "slf4j", "impl", xs @ _*) => MergeStrategy.last
   case PathList("org", "slf4j", "helpers", xs @ _*) => MergeStrategy.last
   case PathList("org", "slf4j", xs @ _*) => MergeStrategy.last
+  case PathList("META-INF", "services", xs @ _*) => distinctAndReplace
   //case "about.html" => MergeStrategy.rename
   case "META-INF/ECLIPSEF.RSA" => MergeStrategy.last
   case "META-INF/mailcap" => MergeStrategy.last
