@@ -211,8 +211,6 @@ class Hive3RDD[K, V](
       // instead of making S3 calls. The JobConf is specific to this RDD
       // because of the way getJobConf works.
 
-      //TODO: OSS: remove this for OSS code, this is required for Qubole only and only works with Qubole based jars
-      jobConf.setBoolean("hive.qubole.acid.read.blobstore.commit.marker", true)
       val allInputSplits = getInputFormat(jobConf).getSplits(jobConf, minPartitions)
       val inputSplits = if (ignoreEmptySplits) {
         allInputSplits.filter(_.getLength > 0)

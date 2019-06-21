@@ -13,7 +13,7 @@ class AcidLockUnionRDD[T: ClassTag](
    @transient val acidState: HiveAcidState) extends UnionRDD[T](sc, rddSeq) {
 
   override def getPartitions: Array[Partition] = {
-    acidState.begin(partitionList)
+    acidState.beginRead
     super.getPartitions
   }
 }

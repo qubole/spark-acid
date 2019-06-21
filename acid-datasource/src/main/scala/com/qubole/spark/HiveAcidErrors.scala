@@ -28,20 +28,8 @@ object HiveAcidErrors {
     new IllegalArgumentException("The specified table is not an acid table")
   }
 
-  def couldNotAcquireLockException(exception: Exception = null): Throwable = {
-    new RuntimeException("Could not acquire lock", exception)
-  }
-
-  def txnClosedException: Throwable = {
-    new RuntimeException("The transaction has been closed")
-  }
-
-  def txnAlreadyOpen(txnId: Long): Throwable = {
-    new RuntimeException("A transaction with id " + txnId + " is already open")
-  }
-
-  def heartBeaterAlreadyExists: Throwable = {
-    new RuntimeException("A heartBeater already exists")
+  def validWriteIdsNotInitialized: Throwable = {
+    new RuntimeException("Valid WriteIds not initialized")
   }
 
 }
