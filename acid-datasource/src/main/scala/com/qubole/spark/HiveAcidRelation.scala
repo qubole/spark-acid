@@ -57,6 +57,8 @@ class HiveAcidRelation(var sqlContext: SQLContext,
   private val hiveConf: HiveConf = HiveAcidRelation.createHiveConf(sqlContext.sparkContext)
 
   private val hTable: metadata.Table = {
+    // Currently we are creating and closing a connection to the hive metastore every time we need to do something.
+    // This can be optimized.
     val hive: Hive = Hive.get(hiveConf)
     val hTable = hive.getTable(tableName.split('.')(0), tableName.split('.')(1))
     Hive.closeCurrent()
