@@ -63,6 +63,28 @@ class HiveAcidState(sparkSession: SparkSession,
 
   val location: Path = table.getDataLocation
 
+  private val listener  = new QueryExecutionListener {
+    override def onFailure(funcName: String, qe: QueryExecution, exception: Exception): Unit = {
+      compareAndClose(qe)
+      Future {
+        // Doing this in a Future as both unregister and onSuccess take the same lock
+        // to avoid modification of the queue while it is being processed
+        sparkSession.listenerManager.unregister(this)
+        logDebug(s"listener unregistered for ${HiveAcidState.this}")
+      }
+    }
+
+    override def onSuccess(funcName: String, qe: QueryExecution, durationNs: Long): Unit = {
+      compareAndClose(qe)
+      Future {
+        // Doing this in a Future as both unregister and onSuccess take the same lock
+        // to avoid modification of the queue while it is being processed
+        sparkSession.listenerManager.unregister(this)
+        logDebug(s"listener unregistered for ${HiveAcidState.this}")
+      }
+    }
+  }
+
   def begin(partitionNames: Seq[String]): Unit = {
     if (txnId != -1) {
       throw HiveAcidErrors.txnAlreadyOpen(txnId)
@@ -83,8 +105,11 @@ class HiveAcidState(sparkSession: SparkSession,
       (heartbeatInterval * 0.75 * Math.random()).asInstanceOf[Long],
       heartbeatInterval,
       TimeUnit.MILLISECONDS)
-    registerQEListener(sparkSession.sqlContext)
-    // 3. Acquire locks
+
+    // 3. Register QE listener
+    sparkSession.listenerManager.register(listener)
+    logDebug(s"listener registered for ${this}")
+    // 4. Acquire locks
     acquireLocks(partitionNames)
   }
 
@@ -102,6 +127,12 @@ class HiveAcidState(sparkSession: SparkSession,
             heartBeater = null
           } finally {
             heartBeaterClient.close()
+            Future {
+              // Doing this in a Future as both unregister and onSuccess take the same lock
+              // to avoid modification of the queue while it is being processed
+              sparkSession.listenerManager.unregister(listener)
+              logDebug(s"listener unregistered for ${this}")
+            }
           }
         } else {
           logWarning("Transaction already closed")
@@ -250,30 +281,6 @@ class HiveAcidState(sparkSession: SparkSession,
     }
   }
 
-  private def registerQEListener(sqlContext: SQLContext): Unit = {
-    sqlContext.sparkSession.listenerManager.register(new QueryExecutionListener {
-      override def onFailure(funcName: String, qe: QueryExecution, exception: Exception): Unit = {
-        compareAndClose(qe)
-        Future {
-          // Doing this in a Future as both unregister and onSuccess take the same lock
-          // to avoid modification of the queue while it is being processed
-          sqlContext.sparkSession.listenerManager.unregister(this)
-          logDebug(s"listener unregistered for ${HiveAcidState.this}")
-        }
-      }
-
-      override def onSuccess(funcName: String, qe: QueryExecution, durationNs: Long): Unit = {
-        compareAndClose(qe)
-        Future {
-          // Doing this in a Future as both unregister and onSuccess take the same lock
-          // to avoid modification of the queue while it is being processed
-          sqlContext.sparkSession.listenerManager.unregister(this)
-          logDebug(s"listener unregistered for ${HiveAcidState.this}")
-        }
-      }
-    })
-  }
-
   private def compareAndClose(qe: QueryExecution): Unit = {
     val acidStates = qe.executedPlan.collect {
       case RowDataSourceScanExec(_, _, _, _, rdd: AcidLockUnionRDD[InternalRow],
@@ -282,4 +289,5 @@ class HiveAcidState(sparkSession: SparkSession,
     }
     acidStates.foreach(_.end())
   }
+
 }
