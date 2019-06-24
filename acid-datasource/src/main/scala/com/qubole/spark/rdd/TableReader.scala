@@ -73,12 +73,6 @@ class HiveTableReader(
                          hadoopConf: Configuration)
   extends TableReader with CastSupport with Logging {
 
-  // Hadoop honors "mapreduce.job.maps" as hint,
-  // but will ignore when mapreduce.jobtracker.address is "local".
-  // https://hadoop.apache.org/docs/r2.6.5/hadoop-mapreduce-client/hadoop-mapreduce-client-core/
-  // mapred-default.xml
-  //
-  // In order keep consistency with Hive, we will let it be 0 in local mode also.
   private val _minSplitsPerRDD = if (sparkSession.sparkContext.isLocal) {
     0 // will splitted based on block by default.
   } else {
@@ -155,9 +149,7 @@ class HiveTableReader(
   }
 
   /**
-    * Create a Hive3RDD for every partition key specified in the query. Note that for on-disk Hive
-    * tables, a data directory is created for each partition corresponding to keys specified using
-    * 'PARTITION BY'.
+    * Create a Hive3RDD for every partition key specified in the query.
     *
     * @param partitionToDeserializer Mapping from a Hive Partition metadata object to the SerDe
     *     class to use to deserialize input Writables from the corresponding partition.

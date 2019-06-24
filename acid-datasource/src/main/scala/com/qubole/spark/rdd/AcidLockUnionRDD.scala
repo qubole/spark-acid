@@ -13,6 +13,7 @@ class AcidLockUnionRDD[T: ClassTag](
    @transient val acidState: HiveAcidState) extends UnionRDD[T](sc, rddSeq) {
 
   override def getPartitions: Array[Partition] = {
+    // Initialize the ACID state here to get the write-ids to read
     acidState.beginRead
     super.getPartitions
   }

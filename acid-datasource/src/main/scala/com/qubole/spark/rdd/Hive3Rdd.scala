@@ -174,7 +174,6 @@ class Hive3RDD[K, V](
     //TODO: Utilities.copyTablePropertiesToConf(table, conf)?
     if (acidState.isFullAcidTable) {
       // If full ACID table, just set the right writeIds, the OrcInputFormat.getSplits() will take care of the rest
-      //AcidUtils.setValidWriteIdList(jobConf, acidState.getValidWriteIdsNoTxn)
       AcidUtils.setValidWriteIdList(jobConf, validWriteIds)
     } else {
       val finalPaths = new ListBuffer[Path]()
@@ -206,11 +205,6 @@ class Hive3RDD[K, V](
     // add the credentials here as this can be called before SparkContext initialized
     SparkHadoopUtil.get.addCredentials(jobConf)
     try {
-      // Set the cache on the JobConf before calling getSplits. This will
-      // make sure that the listStatus calls will lookup cached information
-      // instead of making S3 calls. The JobConf is specific to this RDD
-      // because of the way getJobConf works.
-
       val allInputSplits = getInputFormat(jobConf).getSplits(jobConf, minPartitions)
       val inputSplits = if (ignoreEmptySplits) {
         allInputSplits.filter(_.getLength > 0)
@@ -228,10 +222,6 @@ class Hive3RDD[K, V](
           s" partitions returned from this path.", e)
         Array.empty[Partition]
     }
-  }
-
-  override def clearDependencies(): Unit = {
-    super.clearDependencies()
   }
 
   override def compute(theSplit: Partition, context: TaskContext): InterruptibleIterator[(K, V)] = {
@@ -432,9 +422,9 @@ object Hive3RDD extends Logging {
     * the given function rather than the index of the partition.
     */
   class Hive3PartitionsWithSplitRDD[U: ClassTag, T: ClassTag](
-                                                                                  prev: RDD[T],
-                                                                                  f: (InputSplit, Iterator[T]) => Iterator[U],
-                                                                                  preservesPartitioning: Boolean = false)
+                                                               prev: RDD[T],
+                                                               f: (InputSplit, Iterator[T]) => Iterator[U],
+                                                               preservesPartitioning: Boolean = false)
     extends RDD[U](prev) {
 
     override val partitioner = if (preservesPartitioning) firstParent[T].partitioner else None
@@ -449,7 +439,7 @@ object Hive3RDD extends Logging {
   }
 
   def convertSplitLocationInfo(
-                                               infos: Array[SplitLocationInfo]): Option[Seq[String]] = {
+                                infos: Array[SplitLocationInfo]): Option[Seq[String]] = {
     Option(infos).map(_.flatMap { loc =>
       val locationStr = loc.getLocation
       if (locationStr != "localhost") {

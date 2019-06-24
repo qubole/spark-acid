@@ -150,9 +150,9 @@ class HiveAcidRelation(var sqlContext: SQLContext,
       s"dataFilters: ${dataFilters.size} " +
       s"partitionFilters: ${partitionFilters.size}")
 
-    //TODO: This has to be set only if its a Full ACID table, or if MM table with ORC.
-    // We need to set filters for MM table with Parquet as well. Infact, there should be a generic way to set filters
-    // for anyInputformat and it should handle it if it can.
+    // TODO: This has to be set only if its a Full ACID table, or if MM table with ORC.
+    // We need to set filters for MM table with Parquet as well. In fact, there should be a generic way to set filters
+    // for any Inputformat and it should handle it if it can.
 
     if (sqlContext.sparkSession.sessionState.conf.orcFilterPushDown) {
       OrcFilters.createFilter(dataSchema, dataFilters).foreach { f =>
