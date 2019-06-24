@@ -1,4 +1,4 @@
-package com.qubole.spark.rdd
+package com.qubole.spark.datasources.hiveacid.rdd
 
 /*
  * Licensed to the Apache Software Foundation (ASF) under one or more
@@ -29,11 +29,11 @@ import com.qubole.shaded.hive.ql.plan.TableDesc
 import com.qubole.shaded.hive.serde2.Deserializer
 import com.qubole.shaded.hive.serde2.objectinspector.primitive._
 import com.qubole.shaded.hive.serde2.objectinspector.{ObjectInspectorConverters, StructObjectInspector}
-import com.qubole.spark.HiveAcidState
-import com.qubole.spark.util.{EmptyRDD, SerializableConfiguration, Util}
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{Path, PathFilter}
 import com.qubole.shaded.hive.ql.io.AcidUtils
+import com.qubole.spark.datasources.hiveacid.HiveAcidState
+import com.qubole.spark.datasources.hiveacid.util.{EmptyRDD, SerializableConfiguration, Util}
 import org.apache.hadoop.io.Writable
 import org.apache.hadoop.mapred.{FileInputFormat, InputFormat, JobConf}
 import org.apache.spark.broadcast.Broadcast

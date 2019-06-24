@@ -1,4 +1,4 @@
-package com.qubole.spark.util
+package com.qubole.spark.datasources.hiveacid.util
 
 import java.io.{ObjectInputStream, ObjectOutputStream}
 

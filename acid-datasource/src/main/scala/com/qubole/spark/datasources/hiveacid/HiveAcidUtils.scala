@@ -15,31 +15,8 @@
  * limitations under the License.
  */
 
-package com.qubole.spark
+package com.qubole.spark.datasources.hiveacid
 
-import org.apache.spark.internal.Logging
-import org.apache.spark.sql._
-import org.apache.spark.sql.sources._
-
-class HiveAcidDataSource
-  extends RelationProvider
-    with DataSourceRegister
-    with Logging {
-
-  override def createRelation(
-   sqlContext: SQLContext,
-   parameters: Map[String, String]): BaseRelation = {
-    new HiveAcidRelation(
-      sqlContext,
-      parameters
-    )
-  }
-
-  override def shortName(): String = {
-    HiveAcidUtils.NAME
-  }
-}
-
-object HiveAcidDataSource extends Logging {
-  val agentName: String = "HiveAcidDataSource"
+object HiveAcidUtils {
+  val NAME = "HiveAcid"
 }

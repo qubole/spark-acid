@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package com.qubole.spark
+package com.qubole.spark.datasources.hiveacid
 
 import java.util.Locale
 import java.util.concurrent.TimeUnit
@@ -25,14 +25,10 @@ import com.qubole.shaded.hive.metastore.api.{FieldSchema, Table}
 import com.qubole.shaded.hive.ql.metadata
 import com.qubole.shaded.hive.ql.metadata.Hive
 import com.qubole.shaded.hive.ql.plan.TableDesc
-import com.qubole.spark.orc.OrcFilters
-import org.apache.orc.mapreduce.OrcInputFormat
-import org.apache.spark.SparkException
-import com.qubole.spark.rdd.HiveTableReader
-import com.qubole.spark.util.SerializableConfiguration
+import com.qubole.spark.datasources.hiveacid.orc.OrcFilters
+import com.qubole.spark.datasources.hiveacid.rdd.HiveTableReader
 import org.apache.orc.mapreduce.OrcInputFormat
 import org.apache.spark.{SparkContext, SparkException}
-import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.expressions.PrettyAttribute

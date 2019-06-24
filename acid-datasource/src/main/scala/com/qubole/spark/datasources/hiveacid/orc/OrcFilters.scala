@@ -1,4 +1,4 @@
-package com.qubole.spark.orc
+package com.qubole.spark.datasources.hiveacid.orc
 
 import org.apache.orc.storage.ql.io.sarg.{PredicateLeaf, SearchArgument}
 import org.apache.orc.storage.ql.io.sarg.SearchArgument.Builder

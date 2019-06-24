@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package com.qubole.spark
+package com.qubole.spark.datasources.hiveacid
 
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 

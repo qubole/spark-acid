@@ -15,8 +15,7 @@
  * limitations under the License.
  */
 
-package com.qubole.spark
-
+package com.qubole.spark.datasources.hiveacid
 
 import com.qubole.shaded.hive.common.{ValidTxnWriteIdList, ValidWriteIdList}
 import com.qubole.shaded.hive.conf.HiveConf

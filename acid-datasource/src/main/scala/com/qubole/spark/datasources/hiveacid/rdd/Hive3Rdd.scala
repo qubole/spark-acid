@@ -1,4 +1,4 @@
-package com.qubole.spark.rdd;
+package com.qubole.spark.datasources.hiveacid.rdd
 
 import java.io.{FileNotFoundException, IOException}
 import java.text.SimpleDateFormat
@@ -6,9 +6,10 @@ import java.util.{Date, Locale}
 
 import com.qubole.shaded.hive.common.ValidWriteIdList
 import com.qubole.shaded.hive.ql.io.{AcidUtils, HiveInputFormat}
-import com.qubole.spark.HiveAcidState
-import com.qubole.spark.rdd.Hive3RDD.Hive3PartitionsWithSplitRDD
-import com.qubole.spark.util.{SerializableWritable => _, _}
+import com.qubole.spark.datasources.hiveacid.HiveAcidState
+import com.qubole.spark.datasources.hiveacid.util.{InputFileBlockHolder, NextIterator, SerializableConfiguration, Util}
+import com.qubole.spark.datasources.hiveacid.rdd.Hive3RDD.Hive3PartitionsWithSplitRDD
+import com.qubole.spark.datasources.hiveacid.util.{SerializableWritable => _, _}
 import org.apache.hadoop.conf.{Configurable, Configuration}
 import org.apache.hadoop.fs.Path
 import org.apache.hadoop.mapred.lib.CombineFileSplit

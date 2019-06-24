@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package com.qubole.spark.rdd
+package com.qubole.spark.datasources.hiveacid.rdd
 
 import java.lang.reflect.{ParameterizedType, Type, WildcardType}
 import java.sql.Date
@@ -28,7 +28,7 @@ import com.qubole.shaded.hive.serde2.{io => hiveIo}
 import com.qubole.shaded.hive.serde2.objectinspector.{StructField => HiveStructField, _}
 import com.qubole.shaded.hive.serde2.objectinspector.primitive._
 import com.qubole.shaded.hive.serde2.typeinfo.{DecimalTypeInfo, TypeInfoFactory}
-import com.qubole.spark.AnalysisException
+import com.qubole.spark.datasources.hiveacid.AnalysisException
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.util._

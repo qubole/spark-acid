@@ -1,6 +1,6 @@
-package com.qubole.spark.rdd
+package com.qubole.spark.datasources.hiveacid.rdd
 
-import com.qubole.spark.HiveAcidState
+import com.qubole.spark.datasources.hiveacid.HiveAcidState
 import org.apache.spark._
 import org.apache.spark.rdd.{RDD, UnionRDD}
 
