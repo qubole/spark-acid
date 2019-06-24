@@ -1,0 +1,2 @@
+#!/bin/bash
+docker build -t centos6/spark-hadoop3-hive3 files/.

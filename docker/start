@@ -1,0 +1,16 @@
+#!/bin/bash
+
+name="spark-hiveacid-test-container"
+
+RUNNING=`docker inspect --format "{{ .State.Running}}" ${name}  2>/dev/null`
+if [[ $? -eq 0 ]]
+then
+	if [[ "${RUNNING}" == "true" ]]
+	then
+		echo "$name already running"
+		exit
+	fi
+else 
+	docker run --name ${name} -P -p10000:10000 -p9000:9000 -p3306:3306 -it -d centos6/spark-hadoop3-hive3 /bin/bash -c "/bootstrap.sh"
+fi
+

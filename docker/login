@@ -1,0 +1,2 @@
+#!/bin/bash
+docker exec -it spark-hiveacid-test-container /bin/bash

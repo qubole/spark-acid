@@ -1,0 +1,5 @@
+#!/bin/bash
+
+name="spark-hiveacid-test-container"
+docker kill ${name}
+docker rm ${name}
