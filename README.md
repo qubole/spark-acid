@@ -119,8 +119,7 @@ required to instruct Spark to use this datasource against an existing table.
 
 To create the symlink table
 
-`scala> spark.sql("create table symlinkacidtable using com.qubole.spark.datasources.hiveacid.HiveAcidDataSource options 
-('table' 'default.acidtbl')")`
+`scala> spark.sql("create table symlinkacidtable using HiveAcid options ('table' 'default.acidtbl')")`
 
 To read
 
@@ -132,8 +131,7 @@ To read
 
 To read table from scala / pySpark table can be directly accessed.
 
-`scala> val df = spark.read.format("com.qubole.spark.datasources.hiveacid.HiveAcidDataSource").options(Map("table" -> 
-"default.acidtbl")).load()`
+`scala> val df = spark.read.format("HiveAcid").options(Map("table" -> "default.acidtbl")).load()`
 
 `scala> df.collect()`
 
