@@ -29,9 +29,11 @@ RUN yum -y install initscripts httpd
 
 RUN wget https://archive.apache.org/dist/hadoop/common/hadoop-3.1.1/hadoop-3.1.1.tar.gz
 RUN tar -xvzf hadoop-3.1.1.tar.gz
+RUN ln -sf /hadoop-3.1.1 /hadoop
 
 RUN wget http://mirrors.estointernet.in/apache/hive/hive-3.1.1/apache-hive-3.1.1-bin.tar.gz
 RUN tar -xvzf apache-hive-3.1.1-bin.tar.gz
+RUN ln -sf /apache-hive-3.1.1-bin /hive
 
 RUN wget http://repo.mysql.com/mysql-community-release-el6-5.noarch.rpm && \
 	 rpm -ivh mysql-community-release-el6-5.noarch.rpm && \
@@ -53,9 +55,10 @@ RUN chmod 755 /root && chmod 700 /root/.ssh
 RUN passwd --unlock root
 
 # Copy configuration files
-COPY core-site.xml hadoop-3.1.1/etc/hadoop
-COPY hdfs-site.xml hadoop-3.1.1/etc/hadoop
-COPY hive-site.xml apache-hive-3.1.1-bin/conf/
+COPY core-site.xml hadoop/etc/hadoop
+COPY hdfs-site.xml hadoop/etc/hadoop
+COPY hadoop-env.sh hadoop/etc/hadoop
+COPY hive-site.xml hive/conf/
 COPY bootstrap.sh /
 
 # HDFS ports
@@ -72,3 +75,6 @@ EXPOSE 1180
 
 # mysql expose
 EXPOSE 3306
+
+# HDFS datnode
+EXPOSE 9866

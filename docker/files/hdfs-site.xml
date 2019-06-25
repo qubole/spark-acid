@@ -20,7 +20,11 @@
         <value>1</value>
     </property>
     <property>
-        <name>dfs.permissions</name>
+        <name>dfs.permissions.enabled</name>
         <value>false</value>
+    </property>
+    <property>
+        <name>dfs.datanode.address</name>
+        <value>0.0.0.0:9866</value>
     </property>
 </configuration>

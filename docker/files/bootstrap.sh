@@ -24,11 +24,13 @@ export HDFS_DATANODE_USER="root"
 export YARN_RESOURCEMANAGER_USER="root"
 export YARN_NODEMANAGER_USER="root"
 
-export HADOOP_HOME="/hadoop-3.1.1"
+export HADOOP_HOME="/hadoop"
+export HADOOP_ROOT_LOGGER=DEBUG
+export HADOOP_COMMON_LIB_NATIVE_DIR="/hadoop/lib/native"
 
 ## Add it to bashrc for starting hadoop
 echo 'export JAVA_HOME="/usr/lib/jvm/java-openjdk"' >> ~/.bashrc
-echo 'export HADOOP_HOME="/hadoop-3.1.1"' >> ~/.bashrc
+echo 'export HADOOP_HOME="/hadoop"' >> ~/.bashrc
 
 
 gprn "set up mysql"
@@ -38,18 +40,21 @@ mysql -uroot -e "grant all privileges on *.* to 'root'@'%';"
 service sshd start
 
 gprn "start yarn"
-hadoop-3.1.1/sbin/start-yarn.sh
+hadoop/sbin/start-yarn.sh
 
 gprn "Formatting name node"
-hadoop-3.1.1/bin/hdfs namenode -format
+hadoop/bin/hdfs namenode -format
 
 gprn "Start hdfs"
-hadoop-3.1.1/sbin/start-dfs.sh
+hadoop/sbin/start-dfs.sh
 
 jps
 
+mkdir -p /hive/warehouse -dbType mysql  -initSchemaTo 3.1.0
+
+
 gprn "Set up metastore DB"
-apache-hive-3.1.1-bin/bin/schematool -dbType mysql  -initSchemaTo 3.1.0
+hive/bin/schematool -dbType mysql  -initSchemaTo 3.1.0
 
 gprn "Start HMS server"
-apache-hive-3.1.1-bin/bin/hive --service metastore -p  10000
+hive/bin/hive --service metastore -p  10000
