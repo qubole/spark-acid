@@ -20,18 +20,18 @@ package com.qubole.spark.datasources.hiveacid.rdd
 import java.util
 import java.util.Properties
 
-import com.qubole.shaded.hive.metastore.api.FieldSchema
-import com.qubole.shaded.hive.metastore.api.hive_metastoreConstants._
-import com.qubole.shaded.hive.metastore.utils.MetaStoreUtils.{getColumnNamesFromFieldSchema, getColumnTypesFromFieldSchema}
-import com.qubole.shaded.hive.ql.exec.Utilities
-import com.qubole.shaded.hive.ql.metadata.{Partition => HiveJarPartition, Table => HiveTable}
-import com.qubole.shaded.hive.ql.plan.TableDesc
-import com.qubole.shaded.hive.serde2.Deserializer
-import com.qubole.shaded.hive.serde2.objectinspector.primitive._
-import com.qubole.shaded.hive.serde2.objectinspector.{ObjectInspectorConverters, StructObjectInspector}
+import com.qubole.shaded.hadoop.hive.metastore.api.FieldSchema
+import com.qubole.shaded.hadoop.hive.metastore.api.hive_metastoreConstants._
+import com.qubole.shaded.hadoop.hive.metastore.utils.MetaStoreUtils.{getColumnNamesFromFieldSchema, getColumnTypesFromFieldSchema}
+import com.qubole.shaded.hadoop.hive.ql.exec.Utilities
+import com.qubole.shaded.hadoop.hive.ql.metadata.{Partition => HiveJarPartition, Table => HiveTable}
+import com.qubole.shaded.hadoop.hive.ql.plan.TableDesc
+import com.qubole.shaded.hadoop.hive.serde2.Deserializer
+import com.qubole.shaded.hadoop.hive.serde2.objectinspector.primitive._
+import com.qubole.shaded.hadoop.hive.serde2.objectinspector.{ObjectInspectorConverters, StructObjectInspector}
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{Path, PathFilter}
-import com.qubole.shaded.hive.ql.io.AcidUtils
+import com.qubole.shaded.hadoop.hive.ql.io.AcidUtils
 import com.qubole.spark.datasources.hiveacid.HiveAcidState
 import com.qubole.spark.datasources.hiveacid.util.{EmptyRDD, SerializableConfiguration, Util}
 import org.apache.hadoop.io.Writable
@@ -296,7 +296,7 @@ object HiveTableUtil {
                                                tableDesc: TableDesc, conf: Configuration, input: Boolean) {
     val property = tableDesc.getProperties.getProperty(META_TABLE_STORAGE)
     val storageHandler =
-      com.qubole.shaded.hive.ql.metadata.HiveUtils.getStorageHandler(conf, property)
+      com.qubole.shaded.hadoop.hive.ql.metadata.HiveUtils.getStorageHandler(conf, property)
     if (storageHandler != null) {
       val jobProperties = new java.util.LinkedHashMap[String, String]
       if (input) {
@@ -372,10 +372,8 @@ object HiveTableReader extends Hive3Inspectors with Logging {
       soi.getStructFieldRef(attr.name) -> ordinal
     }.toArray.unzip
 
-    /**
-      * Builds specific unwrappers ahead of time according to object inspector
-      * types to avoid pattern matching and branching costs per row.
-      */
+    // Builds specific unwrappers ahead of time according to object inspector
+    // types to avoid pattern matching and branching costs per row.
     val unwrappers: Seq[(Any, InternalRow, Int) => Unit] = fieldRefs.map {
       x =>
         val y = x.getFieldObjectInspector

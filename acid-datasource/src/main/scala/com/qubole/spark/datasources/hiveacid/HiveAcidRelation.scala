@@ -20,11 +20,11 @@ package com.qubole.spark.datasources.hiveacid
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
-import com.qubole.shaded.hive.conf.HiveConf
-import com.qubole.shaded.hive.metastore.api.{FieldSchema, Table}
-import com.qubole.shaded.hive.ql.metadata
-import com.qubole.shaded.hive.ql.metadata.Hive
-import com.qubole.shaded.hive.ql.plan.TableDesc
+import com.qubole.shaded.hadoop.hive.conf.HiveConf
+import com.qubole.shaded.hadoop.hive.metastore.api.{FieldSchema, Table}
+import com.qubole.shaded.hadoop.hive.ql.metadata
+import com.qubole.shaded.hadoop.hive.ql.metadata.Hive
+import com.qubole.shaded.hadoop.hive.ql.plan.TableDesc
 import com.qubole.spark.datasources.hiveacid.orc.OrcFilters
 import com.qubole.spark.datasources.hiveacid.rdd.HiveTableReader
 import org.apache.orc.mapreduce.OrcInputFormat
@@ -158,8 +158,7 @@ class HiveAcidRelation(var sqlContext: SQLContext,
 
     //TODO: Introduce a configurable value for heartbeat interval
     val acidState = new HiveAcidState(sqlContext.sparkSession, hiveConf, hTable,
-      sqlContext.sparkSession.sessionState.conf.defaultSizeInBytes, partitionSchema,
-      HiveConf.getTimeVar(hiveConf, HiveConf.ConfVars.HIVE_TXN_TIMEOUT, TimeUnit.MILLISECONDS) / 2, isFullAcidTable)
+      sqlContext.sparkSession.sessionState.conf.defaultSizeInBytes, partitionSchema, isFullAcidTable)
 
     val hiveReader = new HiveTableReader(
       requiredAttributes,

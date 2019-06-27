@@ -18,35 +18,77 @@
 package com.qubole.spark.datasources.hiveacid
 
 import org.apache.spark.sql._
-import org.apache.spark.sql.test.SharedSQLContext
+import org.scalatest._
 import org.apache.spark.util._
+import scala.util.control.NonFatal
 
-// scalastyle:off: removeFile
-class HiveACIDSuite extends QueryTest
-  with SharedSQLContext {
+class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll {
 
+  var spark : SparkSession = _
+  var hiveClient : TestHiveClient = _
 
-  val hClient = new TestHiveClient()
+  val DBNAME: String = "HiveTestDB"
 
-  testQuietly("checkpoint") {
+  override def beforeAll() {
 
-    //println("----------------------> DUMMY TEST      ---------------------> ")
-    //hClient.init()
+    // Create clients
+    spark = TestSparkSession.getSession()
+    hiveClient = new TestHiveClient()
 
-    //println("----------------------> DUMMY TEST      ---------------------> ")
-    //hClient.execute("show databases;")
+    // Create fresh new database
+    /*
+    try {
+      hiveClient.execute("Drop database "+ DBNAME)
+    } catch {
+      case e Throwable: println("Failed to drop database ..." + e) 
+    }
+    hiveClient.execute("Create database "+ DBNAME)
+    */
+  }
 
-    //println("----------------------> DUMMY TEST      ---------------------> ")
-    //hClient.execute("show tables;")
+  /*
+  @throws(classOf[Exception])
+  def createTable(tblname: String): Boolean = {
+    if (! hiveClient.execute("create table "+"DBNAME"+"."+tblname+ " (key int, value string)") {
+      return false;
+    }
+    return true
+  }
 
-    println("----------------------> DUMMY TEST      ---------------------> ")
-    spark.sql("show tables").collect.foreach(println)
+  @throws(classOf[Exception])
+  def dropTable(tblname: String): Boolean = {
+    if (! hiveClient.execute("drop table "+"DBNAME"+"."+tblname")) {
+      return false;
+    }
+    return true
+  }
+  */
 
-    println("----------------------> DUMMY TEST      ---------------------> ")
-    spark.sql("show databases").collect.foreach(println)
+  test("your test name here"){
+    try {
 
-    //println("----------------------> DUMMY TEST      ---------------------> ")
-    //hClient.teardown()
+      println("HIVE ------------------------------------------------------------------------------")
+      val hiveQuery = "select * from default.acidtbl"
+      val res = hiveClient.executeQuery(hiveQuery)
+      println("Query: " + hiveQuery)
+      println("Result: " + hiveClient.resultStr(res))
+      res.close()
+  
+      println("DataFrame ---------------------------------------------------------------------------")
+      spark.read.format("HiveAcid").options(Map("table" -> "default.acidtbl")).load().collect().foreach(println)
+      
+      println("SQL ------------------------------------------------------------------------------")
+      val sparkQuery = "select * from default.sparkacidtbl"
+      println("Query: " + sparkQuery)
+      spark.sql(sparkQuery).collect.foreach(println)
+    }
+    catch {
+      case NonFatal(e) => println("Got some other kind of exception " + e)
+    }
+  }
 
+  override protected def afterAll(): Unit = {
+    hiveClient.teardown()
+    spark.stop()
   }
 }

@@ -1,32 +1,63 @@
 
-name := "shaded-oss-dependencies"
+name := "spark-hiveacid-shaded-dependencies"
 
 version := "0.1"
 
 scalaVersion := "2.11.12"
 
-
-assemblyShadeRules in assembly := Seq(
-  ShadeRule.rename("org.apache.hadoop.hive.**" -> "com.qubole.shaded.hive.@1").inAll,
-  ShadeRule.rename("org.apache.orc.**" -> "com.qubole.shaded.orc.@1").inAll
+scalacOptions ++= Seq(
+  "-Xlint",
+  "-Xfatal-warnings",
+  "-deprecation",
+  "-unchecked",
+  "-optimise",
+  "-Yinline-warnings"
 )
 
-libraryDependencies += "org.apache.hive" % "hive-metastore" % "3.1.1" intransitive()
-libraryDependencies += "org.apache.hive" % "hive-exec" % "3.1.1" intransitive()
-libraryDependencies += "org.apache.orc" % "orc-core" % "1.5.1" intransitive()
+scalacOptions in (Compile, doc) ++= Seq(
+  "-no-link-warnings" // Suppresses problems with Scaladoc @throws links
+)
+
+
+libraryDependencies ++= Seq(
+  // Hive/Orc core dependencies packed. 
+  "org.apache.hive" % "hive-metastore" % "3.1.1" intransitive(),
+  "org.apache.hive" % "hive-exec" % "3.1.1" intransitive(),
+  "org.apache.orc" % "orc-core" % "1.5.1" intransitive(),
+
+  // Only for hive3 client in tests.. but packing it in shaded jars.
+  "org.apache.hive" % "hive-jdbc" % "3.1.1" intransitive(),
+  "org.apache.hive" % "hive-service" % "3.1.1" intransitive(),
+  "org.apache.hive" % "hive-serde" % "3.1.1" intransitive(),
+  "org.apache.hive" % "hive-common" % "3.1.1" intransitive(),
+)
+
+assemblyOption in assembly := (assemblyOption in assembly).value.copy(includeScala = false)
+
+assemblyShadeRules in assembly := Seq(
+  ShadeRule.rename("org.apache.hadoop.hive.**" -> "com.qubole.shaded.hadoop.hive.@1").inAll,
+  ShadeRule.rename("org.apache.hive.**" -> "com.qubole.shaded.hive.@1").inAll,
+  ShadeRule.rename("org.apache.orc.**" -> "com.qubole.shaded.orc.@1").inAll
+)
 
 val distinctAndReplace: sbtassembly.MergeStrategy = new sbtassembly.MergeStrategy {
   val name = "distinctAndReplace"
   def apply(tempDir: File, path: String, files: Seq[File]): Either[String, Seq[(File, String)]] = {
     val lines = files flatMap (IO.readLines(_, IO.utf8))
     val unique = lines.distinct
-    val replaced = unique.map {  x => x.replace("org.apache.hadoop.hive", "com.qubole.shaded.hive")}
+    val replaced = unique.map {  x => x.replace("org.apache.hadoop.hive", "com.qubole.shaded.hadoop.hive")}
     val file = sbtassembly.MergeStrategy.createMergeTarget(tempDir, path)
     IO.writeLines(file, replaced, IO.utf8)
     Right(Seq(file -> path))
   }
 }
 
+// For publishing
+artifact in (Compile, assembly) := {
+  val art = (artifact in (Compile, assembly)).value
+  art.withClassifier(Some("assembly"))
+}
+addArtifact(artifact in (Compile, assembly), assembly)
 
 assemblyMergeStrategy in assembly := {
   case PathList("javax", "inject", xs @ _*) => MergeStrategy.last

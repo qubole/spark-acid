@@ -4,8 +4,8 @@ import java.io.{FileNotFoundException, IOException}
 import java.text.SimpleDateFormat
 import java.util.{Date, Locale}
 
-import com.qubole.shaded.hive.common.ValidWriteIdList
-import com.qubole.shaded.hive.ql.io.{AcidUtils, HiveInputFormat}
+import com.qubole.shaded.hadoop.hive.common.ValidWriteIdList
+import com.qubole.shaded.hadoop.hive.ql.io.{AcidUtils, HiveInputFormat}
 import com.qubole.spark.datasources.hiveacid.HiveAcidState
 import com.qubole.spark.datasources.hiveacid.util.{InputFileBlockHolder, NextIterator, SerializableConfiguration, Util}
 import com.qubole.spark.datasources.hiveacid.rdd.Hive3RDD.Hive3PartitionsWithSplitRDD

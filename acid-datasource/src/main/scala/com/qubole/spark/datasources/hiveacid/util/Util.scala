@@ -20,7 +20,7 @@ object Util extends Logging {
 
   def classForName(className: String, loadShaded: Boolean = false): Class[_] = {
     val classToLoad = if (loadShaded) {
-      className.replaceFirst("org.apache.hadoop.hive.", "com.qubole.shaded.hive.")
+      className.replaceFirst("org.apache.hadoop.hive.", "com.qubole.shaded.hadoop.hive.")
     } else {
       className
     }

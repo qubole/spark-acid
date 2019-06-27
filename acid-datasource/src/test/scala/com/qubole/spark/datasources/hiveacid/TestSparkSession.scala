@@ -18,16 +18,16 @@ package com.qubole.spark.datasources.hiveacid
 
 import org.apache.spark.sql.SparkSession
 
-private[hiveacid] object TestHiveACIDSparkSession {
+private[hiveacid] object TestSparkSession {
 
-  val sparkSession: SparkSession = SparkSession.builder
-    .master("local")
-    .appName("Hive-acid-test")
-    .config("hive.metastore.uris", "thrift://localhost:10000")
+  val spark = SparkSession.builder().appName("Hive-acid-test")
+    .master("local[*]")
+    .config("spark.hadoop.hive.metastore.uris", "thrift://0.0.0.0:10000")
     .enableHiveSupport()
     .getOrCreate()
 
   def getSession(): SparkSession = {
-    return sparkSession
+    spark.sparkContext.setLogLevel("WARN")
+    return spark
   }
 }

@@ -17,11 +17,11 @@
 
 package com.qubole.spark.datasources.hiveacid
 
-import com.qubole.shaded.hive.common.{ValidTxnWriteIdList, ValidWriteIdList}
-import com.qubole.shaded.hive.conf.HiveConf
-import com.qubole.shaded.hive.metastore.HiveMetaStoreClient
-import com.qubole.shaded.hive.metastore.txn.TxnUtils
-import com.qubole.shaded.hive.ql.metadata
+import com.qubole.shaded.hadoop.hive.common.{ValidTxnWriteIdList, ValidWriteIdList}
+import com.qubole.shaded.hadoop.hive.conf.HiveConf
+import com.qubole.shaded.hadoop.hive.metastore.HiveMetaStoreClient
+import com.qubole.shaded.hadoop.hive.metastore.txn.TxnUtils
+import com.qubole.shaded.hadoop.hive.ql.metadata
 import org.apache.hadoop.fs.Path
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.SparkSession
@@ -34,7 +34,6 @@ class HiveAcidState(sparkSession: SparkSession,
                     val table: metadata.Table,
                     val sizeInBytes: Long,
                     val pSchema: StructType,
-                    val heartbeatInterval: Long,
                     val isFullAcidTable: Boolean) extends Logging {
 
   val location: Path = table.getDataLocation
@@ -43,7 +42,7 @@ class HiveAcidState(sparkSession: SparkSession,
   private val txnId: Long = -1
   private var validWriteIdsNoTxn: ValidWriteIdList = _
 
-  def beginRead: Unit = {
+  def beginRead(): Unit = {
     // Get write ids to read. Currently, this data source does not open a transaction or take locks against
     // it's read entities(partitions). This can be enhanced in the future
     val client = new HiveMetaStoreClient(hiveConf, null, false)

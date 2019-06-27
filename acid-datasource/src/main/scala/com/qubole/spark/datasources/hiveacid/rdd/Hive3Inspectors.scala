@@ -23,11 +23,11 @@ import java.sql.Timestamp
 
 import scala.collection.JavaConverters._
 import org.apache.hadoop.{io => hadoopIo}
-import com.qubole.shaded.hive.common.`type`.{HiveChar, HiveDecimal, HiveVarchar}
-import com.qubole.shaded.hive.serde2.{io => hiveIo}
-import com.qubole.shaded.hive.serde2.objectinspector.{StructField => HiveStructField, _}
-import com.qubole.shaded.hive.serde2.objectinspector.primitive._
-import com.qubole.shaded.hive.serde2.typeinfo.{DecimalTypeInfo, TypeInfoFactory}
+import com.qubole.shaded.hadoop.hive.common.`type`.{HiveChar, HiveDecimal, HiveVarchar}
+import com.qubole.shaded.hadoop.hive.serde2.{io => hiveIo}
+import com.qubole.shaded.hadoop.hive.serde2.objectinspector.{StructField => HiveStructField, _}
+import com.qubole.shaded.hadoop.hive.serde2.objectinspector.primitive._
+import com.qubole.shaded.hadoop.hive.serde2.typeinfo.{DecimalTypeInfo, TypeInfoFactory}
 import com.qubole.spark.datasources.hiveacid.AnalysisException
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions._
@@ -861,8 +861,8 @@ trait Hive3Inspectors {
       new hadoopIo.BytesWritable(value.asInstanceOf[Array[Byte]])
     }
 
-  private def getDateWritable(value: Any): hiveIo.DateWritable =
-    if (value == null) null else new hiveIo.DateWritable(value.asInstanceOf[Int])
+  private def getDateWritable(value: Any): hiveIo.DateWritableV2 =
+    if (value == null) null else new hiveIo.DateWritableV2(value.asInstanceOf[Int])
 
   private def getTimestampWritable(value: Any): hiveIo.TimestampWritable =
     if (value == null) {
@@ -881,8 +881,8 @@ trait Hive3Inspectors {
     }
 
   implicit class typeInfoConversions(dt: DataType) {
-    import com.qubole.shaded.hive.serde2.typeinfo._
-    import com.qubole.shaded.hive.serde2.typeinfo.TypeInfoFactory._
+    import com.qubole.shaded.hadoop.hive.serde2.typeinfo._
+    import com.qubole.shaded.hadoop.hive.serde2.typeinfo.TypeInfoFactory._
 
     private def decimalTypeInfo(decimalType: DecimalType): TypeInfo = {
       // TODO

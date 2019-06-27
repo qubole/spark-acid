@@ -3,61 +3,57 @@ package com.qubole.spark.datasources.hiveacid;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Statement;
 
+import java.io.StringWriter;
 
-/*
-// Create table
-ResultSet res = stmt.executeQuery("create table empdata(id int, name string, dept string)");
-
-// Show table
-res = stmt.executeQuery("show tables empdata");
-if (res.next()) {
-System.out.println(res.getString(1));
-}
-
-// load data into table
-// NOTE: filepath has to be local to the hive server
-// NOTE: /home/user/input.txt is a ctrl-A separated file with three fields per line
-String filepath = "/home/user/input.txt";
-sql = "load data local inpath '" + filepath + "' into table empdata";
-res = stmt.executeQuery(sql);
-
-// Select
-sql = "select * from empdata where id='1'";
-res = stmt.executeQuery(sql);
-
-}
-*/
 public class TestHiveClient {
 	/*
-	* Before Running this example we should start thrift server. To Start
-	* Thrift server we should run below command in terminal
-	* hive --service hiveserver &
+	* Before running this docker container with HS2 / HMS / Hadoop running
 	*/
-	private static String driverName = "org.apache.hadoop.hive.jdbc.HiveDriver";
+	private static String driverName = "com.qubole.shaded.hive.jdbc.HiveDriver";
 	private static Connection con = null;
 	private static Statement stmt = null;
 
-	public void init() throws SQLException {
+	TestHiveClient() {
 		try {
 			Class.forName(driverName);
 		} catch (ClassNotFoundException e) {
 			e.printStackTrace();
 			System.exit(1);
 		}
-		if (con == null) {
-			con = DriverManager.getConnection("jdbc:hive://localhost:10000/default", "", "");
-		}
-		if (stmt == null) {
+		try {
+			con = DriverManager.getConnection("jdbc:hive2://0.0.0.0:10001", "root", "root");
 			stmt = con.createStatement();
+		}
+		catch (Exception e) {
+			System.out.println("Failed to create statement "+ e);
 		}
 	}
 
-	public void execute(String cmd) throws SQLException {
-		ResultSet res = stmt.executeQuery(cmd);
-		res.close();
+	public ResultSet executeQuery(String cmd) throws SQLException {
+		return stmt.executeQuery(cmd);
+	}
+
+	public Boolean execute(String cmd) throws SQLException {
+		return stmt.execute(cmd);
+	}
+
+	public String resultStr(ResultSet rs) throws SQLException {
+		StringWriter outputWriter = new StringWriter();
+		ResultSetMetaData rsmd = rs.getMetaData();
+		int columnsNumber = rsmd.getColumnCount();
+		while (rs.next()) {
+			for (int i = 1; i <= columnsNumber; i++) {
+				if (i > 1) outputWriter.append(",");
+				String columnValue = rs.getString(i);
+				outputWriter.append(rsmd.getColumnName(i)+ "=" + columnValue);
+			}
+			outputWriter.append("\n");
+		}
+		return outputWriter.toString();
 	}
 
 	public void teardown() throws SQLException {
