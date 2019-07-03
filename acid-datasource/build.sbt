@@ -31,12 +31,24 @@ addArtifact(artifact in (Compile, assembly), assembly)
 
 libraryDependencies ++= Seq(
   // Adding test classifier seems to break transitive resolution of the core dependencies
-  "org.apache.spark" %% "spark-hive" % "2.4.3" % "provided",
-  "org.apache.spark" %% "spark-sql" % "2.4.3" % "provided",
-  "org.apache.spark" %% "spark-core" % "2.4.3" % "provided",
-  "org.apache.spark" %% "spark-catalyst" % "2.4.3" % "provided",
+  "org.apache.spark" %% "spark-hive" % "2.4.3" % "provided" excludeAll(
+    ExclusionRule("org.apache", "hadoop-common"),
+    ExclusionRule("org.apache", "hadoop-hdfs")),
+  "org.apache.spark" %% "spark-sql" % "2.4.3" % "provided" excludeAll(
+    ExclusionRule("org.apache", "hadoop-common"),
+    ExclusionRule("org.apache", "hadoop-hdfs")),
+  "org.apache.spark" %% "spark-core" % "2.4.3" % "provided" excludeAll(
+    ExclusionRule("org.apache", "hadoop-common"),
+    ExclusionRule("org.apache", "hadoop-hdfs")),
+  "org.apache.spark" %% "spark-catalyst" % "2.4.3" % "provided" excludeAll(
+    ExclusionRule("org.apache", "hadoop-common"),
+    ExclusionRule("org.apache", "hadoop-hdfs")),
 
   "com.qubole" %% "spark-hiveacid-shaded-dependencies" % "0.1",
+
+  "org.apache.hadoop" % "hadoop-common" % "2.8.1" % "provided",
+  "org.apache.hadoop" % "hadoop-hdfs" % "2.8.1" % "provided",
+
   // Dependencies for tests
   //
   "org.scalatest" %% "scalatest" % "3.0.5" % "test",
@@ -50,7 +62,7 @@ excludeDependencies ++=Seq(
 	ExclusionRule("org.apache.hive", "hive-service"),
 	ExclusionRule("org.apache.hive", "hive-serde"),
 	ExclusionRule("org.apache.hive", "hive-common"),
-	
 	// orc
 	ExclusionRule("org.apache.orc", "orc-core"),
+	ExclusionRule("org.apache.orc", "orc-mapreduce"),
 )

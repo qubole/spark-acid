@@ -35,8 +35,10 @@ echo 'export HADOOP_HOME="/hadoop"' >> ~/.bashrc
 
 gprn "set up mysql"
 service mysqld start
+
+# Set root password 
 mysql -uroot -e "set password = PASSWORD('root');"
-mysql -uroot -e "grant all privileges on *.* to 'root'@'%';"
+mysql -uroot -e "grant all privileges on *.* to 'root'@'%' identified by 'root';"
 service sshd start
 
 gprn "start yarn"
@@ -57,4 +59,10 @@ gprn "Set up metastore DB"
 hive/bin/schematool -dbType mysql  -initSchemaTo 3.1.0
 
 gprn "Start HMS server"
-hive/bin/hive --service metastore -p  10000
+hive/bin/hive --service metastore -p  10000 &
+
+gprn "Sleep and wait for HMS to be up and running"
+sleep 20
+
+gprn "Start HiveServer2"
+hive/bin/hive --service hiveserver2 --hiveconf hive.server2.thrift.port=10001 --hiveconf hive.execution.engine=mr

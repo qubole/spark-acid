@@ -25,9 +25,9 @@ import com.qubole.shaded.hadoop.hive.metastore.api.{FieldSchema, Table}
 import com.qubole.shaded.hadoop.hive.ql.metadata
 import com.qubole.shaded.hadoop.hive.ql.metadata.Hive
 import com.qubole.shaded.hadoop.hive.ql.plan.TableDesc
+import com.qubole.shaded.orc.mapreduce.OrcInputFormat
 import com.qubole.spark.datasources.hiveacid.orc.OrcFilters
 import com.qubole.spark.datasources.hiveacid.rdd.HiveTableReader
-import org.apache.orc.mapreduce.OrcInputFormat
 import org.apache.spark.{SparkContext, SparkException}
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD

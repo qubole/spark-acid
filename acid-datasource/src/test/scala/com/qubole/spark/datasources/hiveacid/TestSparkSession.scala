@@ -23,6 +23,7 @@ private[hiveacid] object TestSparkSession {
   val spark = SparkSession.builder().appName("Hive-acid-test")
     .master("local[*]")
     .config("spark.hadoop.hive.metastore.uris", "thrift://0.0.0.0:10000")
+    .config("spark.sql.warehouse.dir", "/tmp")
     .enableHiveSupport()
     .getOrCreate()
 

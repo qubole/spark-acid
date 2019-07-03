@@ -35,12 +35,8 @@ RUN wget http://mirrors.estointernet.in/apache/hive/hive-3.1.1/apache-hive-3.1.1
 RUN tar -xvzf apache-hive-3.1.1-bin.tar.gz
 RUN ln -sf /apache-hive-3.1.1-bin /hive
 
-RUN wget http://repo.mysql.com/mysql-community-release-el6-5.noarch.rpm && \
-	 rpm -ivh mysql-community-release-el6-5.noarch.rpm && \
-  	 yum update -y
-
 RUN yum -y install \
-    mysql mysql-server mysql-connector-java \
+    mysql-server mysql-connector-java \
      && yum -y clean all && rm -rf /tmp/* /var/tmp/* \
      && ln -s /usr/share/java/mysql-connector-java.jar apache-hive-3.1.1-bin/lib/mysql-connector-java.jar
 

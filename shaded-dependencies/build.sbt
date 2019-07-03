@@ -1,3 +1,4 @@
+import sbtassembly.AssemblyPlugin.autoImport.ShadeRule
 
 name := "spark-hiveacid-shaded-dependencies"
 
@@ -20,10 +21,11 @@ scalacOptions in (Compile, doc) ++= Seq(
 
 
 libraryDependencies ++= Seq(
-  // Hive/Orc core dependencies packed. 
+  // Hive/Orc core dependencies packed.
   "org.apache.hive" % "hive-metastore" % "3.1.1" intransitive(),
   "org.apache.hive" % "hive-exec" % "3.1.1" intransitive(),
   "org.apache.orc" % "orc-core" % "1.5.1" intransitive(),
+  "org.apache.orc" % "orc-mapreduce" % "1.5.2" intransitive(),
 
   // Only for hive3 client in tests.. but packing it in shaded jars.
   "org.apache.hive" % "hive-jdbc" % "3.1.1" intransitive(),
@@ -37,7 +39,8 @@ assemblyOption in assembly := (assemblyOption in assembly).value.copy(includeSca
 assemblyShadeRules in assembly := Seq(
   ShadeRule.rename("org.apache.hadoop.hive.**" -> "com.qubole.shaded.hadoop.hive.@1").inAll,
   ShadeRule.rename("org.apache.hive.**" -> "com.qubole.shaded.hive.@1").inAll,
-  ShadeRule.rename("org.apache.orc.**" -> "com.qubole.shaded.orc.@1").inAll
+  ShadeRule.rename("org.apache.orc.**" -> "com.qubole.shaded.orc.@1").inAll,
+  ShadeRule.rename("com.google.**" -> "com.qubole.shaded.@1").inAll
 )
 
 val distinctAndReplace: sbtassembly.MergeStrategy = new sbtassembly.MergeStrategy {

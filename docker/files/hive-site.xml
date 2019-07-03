@@ -25,6 +25,12 @@
         <value>thrift://0.0.0.0:10000</value>
     </property>
 
+	<property>
+        <name>hive.metastore.event.db.notification.api.auth</name>
+        <value>false</value>
+    </property>
+
+    <!-- For the client support -->
     <property>
         <name>hive.support.concurrency</name>
         <value>true</value>
@@ -45,4 +51,9 @@
         <value>org.apache.hadoop.hive.ql.lockmgr.DbTxnManager</value>>
     </property>
 
+    <!-- Hive server 2 -->
+    <property>
+        <name>hive.server2.thrift.http.port</name>
+        <value>10001</value>
+    </property>
 </configuration>

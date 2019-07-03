@@ -25,7 +25,7 @@ public class TestHiveClient {
 			System.exit(1);
 		}
 		try {
-			con = DriverManager.getConnection("jdbc:hive2://0.0.0.0:10001", "root", "root");
+			con = DriverManager.getConnection("jdbc:hive2://0.0.0.0:10001?allowMultiQueries=true", "root", "root");
 			stmt = con.createStatement();
 		}
 		catch (Exception e) {
@@ -33,25 +33,48 @@ public class TestHiveClient {
 		}
 	}
 
-	public ResultSet executeQuery(String cmd) throws SQLException {
-		return stmt.executeQuery(cmd);
+	public String executeQuery(String cmd, Boolean verbose) throws Exception {
+		if (verbose) System.out.println("\n\nHive> " + cmd + "\n");
+		// Start Hive txn
+		ResultSet rs = null;
+		String resStr = null;
+		try {
+			rs = stmt.executeQuery(cmd);
+			resStr = resultStr(rs);
+			// close hive txn
+			rs.close();
+			rs = null;
+
+		} catch (Exception e) {
+			System.out.println("Failed execute statement "+ e);
+			if (rs != null ) {
+				rs.close();
+			}
+		}
+		return resStr;
 	}
 
-	public Boolean execute(String cmd) throws SQLException {
-		return stmt.execute(cmd);
+	public void execute(String cmd, Boolean verbose) throws SQLException {
+		if (verbose) System.out.println("\n\nHive> " + cmd + "\n");
+		stmt.execute(cmd);
 	}
 
 	public String resultStr(ResultSet rs) throws SQLException {
 		StringWriter outputWriter = new StringWriter();
 		ResultSetMetaData rsmd = rs.getMetaData();
 		int columnsNumber = rsmd.getColumnCount();
+		int rowNumber = 0;
 		while (rs.next()) {
+			if (rowNumber != 0) {
+				outputWriter.append("\n");
+			}
+			rowNumber++;
 			for (int i = 1; i <= columnsNumber; i++) {
 				if (i > 1) outputWriter.append(",");
 				String columnValue = rs.getString(i);
-				outputWriter.append(rsmd.getColumnName(i)+ "=" + columnValue);
+				// outputWriter.append(rsmd.getColumnName(i)+ "=" + columnValue);
+				outputWriter.append(columnValue);
 			}
-			outputWriter.append("\n");
 		}
 		return outputWriter.toString();
 	}
