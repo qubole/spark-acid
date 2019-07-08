@@ -93,8 +93,10 @@ class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfter
   //
   // e.g simpleReadTest(((orcFullACIDTable, false), (orcPartitionedInsertOnlyTable, true)))
   // predicateReadTest(List((Table.orcFullACIDTable, false)))
-  simpleReadTest(Table.allFullAcidTypes())
+  // simpleReadTest(Table.allFullAcidTypes())
   //simpleReadTest(Table.allInsertOnlyTypes())
+
+  nonAcidToAcidConversionTest(Table.allNonAcidTypes())
 
   // Merge Test
   //
@@ -107,28 +109,27 @@ class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfter
   // Verify: Both spark reads are same as hive read
   def mergeTest(tTypes: List[(String,Boolean)]): Unit = {
 
-    def code(table :Table): Unit = {
-
-      recreate(table)
-
-      hiveClient.execute(table.disableCompaction, true)
-      hiveClient.execute(table.insertIntoHiveTableKeyRange(1, 10), true)
-      hiveClient.execute(table.updateByMergeHiveTable, true)
-
-      val hiveResStr = hiveClient.executeQuery(table.hiveSelect, true)
-
-      val (df1, df2) = sparkGetDF(table)
-
-      Helper.compareResult(hiveResStr, df1.collect())
-      Helper.compareResult(hiveResStr, df2.collect())
-    }
-
     tTypes.foreach { case (tType, isPartitioned) =>
       val tName = "t1"
       val testName = "Simple Merged table Test for " + tName + " type " + tType
       test("testName") {
         val table = new Table(DEFAULT_DBNAME, "t1", cols, tType, isPartitioned)
-        run(testName, table, code)
+        def code(): Unit = {
+
+          recreate(table)
+
+          hiveClient.execute(table.disableCompaction, true)
+          hiveClient.execute(table.insertIntoHiveTableKeyRange(1, 10), true)
+          hiveClient.execute(table.updateByMergeHiveTable, true)
+
+          val hiveResStr = hiveClient.executeQuery(table.hiveSelect, true)
+
+          val (df1, df2) = sparkGetDF(table)
+
+          Helper.compareResult(hiveResStr, df1.collect())
+          Helper.compareResult(hiveResStr, df2.collect())
+        }
+        myRun(testName, code)
       }
     }
   }
@@ -142,25 +143,25 @@ class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfter
   // Verify: Both spark reads are same as hive read
   def simpleReadTest(tTypes: List[(String,Boolean)]): Unit = {
 
-    def code(table :Table): Unit = {
-
-      recreate(table)
-
-      hiveClient.execute(table.insertIntoHiveTableKeyRange(1, 1), false)
-      val hiveResStr = hiveClient.executeQuery(table.hiveSelect, true)
-
-      val (df1, df2) = sparkGetDF(table)
-
-      Helper.compareResult(hiveResStr, df1.collect())
-      Helper.compareResult(hiveResStr, df2.collect())
-    }
 
     tTypes.foreach { case (tType, isPartitioned) =>
       val tName = "t1"
       val testName = "Simple Read Test for " + tName + " type " + tType
       test(testName) {
         val table = new Table(DEFAULT_DBNAME, tName, cols, tType, isPartitioned)
-        run(testName, table, code)
+        def code() = {
+
+          recreate(table)
+
+          hiveClient.execute(table.insertIntoHiveTableKeyRange(1, 1), false)
+          val hiveResStr = hiveClient.executeQuery(table.hiveSelect, true)
+
+          val (df1, df2) = sparkGetDF(table)
+
+          Helper.compareResult(hiveResStr, df1.collect())
+          Helper.compareResult(hiveResStr, df2.collect())
+        }
+        myRun(testName, code)
       }
     }
   }
@@ -192,7 +193,7 @@ class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfter
       val testName = "Predicate Read Test for " + tName + " type " + tType
       test(testName) {
         val table = new Table(DEFAULT_DBNAME, tName, cols, tType, isPartitioned)
-        run(testName, table, code)
+        run3(testName, table, code)
       }
     }
   }
@@ -224,7 +225,7 @@ class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfter
       val testName = "Predicate Read Test for " + tName + " type " + tType
       test(testName) {
         val table = new Table(DEFAULT_DBNAME, tName, cols, tType, isPartitioned)
-        run(testName, table, code)
+        run3(testName, table, code)
       }
     }
   }
@@ -255,62 +256,62 @@ class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfter
   // 12. Read entire table using spark dataframe API
   // Verify: Both spark reads are same as hive read
   def compactionTest(tTypes: List[(String,Boolean)]): Unit = {
-    def code(table :Table): Unit = {
-
-      recreate(table)
-
-      hiveClient.execute(table.disableCompaction, true)
-      hiveClient.execute(table.insertIntoHiveTableKeyRange(1, 10), true)
-
-      val hiveResStr = hiveClient.executeQuery(table.hiveSelect, true)
-
-      val (df1, df2) = sparkGetDF(table)
-
-      // Materialize it once
-      Helper.compareResult(hiveResStr, df1.collect())
-      Helper.compareResult(hiveResStr, df2.collect())
-
-      hiveClient.execute(table.deleteFromHiveTableKey(3), true)
-      hiveClient.execute(table.deleteFromHiveTableKey(4), true)
-      hiveClient.execute(table.deleteFromHiveTableKey(5), true)
-      hiveClient.execute(table.deleteFromHiveTableKey(6), true)
-
-      Helper.compareResult(hiveResStr, df1.collect())
-      Helper.compareResult(hiveResStr, df2.collect())
-
-      hiveClient.execute(table.minorCompaction, true)
-
-      Helper.compareResult(hiveResStr, df1.collect())
-      Helper.compareResult(hiveResStr, df2.collect())
-
-      hiveClient.execute(table.majorCompaction, true)
-
-      Helper.compareResult(hiveResStr, df1.collect())
-      Helper.compareResult(hiveResStr, df2.collect())
-
-      hiveClient.execute(table.updateInHiveTableKey(7), true)
-      hiveClient.execute(table.updateInHiveTableKey(8), true)
-      hiveClient.execute(table.updateInHiveTableKey(9), true)
-      hiveClient.execute(table.updateInHiveTableKey(10), true)
-
-      hiveClient.execute(table.minorCompaction, true)
-
-      Helper.compareResult(hiveResStr, df1.collect())
-      Helper.compareResult(hiveResStr, df2.collect())
-
-      hiveClient.execute(table.majorCompaction, true)
-
-      Helper.compareResult(hiveResStr, df1.collect())
-      Helper.compareResult(hiveResStr, df2.collect())
-
-    }
 
     tTypes.foreach { case (tType, isPartitioned) =>
       val tName = "t1"
       val testName = "Simple Compaction Test for " + tName + " type " + tType
       test(testName) {
         val table = new Table(DEFAULT_DBNAME, tName, cols, tType, isPartitioned)
-        run(testName, table, code)
+        def code() = {
+
+          recreate(table)
+
+          hiveClient.execute(table.disableCompaction, true)
+          hiveClient.execute(table.insertIntoHiveTableKeyRange(1, 10), true)
+
+          val hiveResStr = hiveClient.executeQuery(table.hiveSelect, true)
+
+          val (df1, df2) = sparkGetDF(table)
+
+          // Materialize it once
+          Helper.compareResult(hiveResStr, df1.collect())
+          Helper.compareResult(hiveResStr, df2.collect())
+
+          hiveClient.execute(table.deleteFromHiveTableKey(3), true)
+          hiveClient.execute(table.deleteFromHiveTableKey(4), true)
+          hiveClient.execute(table.deleteFromHiveTableKey(5), true)
+          hiveClient.execute(table.deleteFromHiveTableKey(6), true)
+
+          Helper.compareResult(hiveResStr, df1.collect())
+          Helper.compareResult(hiveResStr, df2.collect())
+
+          hiveClient.execute(table.minorCompaction, true)
+
+          Helper.compareResult(hiveResStr, df1.collect())
+          Helper.compareResult(hiveResStr, df2.collect())
+
+          hiveClient.execute(table.majorCompaction, true)
+
+          Helper.compareResult(hiveResStr, df1.collect())
+          Helper.compareResult(hiveResStr, df2.collect())
+
+          hiveClient.execute(table.updateInHiveTableKey(7), true)
+          hiveClient.execute(table.updateInHiveTableKey(8), true)
+          hiveClient.execute(table.updateInHiveTableKey(9), true)
+          hiveClient.execute(table.updateInHiveTableKey(10), true)
+
+          hiveClient.execute(table.minorCompaction, true)
+
+          Helper.compareResult(hiveResStr, df1.collect())
+          Helper.compareResult(hiveResStr, df2.collect())
+
+          hiveClient.execute(table.majorCompaction, true)
+
+          Helper.compareResult(hiveResStr, df1.collect())
+          Helper.compareResult(hiveResStr, df2.collect())
+
+        }
+        myRun(testName, code)
       }
     }
   }
@@ -339,47 +340,47 @@ class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfter
   // 12. Read entire table using spark dataframe API
   // Verify: Both spark reads are same as hive read
   def compactionWithInsertTest(tTypes: List[(String,Boolean)]): Unit = {
-    def code(table :Table): Unit = {
-
-      recreate(table)
-
-      hiveClient.execute(table.disableCompaction, true)
-      hiveClient.execute(table.insertIntoHiveTableKeyRange(1, 10), true)
-
-      val hiveResStr = hiveClient.executeQuery(table.hiveSelect, true)
-
-      val (df1, df2) = sparkGetDF(table)
-
-      // Materialize it once
-      Helper.compareResult(hiveResStr, df1.collect())
-      Helper.compareResult(hiveResStr, df2.collect())
-
-      hiveClient.execute(table.insertIntoHiveTableKey(11), true)
-      hiveClient.execute(table.insertIntoHiveTableKey(12), true)
-      hiveClient.execute(table.insertIntoHiveTableKey(13), true)
-      hiveClient.execute(table.insertIntoHiveTableKey(14), true)
-      hiveClient.execute(table.insertIntoHiveTableKey(15), true)
-
-      Helper.compareResult(hiveResStr, df1.collect())
-      Helper.compareResult(hiveResStr, df2.collect())
-
-      hiveClient.execute(table.minorCompaction, true)
-
-      Helper.compareResult(hiveResStr, df1.collect())
-      Helper.compareResult(hiveResStr, df2.collect())
-
-      hiveClient.execute(table.majorCompaction, true)
-
-      Helper.compareResult(hiveResStr, df1.collect())
-      Helper.compareResult(hiveResStr, df2.collect())
-    }
 
     tTypes.foreach { case (tType, isPartitioned) =>
       val tName = "t1"
       val testName = "Simple Compaction With Insert Test for " + tName + " type " + tType
       test(testName) {
         val table = new Table(DEFAULT_DBNAME, tName, cols, tType, isPartitioned)
-        run(testName, table, code)
+        def code() = {
+
+          recreate(table)
+
+          hiveClient.execute(table.disableCompaction, true)
+          hiveClient.execute(table.insertIntoHiveTableKeyRange(1, 10), true)
+
+          val hiveResStr = hiveClient.executeQuery(table.hiveSelect, true)
+
+          val (df1, df2) = sparkGetDF(table)
+
+          // Materialize it once
+          Helper.compareResult(hiveResStr, df1.collect())
+          Helper.compareResult(hiveResStr, df2.collect())
+
+          hiveClient.execute(table.insertIntoHiveTableKey(11), true)
+          hiveClient.execute(table.insertIntoHiveTableKey(12), true)
+          hiveClient.execute(table.insertIntoHiveTableKey(13), true)
+          hiveClient.execute(table.insertIntoHiveTableKey(14), true)
+          hiveClient.execute(table.insertIntoHiveTableKey(15), true)
+
+          Helper.compareResult(hiveResStr, df1.collect())
+          Helper.compareResult(hiveResStr, df2.collect())
+
+          hiveClient.execute(table.minorCompaction, true)
+
+          Helper.compareResult(hiveResStr, df1.collect())
+          Helper.compareResult(hiveResStr, df2.collect())
+
+          hiveClient.execute(table.majorCompaction, true)
+
+          Helper.compareResult(hiveResStr, df1.collect())
+          Helper.compareResult(hiveResStr, df2.collect())
+        }
+        myRun(testName, code)
       }
     }
   }
@@ -392,19 +393,6 @@ class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfter
   // Verify: spark read is same as hive read
   def joinTest(tTypes1: List[(String,Boolean)], tTypes2: List[(String,Boolean)]): Unit = {
 
-    def code (table1 :Table, table2: Table): Unit = {
-
-      recreate(table1)
-      recreate(table2)
-
-      hiveClient.execute(table1.insertIntoHiveTableKeyRange(1, 15), true)
-      hiveClient.execute(table2.insertIntoHiveTableKeyRange(10, 25), true)
-
-      var hiveResStr = hiveClient.executeQuery(Table.hiveJoin(table1, table2), true)
-      val sparkRes1 = sparkCollect(Table.sparkJoin(table1, table2), true)
-      Helper.compareResult(hiveResStr, sparkRes1)
-    }
-
     tTypes1.foreach { case (tType1, isPartitioned1) =>
       val tName1 = "t1"
       val tName2 = "t2"
@@ -413,8 +401,64 @@ class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfter
         test(testName) {
           val table1 = new Table(DEFAULT_DBNAME, tName1, cols, tType1, isPartitioned1)
           val table2 = new Table(DEFAULT_DBNAME, tName2, cols, tType2, isPartitioned2)
-          run2(testName, table1, table2, code)
+          def code() = {
+
+            recreate(table1)
+            recreate(table2)
+
+            hiveClient.execute(table1.insertIntoHiveTableKeyRange(1, 15), true)
+            hiveClient.execute(table2.insertIntoHiveTableKeyRange(10, 25), true)
+
+            var hiveResStr = hiveClient.executeQuery(Table.hiveJoin(table1, table2), true)
+            val sparkRes1 = sparkCollect(Table.sparkJoin(table1, table2), true)
+            Helper.compareResult(hiveResStr, sparkRes1)
+          }
+
+          myRun(testName, code)
         }
+      }
+    }
+  }
+
+  def nonAcidToAcidConversionTest(tTypes: List[(String,Boolean)]): Unit = {
+    tTypes.foreach { case (tType, isPartitioned) =>
+      val tName = "t1"
+      val testName = "NonAcid to Acid conversion test for " + tName + " type " + tType
+      test(testName) {
+        println(s"--------------------- $testName --------------------------")
+        val table = new Table(DEFAULT_DBNAME, tName, cols, tType, isPartitioned)
+        def code() = {
+          recreate(table, false)
+          hiveClient.execute(table.insertIntoHiveTableKeyRange(1, 1), false)
+          val hiveResStr = hiveClient.executeQuery(table.hiveSelect, true)
+
+          // Convert to full acid table
+          hiveClient.execute(table.alterToTransactionalFullAcidTable, true)
+          sparkCollect(table.sparkCreate, true)
+
+          // Check results from Spark
+          val (dfFromSql, dfFromScala) = sparkGetDF(table)
+          Helper.compareResult(hiveResStr, dfFromSql.collect())
+          Helper.compareResult(hiveResStr, dfFromScala.collect())
+
+
+          // Insert more rows in the table from Hive and compare result from Hive and Spark
+          hiveClient.execute(table.insertIntoHiveTableKeyRange(10, 20), true)
+          val hiveResStr1 = hiveClient.executeQuery(table.hiveSelect, true)
+          val (dfFromSql1, dfFromScala1) = sparkGetDF(table)
+          Helper.compareResult(hiveResStr1, dfFromSql1.collect())
+          Helper.compareResult(hiveResStr1, dfFromScala1.collect())
+
+
+          // Update some rows in the table from Hive and compare result from Hive and Spark
+          hiveClient.execute(table.deleteFromHiveTableKey(12), true)
+          hiveClient.execute(table.deleteFromHiveTableKey(18), true)
+          val hiveResStr2 = hiveClient.executeQuery(table.hiveSelect, true)
+          val (dfFromSql2, dfFromScala2) = sparkGetDF(table)
+          Helper.compareResult(hiveResStr2, dfFromSql2.collect())
+          Helper.compareResult(hiveResStr2, dfFromScala2.collect())
+        }
+        myRun(testName, code);
       }
     }
   }
@@ -463,19 +507,21 @@ class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfter
     df1
   }
 
-  private def recreate(table: Table): Unit = {
+  private def recreate(table: Table, createSymlinkSparkTables: Boolean = true): Unit = {
     sparkCollect(table.sparkDrop, false)
     hiveClient.execute(table.hiveDrop, false)
     hiveClient.execute(table.hiveCreate, true)
-    sparkCollect(table.sparkCreate, false)
+    if (createSymlinkSparkTables) {
+      sparkCollect(table.sparkCreate, false)
+    }
   }
 
   // Run single type run
   @throws(classOf[Exception])
-  private def run(testName: String, table: Table, code: (Table) => Unit): Unit = {
+  private def myRun(testName: String, code: () => Unit): Unit = {
     try {
       log.info(s">>>>>>>>>>>>>>>>>>> $testName")
-      code(table)
+      code()
     } catch {
       case NonFatal(e) =>
         log.info(s"Failed test[${testName}]:$e")
@@ -483,18 +529,6 @@ class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfter
     }
   }
 
-  // Run single type run
-  @throws(classOf[Exception])
-  private def run2(testName: String, table1: Table, table2: Table, code: (Table, Table) => Unit): Unit = {
-    try {
-      log.info(s">>>>>>>>>>>>>>>>>>> $testName")
-      code(table1, table2)
-    } catch {
-      case NonFatal(e) =>
-        log.info(s"Failed test[${testName}]:$e")
-        throw e
-    }
-  }
 }
 
 object Helper {

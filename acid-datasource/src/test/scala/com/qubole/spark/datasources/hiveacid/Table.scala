@@ -85,6 +85,10 @@ class Table (
     def minorCompaction = s"ALTER TABLE ${hiveTname} COMPACT 'minor'"
     def majorCompaction = s"ALTER TABLE ${hiveTname} COMPACT 'major'"
 
+    def alterToTransactionalInsertOnlyTable =
+      s"ALTER TABLE ${hiveTname} SET TBLPROPERTIES ('transactional'='true', 'transactional_properties'='insert_only')"
+    def alterToTransactionalFullAcidTable =
+      s"ALTER TABLE ${hiveTname} SET TBLPROPERTIES ('transactional'='true', 'transactional_properties'='default')"
 }
 
 object Table {
@@ -143,22 +147,15 @@ object Table {
   val avroBucketedPartitionedInsertOnlyTable = clusteredStr + partitionedStr + avroStr + insertOnlyStr
   val avroBucketedInsertOnlyTable = clusteredStr + avroStr + insertOnlyStr
 
-  // Loop through all variations
-  def allFullAcidTypes(): List[(String, Boolean)] = {
-    val acidType = fullAcidStr
-    val fileFormatTypes = Array(orcStr)
-    //val partitionedTypes = Array("", partitionedStr)
-    val partitionedTypes = Array("")
-    val clusteredTypes = Array("", clusteredStr)
-
+  private def generateTableVariations(fileFormatTypes: Array[String],
+                                      partitionedTypes: Array[String],
+                                      clusteredTypes: Array[String],
+                                      acidTypes: Array[String]): List[(String, Boolean)] = {
     var tblTypes = new ListBuffer[(String, Boolean)]()
     for (fileFormat <- fileFormatTypes) {
       for (partitioned <- partitionedTypes) {
         for (clustered <- clusteredTypes) {
-
-          if ((fileFormat == parquetStr) || (fileFormat == textStr) || (fileFormat == avroStr)) {
-            // UnSupported Combo
-          } else {
+          for (acidType <- acidTypes) {
             val tType = partitioned + clustered + fileFormat + acidType
             if (partitioned != "") {
               tblTypes += ((tType, true))
@@ -169,7 +166,22 @@ object Table {
         }
       }
     }
-    return tblTypes.toList
+    tblTypes.filter {
+      case (name, isPartitioned) =>
+        // Filter out all non-orc, full acid tables
+        !(!name.toLowerCase().contains("orc") && name.contains(fullAcidStr))
+    }.toList
+  }
+
+  // Loop through all variations
+  def allFullAcidTypes(): List[(String, Boolean)] = {
+    val acidType = fullAcidStr
+    val fileFormatTypes = Array(orcStr)
+    //val partitionedTypes = Array("", partitionedStr)
+    val partitionedTypes = Array("")
+    val clusteredTypes = Array("", clusteredStr)
+
+    generateTableVariations(fileFormatTypes, partitionedTypes, clusteredTypes, Array(acidType))
   }
 
   // Loop through all variations
@@ -181,21 +193,19 @@ object Table {
     val partitionedTypes = Array("")
     val clusteredTypes = Array("", clusteredStr)
 
-    var tblTypes = new ListBuffer[(String, Boolean)]()
-    for (fileFormat <- fileFormatTypes) {
-      for (partitioned <- partitionedTypes) {
-        for (clustered <- clusteredTypes) {
-          val tType = partitioned + clustered + fileFormat + acidType
-          if (partitioned != "") {
-            tblTypes += ((tType, true))
-          } else {
-            tblTypes += ((tType, false))
-          }
-        }
-      }
-    }
-    return tblTypes.toList
+    generateTableVariations(fileFormatTypes, partitionedTypes, clusteredTypes, Array(acidType))
   }
+
+  def allNonAcidTypes(): List[(String, Boolean)] = {
+    val acidType = ""
+    val fileFormatTypes = Array(orcStr)
+    // val partitionedTypes = Array("", partitionedStr)
+    val partitionedTypes = Array("")
+    val clusteredTypes = Array("", clusteredStr)
+
+    generateTableVariations(fileFormatTypes, partitionedTypes, clusteredTypes, Array(acidType))
+  }
+
 
   def hiveJoin(table1: Table, table2: Table): String = {
     s"SELECT * FROM ${table1.hiveTname} JOIN ${table2.hiveTname} WHERE ${table1.hiveTname1}.key = ${table2.hiveTname1}.key ORDER BY ${table1.hiveOrderBy} , ${table2.hiveOrderBy}"
