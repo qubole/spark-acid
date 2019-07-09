@@ -1,5 +1,6 @@
 package com.qubole.spark.datasources.hiveacid;
 
+
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
@@ -9,6 +10,10 @@ import java.sql.Statement;
 
 import java.io.StringWriter;
 
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import java.util.logging.*;
+
 public class TestHiveClient {
 	/*
 	* Before running this docker container with HS2 / HMS / Hadoop running
@@ -16,8 +21,10 @@ public class TestHiveClient {
 	private static String driverName = "com.qubole.shaded.hive.jdbc.HiveDriver";
 	private static Connection con = null;
 	private static Statement stmt = null;
+	private Boolean verbose = false;
+	private static Logger logger = Logger.getLogger(TestHiveClient.class.getName());
 
-	TestHiveClient() {
+	TestHiveClient(Boolean verbose) {
 		try {
 			Class.forName(driverName);
 		} catch (ClassNotFoundException e) {
@@ -25,6 +32,7 @@ public class TestHiveClient {
 			System.exit(1);
 		}
 		try {
+			this.verbose = verbose;
 			con = DriverManager.getConnection("jdbc:hive2://0.0.0.0:10001?allowMultiQueries=true", "root", "root");
 			stmt = con.createStatement();
 		}
@@ -33,8 +41,8 @@ public class TestHiveClient {
 		}
 	}
 
-	public String executeQuery(String cmd, Boolean verbose) throws Exception {
-		if (verbose) System.out.println("\n\nHive> " + cmd + "\n");
+	public String executeQuery(String cmd) throws Exception {
+		if (verbose) logger.log(Level.INFO, "\n\nHive> " + cmd + "\n");
 		// Start Hive txn
 		ResultSet rs = null;
 		String resStr = null;
@@ -54,8 +62,8 @@ public class TestHiveClient {
 		return resStr;
 	}
 
-	public void execute(String cmd, Boolean verbose) throws SQLException {
-		if (verbose) System.out.println("\n\nHive> " + cmd + "\n");
+	public void execute(String cmd) throws SQLException {
+		if (verbose) logger.log(Level.INFO, "\n\nHive> " + cmd + "\n");
 		stmt.execute(cmd);
 	}
 

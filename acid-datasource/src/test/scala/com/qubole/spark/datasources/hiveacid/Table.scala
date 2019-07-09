@@ -54,7 +54,7 @@ class Table (
 
     def hiveCreate = s"CREATE TABLE ${hiveTname} (${getColDefString}) ${tblProp}"
     def hiveSelect = s"SELECT * FROM ${hiveTname} ORDER BY ${hiveOrderBy}"
-    def hiveSelectWithPred = s"SELECT * FROM ${hiveTname} with intCol < 5 ORDER BY ${hiveOrderBy}"
+    def hiveSelectWithPred = s"SELECT * FROM ${hiveTname} where intCol < 5 ORDER BY ${hiveOrderBy}"
     def hiveSelectWithProj = s"SELECT intCol FROM ${hiveTname} ORDER BY intCol"
     def hiveDrop = s"DROP TABLE IF EXISTS ${hiveTname}"
 
@@ -63,7 +63,7 @@ class Table (
     def sparkSelectWithPred = s"SELECT * FROM ${sparkTname} where intCol < 5 ORDER BY ${sparkOrderBy}"
     def sparkSelectWithProj = s"SELECT intCol FROM ${sparkTname} ORDER BY intCol"
     def sparkDFProj = "intCol"
-    def sparkDFPred = "\"intCol\" < \"5\""
+    def sparkDFPred = "$'intCol' < '5'"
     def sparkDrop = s"DROP TABLE IF EXISTS ${sparkTname}"
 
     def insertIntoHiveTableKeyRange(startKey: Int, endKey: Int): String =
