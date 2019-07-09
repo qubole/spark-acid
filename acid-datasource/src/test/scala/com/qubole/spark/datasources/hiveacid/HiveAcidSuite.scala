@@ -42,7 +42,7 @@ class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfter
   var spark : SparkSession = _
   var hiveClient : TestHiveClient = _
 
-  var verbose = true
+  var verbose = false
 
   val DEFAULT_DBNAME =  "HiveTestDB"
 
@@ -58,6 +58,9 @@ class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfter
     try {
       // Clients
       spark = TestSparkSession.getSession()
+      if (verbose) {
+        log.setLevel(Level.DEBUG)
+      }
       hiveClient = new TestHiveClient(verbose)
       // DB
       hiveClient.execute("DROP DATABASE IF EXISTS "+ DEFAULT_DBNAME +" CASCADE")
@@ -441,12 +444,12 @@ class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfter
   }
 
   private def sparkSQL(cmd: String): DataFrame = {
-    log.debug(s"\n\nSparkSQL> ${cmd}\n")
+    log.debug(s"SparkSQL> ${cmd}")
     spark.sql(cmd)
   }
 
   private def sparkCollect(cmd: String): Array[Row] = {
-    log.debug(s"\n\nSparkSQL> ${cmd}\n")
+    log.debug(s"SparkSQL> ${cmd}")
     spark.sql(cmd).collect()
   }
 

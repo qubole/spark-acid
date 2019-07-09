@@ -22,7 +22,6 @@ public class TestHiveClient {
 	private static Connection con = null;
 	private static Statement stmt = null;
 	private Boolean verbose = false;
-	private static Logger logger = Logger.getLogger(TestHiveClient.class.getName());
 
 	TestHiveClient(Boolean verbose) {
 		try {
@@ -42,7 +41,7 @@ public class TestHiveClient {
 	}
 
 	public String executeQuery(String cmd) throws Exception {
-		if (verbose) logger.log(Level.INFO, "\n\nHive> " + cmd + "\n");
+		if (verbose) System.out.println("\n\nHive> " + cmd + "\n");
 		// Start Hive txn
 		ResultSet rs = null;
 		String resStr = null;
@@ -63,7 +62,7 @@ public class TestHiveClient {
 	}
 
 	public void execute(String cmd) throws SQLException {
-		if (verbose) logger.log(Level.INFO, "\n\nHive> " + cmd + "\n");
+		if (verbose) System.out.println("\n\nHive> " + cmd + "\n");
 		stmt.execute(cmd);
 	}
 
