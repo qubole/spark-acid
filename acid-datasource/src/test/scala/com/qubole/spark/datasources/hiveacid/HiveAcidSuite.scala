@@ -88,13 +88,13 @@ class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfter
   //mergeTest(Table.allInsertOnlyTypes, true)
 
   // e.g joinTest(((orcFullACIDTable, orcPartitionedInsertOnlyTable)
-  joinTest(Table.allFullAcidTypes(), Table.allFullAcidTypes())
-  joinTest(Table.allInsertOnlyTypes(), Table.allFullAcidTypes())
-  joinTest(Table.allInsertOnlyTypes(), Table.allInsertOnlyTypes())
+//  joinTest(Table.allFullAcidTypes(), Table.allFullAcidTypes())
+//  joinTest(Table.allInsertOnlyTypes(), Table.allFullAcidTypes())
+//  joinTest(Table.allInsertOnlyTypes(), Table.allInsertOnlyTypes())
 
   // e.g compactionTest(((orcFullACIDTable,false)), false)
-  compactionTest(Table.allFullAcidTypes(), false)
-  compactionTest(Table.allInsertOnlyTypes(), true)
+//  compactionTest(Table.allFullAcidTypes(), false)
+//  compactionTest(Table.allInsertOnlyTypes(), true)
 
   // NB: No run for the insert only table.
   nonAcidToAcidConversionTest(Table.allNonAcidTypes(), false)
@@ -163,7 +163,7 @@ class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfter
         println(s"--------------------- $testName --------------------------")
         val table = new Table(DEFAULT_DBNAME, tName, cols, tType, isPartitioned)
         def code() = {
-          recreate(table)
+          recreate(table, false)
           hiveClient.execute(table.insertIntoHiveTableKeyRange(1, 10))
           val hiveResStr = hiveClient.executeQuery(table.hiveSelect)
 
@@ -422,25 +422,27 @@ class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfter
   }
 
   private def sparkGetDFWithProj(table: Table): (DataFrame, DataFrame) = {
-    var df1 = spark.read.format("HiveAcid").options(Map("table" -> table.hiveTname)).load().select(table.sparkDFProj)
-    df1 = totalOrderBy(table, df1)
-    val df2 = sparkSQL(table.sparkSelectWithProj)
-    return (df1, df2)
+    val dfSql = sparkSQL(table.sparkSelect)
+
+    var dfScala = spark.read.format("HiveAcid").options(Map("table" -> table.hiveTname)).load().select(table.sparkDFProj)
+    dfScala = totalOrderBy(table, dfScala)
+    return (dfSql, dfScala)
   }
 
   private def sparkGetDFWithPred(table: Table): (DataFrame, DataFrame) = {
-    var df1 = spark.read.format("HiveAcid").options(Map("table" -> table.hiveTname)).load().where(col("intCol") < "5")
-    df1 = totalOrderBy(table, df1)
-    val df2 = sparkSQL(table.sparkSelectWithPred)
-    return (df1, df2)
+    val dfSql = sparkSQL(table.sparkSelect)
+
+    var dfScala = spark.read.format("HiveAcid").options(Map("table" -> table.hiveTname)).load().where(col("intCol") < "5")
+    dfScala = totalOrderBy(table, dfScala)
+    return (dfSql, dfScala)
   }
 
   private def sparkGetDF(table: Table): (DataFrame, DataFrame) = {
-    var df1 = spark.read.format("HiveAcid").options(Map("table" -> table.hiveTname)).load()
-    df1 = totalOrderBy(table, df1)
+    val dfSql = sparkSQL(table.sparkSelect)
 
-    val df2 = sparkSQL(table.sparkSelect)
-    return (df1, df2)
+    var dfScala = spark.read.format("HiveAcid").options(Map("table" -> table.hiveTname)).load()
+    dfScala = totalOrderBy(table, dfScala)
+    return (dfSql, dfScala)
   }
 
   private def sparkSQL(cmd: String): DataFrame = {
@@ -454,9 +456,8 @@ class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfter
   }
 
   private def totalOrderBy(table: Table, df: DataFrame): DataFrame = {
-    var df1 = df
-    table.getColMap.foreach{case(colName, _) => df1 = df1.orderBy(col(colName))}
-    df1
+    val colSeq = table.getColMap.map{case(colName, _) => col(colName)}.toSeq
+    df.orderBy(colSeq:_*)
   }
 
   private def recreate(table: Table, createSymlinkSparkTables: Boolean = true): Unit = {

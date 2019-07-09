@@ -31,6 +31,13 @@ class Table (
   private val isPartitioned: Boolean = false) {
 
     private var colMap = Map("key" -> "int") ++ extraColMap
+    private var colMapWithPartitionedCols = {
+      if (isPartitioned) {
+        Map("load_date" -> "int") ++ colMap
+      } else {
+        colMap
+      }
+    }
 
     // NB Add date column as well apparently always in the end
     private def getRow(key: Int): String = colMap.map( x => {
@@ -42,29 +49,39 @@ class Table (
     private def getColDefString = colMap.map(x => x._1 + " " + x._2).mkString(",")
 
     // FIXME: Add load_date column of partitioned table in order by clause
-    private def sparkOrderBy = colMap.map(x => s"${sparkTname}.${x._1}").mkString(", ") + {if (isPartitioned) s", ${sparkTname}.load_date " else ""}
-    private def hiveOrderBy = colMap.map(x => s"$tName.${x._1}").mkString(", ") + {if (isPartitioned) s", ${tName}.load_date" else ""}
-    private def getCols = colMap.map(x => x._1).mkString(", ") + {if (isPartitioned) ", load_date" else ""}
+    private def sparkOrderBy: String = sparkOrderBy(sparkTname)
+    private def hiveOrderBy: String = hiveOrderBy(tName)
+    private def sparkOrderBy(aliasedTable: String): String =
+      colMapWithPartitionedCols.map(x => s"${aliasedTable}.${x._1}").mkString(", ")
+    private def hiveOrderBy(aliasedTable: String): String =
+      colMapWithPartitionedCols.map(x => s"$aliasedTable.${x._1}").mkString(", ")
+    private def getCols = colMapWithPartitionedCols.map(x => x._1).mkString(", ")
 
-    def getColMap = colMap
+    def getColMap = colMapWithPartitionedCols
 
     def hiveTname = s"$dbName.$tName"
     def hiveTname1 = s"$tName"
     def sparkTname = s"${dbName}.spark_${tName}"
 
     def hiveCreate = s"CREATE TABLE ${hiveTname} (${getColDefString}) ${tblProp}"
-    def hiveSelect = s"SELECT * FROM ${hiveTname} ORDER BY ${hiveOrderBy}"
-    def hiveSelectWithPred = s"SELECT * FROM ${hiveTname} where intCol < 5 ORDER BY ${hiveOrderBy}"
+    def hiveSelect = s"SELECT * FROM ${hiveTname} t1 ORDER BY ${hiveOrderBy("t1")}"
+    def hiveSelectWithPred = s"SELECT * FROM ${hiveTname} t1 where intCol < 5 ORDER BY ${hiveOrderBy("t1")}"
     def hiveSelectWithProj = s"SELECT intCol FROM ${hiveTname} ORDER BY intCol"
     def hiveDrop = s"DROP TABLE IF EXISTS ${hiveTname}"
 
     def sparkCreate = s"CREATE TABLE ${sparkTname} USING HiveAcid OPTIONS('table' '${hiveTname}')"
-    def sparkSelect = s"SELECT * FROM ${sparkTname} ORDER BY ${sparkOrderBy}"
-    def sparkSelectWithPred = s"SELECT * FROM ${sparkTname} where intCol < 5 ORDER BY ${sparkOrderBy}"
+    def sparkSelect = s"SELECT * FROM ${sparkTname} t1 ORDER BY ${sparkOrderBy("t1")}"
+    def sparkSelectWithPred = s"SELECT * FROM ${sparkTname} t1 where intCol < 5 ORDER BY ${sparkOrderBy("t1")}"
     def sparkSelectWithProj = s"SELECT intCol FROM ${sparkTname} ORDER BY intCol"
     def sparkDFProj = "intCol"
     def sparkDFPred = "$'intCol' < '5'"
     def sparkDrop = s"DROP TABLE IF EXISTS ${sparkTname}"
+
+
+
+
+
+
 
     def insertIntoHiveTableKeyRange(startKey: Int, endKey: Int): String =
       s"INSERT INTO TABLE ${hiveTname} (${getCols}) " + (startKey to endKey).map { key => s" select ${getRow(key)} " }.mkString(" UNION ALL ")
@@ -177,9 +194,9 @@ object Table {
   def allFullAcidTypes(): List[(String, Boolean)] = {
     val acidType = fullAcidStr
     val fileFormatTypes = Array(orcStr)
-    //val partitionedTypes = Array("", partitionedStr)
-    val partitionedTypes = Array("")
-    val clusteredTypes = Array("", clusteredStr)
+    val partitionedTypes = Array("", partitionedStr)
+    //val partitionedTypes = Array("")
+    val clusteredTypes = Array("")
 
     generateTableVariations(fileFormatTypes, partitionedTypes, clusteredTypes, Array(acidType))
   }
@@ -188,10 +205,10 @@ object Table {
   def allInsertOnlyTypes(): List[(String, Boolean)] = {
     val acidType = insertOnlyStr
     // NB: Avro not supported !!!
-    val fileFormatTypes = Array(orcStr, parquetStr, textStr)
-   // val partitionedTypes = Array("", partitionedStr)
-    val partitionedTypes = Array("")
-    val clusteredTypes = Array("", clusteredStr)
+    val fileFormatTypes = Array(orcStr)
+    val partitionedTypes = Array("", partitionedStr)
+    // val partitionedTypes = Array("")
+    val clusteredTypes = Array("")
 
     generateTableVariations(fileFormatTypes, partitionedTypes, clusteredTypes, Array(acidType))
   }
@@ -199,19 +216,19 @@ object Table {
   def allNonAcidTypes(): List[(String, Boolean)] = {
     val acidType = ""
     val fileFormatTypes = Array(orcStr)
-    // val partitionedTypes = Array("", partitionedStr)
-    val partitionedTypes = Array("")
-    val clusteredTypes = Array("", clusteredStr)
+    val partitionedTypes = Array("", partitionedStr)
+    //val partitionedTypes = Array("")
+    val clusteredTypes = Array("")
 
     generateTableVariations(fileFormatTypes, partitionedTypes, clusteredTypes, Array(acidType))
   }
 
 
   def hiveJoin(table1: Table, table2: Table): String = {
-    s"SELECT * FROM ${table1.hiveTname} JOIN ${table2.hiveTname} WHERE ${table1.hiveTname1}.key = ${table2.hiveTname1}.key ORDER BY ${table1.hiveOrderBy} , ${table2.hiveOrderBy}"
+    s"SELECT * FROM ${table1.hiveTname} t1 JOIN ${table2.hiveTname} t2 WHERE t1.key = t2.key ORDER BY ${table1.hiveOrderBy("t1")} , ${table2.hiveOrderBy("t2")}"
   }
 
   def sparkJoin(table1: Table, table2: Table): String = {
-    s"SELECT * FROM ${table1.sparkTname} JOIN ${table2.sparkTname} WHERE ${table1.sparkTname}.key = ${table2.sparkTname}.key ORDER BY ${table1.sparkOrderBy} , ${table2.sparkOrderBy}"
+    s"SELECT * FROM ${table1.sparkTname} t1 JOIN ${table2.sparkTname} t2 WHERE t1.key = t2.key ORDER BY ${table1.sparkOrderBy("t1")} , ${table2.sparkOrderBy("t2")}"
   }
 }
