@@ -28,9 +28,21 @@ export HADOOP_HOME="/hadoop"
 export HADOOP_ROOT_LOGGER=DEBUG
 export HADOOP_COMMON_LIB_NATIVE_DIR="/hadoop/lib/native"
 
+export TEZ_CONF_DIR="/tez/conf"
+export TEZ_JARS="/tez"
+export HADOOP_CLASSPATH=${TEZ_CONF_DIR}:${TEZ_JARS}/*:${TEZ_JARS}/lib/*:${HADOOP_CLASSPATH}:${JAVA_JDBC_LIBS}:${MAPREDUCE_LIBS}
+export CLASSPATH=$CLASSPATH:${TEZ_CONF_DIR}:${TEZ_JARS}/*:${TEZ_JARS}/lib/*
+export TEZ_CLASSPATH=${TEZ_CONF_DIR}:${TEZ_JARS}/*:${TEZ_JARS}/lib/*
+
 ## Add it to bashrc for starting hadoop
 echo 'export JAVA_HOME="/usr/lib/jvm/java-openjdk"' >> ~/.bashrc
 echo 'export HADOOP_HOME="/hadoop"' >> ~/.bashrc
+
+echo 'export TEZ_CONF_DIR="/tez/conf"' >> ~/.bashrc
+echo 'export TEZ_JARS="/tez/share"' >> ~/.bashrc
+echo 'export HADOOP_CLASSPATH=${TEZ_CONF_DIR}:${TEZ_JARS}/*:${TEZ_JARS}/lib/*' >> ~/.bashrc
+echo 'export CLASSPATH=$CLASSPATH:${TEZ_CONF_DIR}:${TEZ_JARS}/*:${TEZ_JARS}/lib/*' >> ~/.bashrc
+echo 'export TEZ_CLASSPATH=${TEZ_CONF_DIR}:${TEZ_JARS}/*:${TEZ_JARS}/lib/*' >> ~/.bashrc
 
 
 gprn "set up mysql"
@@ -65,4 +77,4 @@ gprn "Sleep and wait for HMS to be up and running"
 sleep 20
 
 gprn "Start HiveServer2"
-hive/bin/hive --service hiveserver2 --hiveconf hive.server2.thrift.port=10001 --hiveconf hive.execution.engine=mr
+hive/bin/hive --service hiveserver2 --hiveconf hive.server2.thrift.port=10001 --hiveconf hive.execution.engine=tez

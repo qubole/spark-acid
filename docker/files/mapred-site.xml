@@ -16,23 +16,8 @@
 <!-- Put site-specific property overrides in this file. -->
 <configuration>
     <property>
-        <name>dfs.replication</name>
-        <value>1</value>
-    </property>
-    <property>
-        <name>dfs.permissions.enabled</name>
-        <value>false</value>
-    </property>
-    <property>
-        <name>dfs.datanode.address</name>
-        <value>0.0.0.0:9866</value>
-    </property>
-	<!--
-	To by pass
-	Service org.apache.tez.dag.app.DAGAppMaster failed in state INITED; cause: java.lang.NumberFormatException: For input string: “30s”
-	-->
-    <property>
-        <name>dfs.client.datanode-restart.timeout</name>
-        <value>30</value>
+        <name>mapreduce.framework.name</name>
+        <value>yarn-tez</value>
     </property>
 </configuration>
+ 

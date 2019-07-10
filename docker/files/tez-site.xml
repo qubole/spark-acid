@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+<!-- This is SparkSQL's hive configuration. -->
+<configuration>
+    <property>
+        <name>tez.lib.uris</name>
+        <value>file:///tez/share/tez.tar.gz</value>
+    </property>
+</configuration>
+ 

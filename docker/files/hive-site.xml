@@ -25,7 +25,7 @@
         <value>thrift://0.0.0.0:10000</value>
     </property>
 
-	<property>
+    <property>
         <name>hive.metastore.event.db.notification.api.auth</name>
         <value>false</value>
     </property>
@@ -55,5 +55,20 @@
     <property>
         <name>hive.server2.thrift.http.port</name>
         <value>10001</value>
+    </property>
+
+    <property>
+        <name>tez.lib.uris</name>
+        <value>file:///tez/share/tez.tar.gz</value>
+    </property>
+
+    <property>
+        <name>hive.execution.engine</name>
+        <value>tez</value>
+    </property>
+
+    <property>
+        <name>hive.input.format</name>
+        <value>org.apache.hadoop.hive.ql.io.HiveInputFormat</value>
     </property>
 </configuration>

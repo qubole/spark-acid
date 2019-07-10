@@ -50,11 +50,20 @@ RUN cp /root/.ssh/id_rsa.pub /root/.ssh/authorized_keys
 RUN chmod 755 /root && chmod 700 /root/.ssh
 RUN passwd --unlock root
 
+RUN wget http://mirrors.estointernet.in/apache/tez/0.9.1/apache-tez-0.9.1-bin.tar.gz
+RUN tar -xvzf apache-tez-0.9.1-bin.tar.gz
+RUN ln -s /apache-tez-0.9.1-bin /tez
+
+RUN yum install -y vim mlocate
+
 # Copy configuration files
 COPY core-site.xml hadoop/etc/hadoop
 COPY hdfs-site.xml hadoop/etc/hadoop
 COPY hadoop-env.sh hadoop/etc/hadoop
+COPY mapred-site.xml hadoop/etc/hadoop
+COPY yarn-site.xml hadoop/etc/hadoop
 COPY hive-site.xml hive/conf/
+COPY tez-site.xml tez/conf/
 COPY bootstrap.sh /
 
 # HDFS ports
