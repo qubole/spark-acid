@@ -50,32 +50,22 @@ RUN cp /root/.ssh/id_rsa.pub /root/.ssh/authorized_keys
 RUN chmod 755 /root && chmod 700 /root/.ssh
 RUN passwd --unlock root
 
-RUN wget http://mirrors.estointernet.in/apache/tez/0.9.1/apache-tez-0.9.1-bin.tar.gz
-RUN tar -xvzf apache-tez-0.9.1-bin.tar.gz
-RUN ln -s /apache-tez-0.9.1-bin /tez
+RUN yum install -y vim mlocate unzip
 
-RUN yum install -y vim mlocate
+RUN wget https://archive.apache.org/dist/hadoop/common/hadoop-2.7.0/hadoop-2.7.0.tar.gz
+RUN tar -xvzf hadoop-2.7.0.tar.gz
+
 
 # Copy configuration files
-COPY core-site.xml hadoop/etc/hadoop
-COPY hdfs-site.xml hadoop/etc/hadoop
-COPY hadoop-env.sh hadoop/etc/hadoop
-COPY mapred-site.xml hadoop/etc/hadoop
-COPY yarn-site.xml hadoop/etc/hadoop
-COPY hive-site.xml hive/conf/
-COPY tez-site.xml tez/conf/
-COPY bootstrap.sh /
+RUN mkdir /conf
+COPY core-site.xml /conf/core-site.xml
+COPY hdfs-site.xml /conf/hdfs-site.xml
+COPY hadoop-env.sh /conf/hadoop-env.sh
+COPY yarn-site.xml /conf/yarn-site.xml
 
-# create tez min jar
-
-RUN mkdir /minjar; \
-	cd /minjar; \
-    cp /tez/share/tez.tar.gz /minjar; \
-	cd /minjar; \
-    tar -xvzf tez.tar.gz; \
-	tar -cvzf /tez/tez-minimal.tar.gz /minjar/*.jar; \
-	rm -rf /minjar
-
+COPY mapred-site.xml /conf/mapred-site.xml
+COPY hive-site.xml /conf/hive-site.xml
+COPY bootstrap.sh /bootstrap.sh
 
 # HDFS ports
 EXPOSE 1004 1006 8020 9866 9867 9870 9864 50470 9000

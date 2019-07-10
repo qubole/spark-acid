@@ -42,7 +42,7 @@ class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfter
   var spark : SparkSession = _
   var hiveClient : TestHiveClient = _
 
-  var verbose = false
+  var verbose = true
 
   val DEFAULT_DBNAME =  "HiveTestDB"
 
@@ -81,23 +81,23 @@ class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfter
   //}
 
   // Test Run
-  readTest(Table.allFullAcidTypes, false)
-  readTest(Table.allInsertOnlyTypes, true)
+  //readTest(Table.allFullAcidTypes, false)
+  //readTest(Table.allInsertOnlyTypes, true)
 
-  //mergeTest(Table.allFullAcidTypes, false)
-  //mergeTest(Table.allInsertOnlyTypes, true)
+  // NB: Cannot create merged table for insert only table
+  mergeTest(Table.allFullAcidTypes, false)
 
   // e.g joinTest(((orcFullACIDTable, orcPartitionedInsertOnlyTable)
-  joinTest(Table.allFullAcidTypes(), Table.allFullAcidTypes())
-  joinTest(Table.allInsertOnlyTypes(), Table.allFullAcidTypes())
-  joinTest(Table.allInsertOnlyTypes(), Table.allInsertOnlyTypes())
+  //joinTest(Table.allFullAcidTypes(), Table.allFullAcidTypes())
+  //joinTest(Table.allInsertOnlyTypes(), Table.allFullAcidTypes())
+  //joinTest(Table.allInsertOnlyTypes(), Table.allInsertOnlyTypes())
 
   // e.g compactionTest(((orcFullACIDTable,false)), false)
-  compactionTest(Table.allFullAcidTypes(), false)
-  compactionTest(Table.allInsertOnlyTypes(), true)
+  //compactionTest(Table.allFullAcidTypes(), false)
+  //compactionTest(Table.allInsertOnlyTypes(), true)
 
   // NB: No run for the insert only table.
-  nonAcidToAcidConversionTest(Table.allNonAcidTypes(), false)
+  //nonAcidToAcidConversionTest(Table.allNonAcidTypes(), false)
 
   // Read test
   //
@@ -133,7 +133,7 @@ class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfter
       val tName = "t1"
       val testName = "Simple Merged table Test for " + tName + " type " + tType
 
-      test("testName") {
+      test(testName) {
         val table = new Table(DEFAULT_DBNAME, "t1", cols, tType, isPartitioned)
         def code(): Unit = {
           recreate(table)
@@ -160,7 +160,6 @@ class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfter
       val tName = "t1"
       val testName = "NonAcid to Acid conversion test for " + tName + " type " + tType
       test(testName) {
-        println(s"--------------------- $testName --------------------------")
         val table = new Table(DEFAULT_DBNAME, tName, cols, tType, isPartitioned)
         def code() = {
           recreate(table, false)

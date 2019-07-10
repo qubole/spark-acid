@@ -28,21 +28,20 @@ export HADOOP_HOME="/hadoop"
 export HADOOP_ROOT_LOGGER=DEBUG
 export HADOOP_COMMON_LIB_NATIVE_DIR="/hadoop/lib/native"
 
-export TEZ_CONF_DIR="/tez/conf"
-export TEZ_JARS="/tez"
-export HADOOP_CLASSPATH=${TEZ_CONF_DIR}:${TEZ_JARS}/*:${HADOOP_CLASSPATH}:${JAVA_JDBC_LIBS}:${MAPREDUCE_LIBS}
-export CLASSPATH=$CLASSPATH:${TEZ_CONF_DIR}:${TEZ_JARS}/*
-export TEZ_CLASSPATH=${TEZ_CONF_DIR}:${TEZ_JARS}/*
-
 ## Add it to bashrc for starting hadoop
 echo 'export JAVA_HOME="/usr/lib/jvm/java-openjdk"' >> ~/.bashrc
 echo 'export HADOOP_HOME="/hadoop"' >> ~/.bashrc
 
-echo 'export TEZ_CONF_DIR="/tez/conf"' >> ~/.bashrc
-echo 'export TEZ_JARS="/tez"' >> ~/.bashrc
-echo 'export HADOOP_CLASSPATH=${TEZ_CONF_DIR}:${TEZ_JARS}/*' >> ~/.bashrc
-echo 'export CLASSPATH=$CLASSPATH:${TEZ_CONF_DIR}:${TEZ_JARS}/*' >> ~/.bashrc
-echo 'export TEZ_CLASSPATH=${TEZ_CONF_DIR}:${TEZ_JARS}/*' >> ~/.bashrc
+
+rm /hadoop
+ln -sf /hadoop-3.1.1 /hadoop
+
+cp /conf/core-site.xml /hadoop/etc/hadoop
+cp /conf/hdfs-site.xml /hadoop/etc/hadoop
+cp /conf/hadoop-env.sh /hadoop/etc/hadoop
+cp /conf/mapred-site.xml /hadoop/etc/hadoop
+cp /conf/yarn-site.xml /hadoop/etc/hadoop
+cp /conf/hive-site.xml /hive/conf/
 
 
 gprn "set up mysql"
@@ -54,7 +53,8 @@ mysql -uroot -e "grant all privileges on *.* to 'root'@'%' identified by 'root';
 service sshd start
 
 gprn "start yarn"
-hadoop/sbin/start-yarn.sh
+hadoop/sbin/start-yarn.sh &
+sleep 5
 
 gprn "Formatting name node"
 hadoop/bin/hdfs namenode -format
@@ -77,4 +77,4 @@ gprn "Sleep and wait for HMS to be up and running"
 sleep 20
 
 gprn "Start HiveServer2"
-hive/bin/hive --service hiveserver2 --hiveconf hive.server2.thrift.port=10001 --hiveconf hive.execution.engine=tez
+hive/bin/hive --service hiveserver2 --hiveconf hive.server2.thrift.port=10001 --hiveconf hive.execution.engine=mr

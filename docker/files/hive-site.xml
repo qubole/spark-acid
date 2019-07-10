@@ -57,18 +57,19 @@
         <value>10001</value>
     </property>
 
-    <property>
-        <name>tez.lib.uris</name>
-        <value>file:///tez/share/tez.tar.gz</value>
-    </property>
-
-    <property>
+	<property>
         <name>hive.execution.engine</name>
-        <value>tez</value>
+        <value>mr</value>
     </property>
 
     <property>
         <name>hive.input.format</name>
         <value>org.apache.hadoop.hive.ql.io.HiveInputFormat</value>
+    </property>
+
+    <!-- https://issues.apache.org/jira/browse/HIVE-19286 -->
+    <property>
+        <name>hive.auto.convert.join</name>
+        <value>false</value>
     </property>
 </configuration>
