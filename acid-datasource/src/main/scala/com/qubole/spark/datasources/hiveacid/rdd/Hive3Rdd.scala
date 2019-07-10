@@ -179,7 +179,8 @@ class Hive3RDD[K, V](
     } else {
       val finalPaths = new ListBuffer[Path]()
       val pathsWithFileOriginals = new ListBuffer[Path]()
-      HiveInputFormat.processPathsForMmRead(Seq(acidState.location), jobConf, validWriteIds,
+      val dirs = FileInputFormat.getInputPaths(jobConf).toSeq // Seq(acidState.location)
+      HiveInputFormat.processPathsForMmRead(dirs, jobConf, validWriteIds,
         finalPaths, pathsWithFileOriginals) //TODO: AllowOriginals: Need to do something about that: ConfVars.HIVE_MM_ALLOW_ORIGINALS
 
       if (finalPaths.nonEmpty) {

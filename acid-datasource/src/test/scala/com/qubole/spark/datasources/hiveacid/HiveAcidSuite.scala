@@ -88,13 +88,13 @@ class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfter
   //mergeTest(Table.allInsertOnlyTypes, true)
 
   // e.g joinTest(((orcFullACIDTable, orcPartitionedInsertOnlyTable)
-//  joinTest(Table.allFullAcidTypes(), Table.allFullAcidTypes())
-//  joinTest(Table.allInsertOnlyTypes(), Table.allFullAcidTypes())
-//  joinTest(Table.allInsertOnlyTypes(), Table.allInsertOnlyTypes())
+  joinTest(Table.allFullAcidTypes(), Table.allFullAcidTypes())
+  joinTest(Table.allInsertOnlyTypes(), Table.allFullAcidTypes())
+  joinTest(Table.allInsertOnlyTypes(), Table.allInsertOnlyTypes())
 
   // e.g compactionTest(((orcFullACIDTable,false)), false)
-//  compactionTest(Table.allFullAcidTypes(), false)
-//  compactionTest(Table.allInsertOnlyTypes(), true)
+  compactionTest(Table.allFullAcidTypes(), false)
+  compactionTest(Table.allInsertOnlyTypes(), true)
 
   // NB: No run for the insert only table.
   nonAcidToAcidConversionTest(Table.allNonAcidTypes(), false)

@@ -236,7 +236,7 @@ class HiveAcidRelation(var sqlContext: SQLContext,
         Hive.closeCurrent()
         hT
       }
-    logWarning(s"partition count = ${prunedPartitions.size()}")
+    logDebug(s"partition count = ${prunedPartitions.size()}")
     prunedPartitions.toSeq
   }
 
