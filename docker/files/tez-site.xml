@@ -4,7 +4,11 @@
 <configuration>
     <property>
         <name>tez.lib.uris</name>
-        <value>file:///tez/share/tez.tar.gz</value>
+        <value>file:///tez/tez-minimal.tar.gz</value>
     </property>
+	<property>
+		<name>tez.use.cluster.hadoop-libs</name>
+		<value>true</value>
+	</property>
 </configuration>
- 
+

@@ -66,6 +66,17 @@ COPY hive-site.xml hive/conf/
 COPY tez-site.xml tez/conf/
 COPY bootstrap.sh /
 
+# create tez min jar
+
+RUN mkdir /minjar; \
+	cd /minjar; \
+    cp /tez/share/tez.tar.gz /minjar; \
+	cd /minjar; \
+    tar -xvzf tez.tar.gz; \
+	tar -cvzf /tez/tez-minimal.tar.gz /minjar/*.jar; \
+	rm -rf /minjar
+
+
 # HDFS ports
 EXPOSE 1004 1006 8020 9866 9867 9870 9864 50470 9000
 

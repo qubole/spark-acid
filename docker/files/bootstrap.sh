@@ -30,19 +30,19 @@ export HADOOP_COMMON_LIB_NATIVE_DIR="/hadoop/lib/native"
 
 export TEZ_CONF_DIR="/tez/conf"
 export TEZ_JARS="/tez"
-export HADOOP_CLASSPATH=${TEZ_CONF_DIR}:${TEZ_JARS}/*:${TEZ_JARS}/lib/*:${HADOOP_CLASSPATH}:${JAVA_JDBC_LIBS}:${MAPREDUCE_LIBS}
-export CLASSPATH=$CLASSPATH:${TEZ_CONF_DIR}:${TEZ_JARS}/*:${TEZ_JARS}/lib/*
-export TEZ_CLASSPATH=${TEZ_CONF_DIR}:${TEZ_JARS}/*:${TEZ_JARS}/lib/*
+export HADOOP_CLASSPATH=${TEZ_CONF_DIR}:${TEZ_JARS}/*:${HADOOP_CLASSPATH}:${JAVA_JDBC_LIBS}:${MAPREDUCE_LIBS}
+export CLASSPATH=$CLASSPATH:${TEZ_CONF_DIR}:${TEZ_JARS}/*
+export TEZ_CLASSPATH=${TEZ_CONF_DIR}:${TEZ_JARS}/*
 
 ## Add it to bashrc for starting hadoop
 echo 'export JAVA_HOME="/usr/lib/jvm/java-openjdk"' >> ~/.bashrc
 echo 'export HADOOP_HOME="/hadoop"' >> ~/.bashrc
 
 echo 'export TEZ_CONF_DIR="/tez/conf"' >> ~/.bashrc
-echo 'export TEZ_JARS="/tez/share"' >> ~/.bashrc
-echo 'export HADOOP_CLASSPATH=${TEZ_CONF_DIR}:${TEZ_JARS}/*:${TEZ_JARS}/lib/*' >> ~/.bashrc
-echo 'export CLASSPATH=$CLASSPATH:${TEZ_CONF_DIR}:${TEZ_JARS}/*:${TEZ_JARS}/lib/*' >> ~/.bashrc
-echo 'export TEZ_CLASSPATH=${TEZ_CONF_DIR}:${TEZ_JARS}/*:${TEZ_JARS}/lib/*' >> ~/.bashrc
+echo 'export TEZ_JARS="/tez"' >> ~/.bashrc
+echo 'export HADOOP_CLASSPATH=${TEZ_CONF_DIR}:${TEZ_JARS}/*' >> ~/.bashrc
+echo 'export CLASSPATH=$CLASSPATH:${TEZ_CONF_DIR}:${TEZ_JARS}/*' >> ~/.bashrc
+echo 'export TEZ_CLASSPATH=${TEZ_CONF_DIR}:${TEZ_JARS}/*' >> ~/.bashrc
 
 
 gprn "set up mysql"
