@@ -65,21 +65,18 @@ class Table (
 
     def hiveCreate = s"CREATE TABLE ${hiveTname} (${getColDefString}) ${tblProp}"
     def hiveSelect = s"SELECT * FROM ${hiveTname} t1 ORDER BY ${hiveOrderBy("t1")}"
-    def hiveSelectWithPred = s"SELECT * FROM ${hiveTname} t1 where intCol < 5 ORDER BY ${hiveOrderBy("t1")}"
+    def hiveSelectWithPred(pred: String) =
+      s"SELECT * FROM ${hiveTname} t1 where ${pred} ORDER BY ${hiveOrderBy("t1")}"
     def hiveSelectWithProj = s"SELECT intCol FROM ${hiveTname} ORDER BY intCol"
     def hiveDrop = s"DROP TABLE IF EXISTS ${hiveTname}"
 
     def sparkCreate = s"CREATE TABLE ${sparkTname} USING HiveAcid OPTIONS('table' '${hiveTname}')"
     def sparkSelect = s"SELECT * FROM ${sparkTname} t1 ORDER BY ${sparkOrderBy("t1")}"
-    def sparkSelectWithPred = s"SELECT * FROM ${sparkTname} t1 where intCol < 5 ORDER BY ${sparkOrderBy("t1")}"
+    def sparkSelectWithPred(pred: String) =
+      s"SELECT * FROM ${sparkTname} t1 where ${pred} ORDER BY ${sparkOrderBy("t1")}"
     def sparkSelectWithProj = s"SELECT intCol FROM ${sparkTname} ORDER BY intCol"
     def sparkDFProj = "intCol"
-    def sparkDFPred = "$'intCol' < '5'"
     def sparkDrop = s"DROP TABLE IF EXISTS ${sparkTname}"
-
-
-
-
 
 
 

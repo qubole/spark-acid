@@ -23,16 +23,15 @@ import java.net.URL
 import java.sql.ResultSet
 
 import org.apache.commons.logging.LogFactory
-import org.apache.log4j.{LogManager, Level}
+import org.apache.log4j.{Level, LogManager}
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql._
 import org.apache.spark.util._
-
 import org.scalatest._
 
 import scala.util.control.NonFatal
-
 import org.apache.spark.sql.functions.col
+import org.apache.spark.sql.internal.SQLConf
 
 class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll {
 
@@ -53,6 +52,8 @@ class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfter
     ("booleanCol","boolean")
  //   ("dateCol","date")
   )
+
+  val defaultPred = " intCol < 5 "
 
   override def beforeAll() {
     try {
@@ -99,6 +100,19 @@ class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfter
   // NB: No run for the insert only table.
   //nonAcidToAcidConversionTest(Table.allNonAcidTypes(), false)
 
+  // Run predicatePushdown test for InsertOnly/FullAcid, Partitioned/NonPartitioned tables
+  // It should work in file formats which supports predicate pushdown - orc/parquet
+  predicatePushdownTest(List(
+    (Table.orcPartitionedInsertOnlyTable, true, true),
+    (Table.parquetPartitionedInsertOnlyTable, true, true),
+    (Table.textPartitionedInsertOnlyTable, true, false),
+    (Table.orcInsertOnlyTable, false, true),
+    (Table.parquetInsertOnlyTable, false, true),
+    (Table.textInsertOnlyTable, false, false),
+    (Table.orcFullACIDTable, false, true),
+    (Table.orcPartitionedFullACIDTable, true, true)
+  ))
+
   // Read test
   //
   // 1. Write bunch of rows using hive client
@@ -115,6 +129,52 @@ class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfter
           hiveClient.execute(table.insertIntoHiveTableKeyRange(1, 10))
           verifyAll(table, insertOnly)
         }
+        myRun(testName, code)
+      }
+    }
+  }
+
+  def predicatePushdownTest(tTypes: List[(String,Boolean,Boolean)]): Unit = {
+    tTypes.foreach { case (tType, isPartitioned, pushdownExpected) =>
+      val tName = "t1"
+      val testName = "Predicate pushdown test " + tName + " type " + tType
+      test(testName) {
+        val table = new Table(DEFAULT_DBNAME, tName, cols, tType, isPartitioned)
+
+        def checkOutputRowsInLeafNode(df: DataFrame): Long = {
+          val tableScanNode = df.queryExecution.executedPlan.collectLeaves()(0)
+          val metricsMap = tableScanNode.metrics
+          val dfRowsRead = metricsMap("numOutputRows").value
+          log.info(s"dfRowsRead: $dfRowsRead")
+          return dfRowsRead
+        }
+
+        def code() = {
+          withSQLConf("spark.sql.acidDs.enablePredicatePushdown" -> "true") {
+            recreate(table, true)
+            // Inserting 5 rows in different hive queries so that we will have 5 files - one for each row
+            (3 to 7).toSeq.foreach(k => hiveClient.execute(table.insertIntoHiveTableKey(k)))
+
+            val dfFromSql = sparkSQL(table.sparkSelectWithPred(defaultPred))
+            val hiveResStr = hiveClient.executeQuery(table.hiveSelectWithPred(defaultPred))
+            compareResult(hiveResStr, dfFromSql.collect())
+            if (pushdownExpected) {
+              assert(checkOutputRowsInLeafNode(dfFromSql) == 2L * 2)
+            } else {
+              assert(checkOutputRowsInLeafNode(dfFromSql) == 2L * 5)
+            }
+
+            // This query is failing in Orc and needs to be fixed
+            // sparkSQL("select count(*) FROM HiveTestDB.spark_t1 t1 where intCol < 5").collect()
+
+            // Disable the pushdown
+            sparkSQL("set spark.sql.acidDs.enablePredicatePushdown=false")
+            val dfFromSql1 = sparkSQL(table.sparkSelectWithPred(defaultPred))
+            compareResult(hiveResStr, dfFromSql1.collect())
+            assert(checkOutputRowsInLeafNode(dfFromSql1) == 2L * 5)
+          }
+        }
+
         myRun(testName, code)
       }
     }
@@ -219,7 +279,7 @@ class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfter
           recreate(table)
 
           hiveClient.execute(table.disableCompaction)
-          hiveClient.execute(table.insertIntoHiveTableKeyRange(1, 10))
+          hiveClient.execute(table.insertIntoHiveTableKeyRange(1, 3))
 
           val hiveResStr = hiveClient.executeQuery(table.hiveSelect)
 
@@ -325,7 +385,7 @@ class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfter
   // With Predicate
   private def compareWithPred(table: Table): Unit = {
     log.info("++++ Verify with predicate")
-    val hiveResStr = hiveClient.executeQuery(table.hiveSelectWithPred)
+    val hiveResStr = hiveClient.executeQuery(table.hiveSelectWithPred(defaultPred))
     val (dfFromSql, dfFromScala) = sparkGetDFWithPred(table)
     compareResult(hiveResStr, dfFromSql.collect())
     compareResult(hiveResStr, dfFromScala.collect())
@@ -429,7 +489,7 @@ class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfter
   }
 
   private def sparkGetDFWithPred(table: Table): (DataFrame, DataFrame) = {
-    val dfSql = sparkSQL(table.sparkSelect)
+    val dfSql = sparkSQL(table.sparkSelectWithPred(defaultPred))
 
     var dfScala = spark.read.format("HiveAcid").options(Map("table" -> table.hiveTname)).load().where(col("intCol") < "5")
     dfScala = totalOrderBy(table, dfScala)
@@ -497,6 +557,29 @@ class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfter
     }
   }
 
+  def withSQLConf(pairs: (String, String)*)(f: => Unit): Unit = {
+    val conf = spark.sessionState.conf
+    val (keys, values) = pairs.unzip
+    val currentValues = keys.map { key =>
+      if (conf.contains(key)) {
+        Some(conf.getConfString(key))
+      } else {
+        None
+      }
+    }
+    (keys, values).zipped.foreach { (k, v) =>
+      if (SQLConf.staticConfKeys.contains(k)) {
+        throw new AnalysisException(s"Cannot modify the value of a static config: $k")
+      }
+      conf.setConfString(k, v)
+    }
+    try f finally {
+      keys.zip(currentValues).foreach {
+        case (key, Some(value)) => conf.setConfString(key, value)
+        case (key, None) => conf.unsetConf(key)
+      }
+    }
+  }
 }
 
 object Helper {

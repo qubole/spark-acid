@@ -24,8 +24,8 @@ libraryDependencies ++= Seq(
   // Hive/Orc core dependencies packed.
   "org.apache.hive" % "hive-metastore" % "3.1.1" intransitive(),
   "org.apache.hive" % "hive-exec" % "3.1.1" intransitive(),
-  "org.apache.orc" % "orc-core" % "1.5.1" intransitive(),
-  "org.apache.orc" % "orc-mapreduce" % "1.5.2" intransitive(),
+  "org.apache.orc" % "orc-core" % "1.5.6" intransitive(),
+  "org.apache.orc" % "orc-mapreduce" % "1.5.6" intransitive(),
 
   // Only for hive3 client in tests.. but packing it in shaded jars.
   "org.apache.hive" % "hive-jdbc" % "3.1.1" intransitive(),
@@ -89,7 +89,7 @@ assemblyMergeStrategy in assembly := {
   case PathList("org", "apache", "commons", "lang3", "text", xs @ _*) => MergeStrategy.last
   case PathList("org", "apache", "commons", "lang3", "time", xs @ _*) => MergeStrategy.last
   case PathList("org", "apache", "commons", "lang3", "tuple", xs @ _*) => MergeStrategy.last
-  case PathList("org", "apache", "commons", "lang3", "tuple", xs @ _*) => MergeStrategy.last
+  case PathList("com", "qubole", "shaded", "orc", xs @ _*) => MergeStrategy.last
   case PathList("org", "slf4j", "impl", xs @ _*) => MergeStrategy.last
   case PathList("org", "slf4j", "helpers", xs @ _*) => MergeStrategy.last
   case PathList("org", "slf4j", xs @ _*) => MergeStrategy.last

@@ -20,6 +20,8 @@ package com.qubole.spark.datasources.hiveacid
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
+import com.esotericsoftware.kryo.Kryo
+import com.esotericsoftware.kryo.io.Output
 import com.qubole.shaded.hadoop.hive.conf.HiveConf
 import com.qubole.shaded.hadoop.hive.metastore.api.{FieldSchema, Table}
 import com.qubole.shaded.hadoop.hive.ql.metadata
@@ -28,6 +30,10 @@ import com.qubole.shaded.hadoop.hive.ql.plan.TableDesc
 import com.qubole.shaded.orc.mapreduce.OrcInputFormat
 import com.qubole.spark.datasources.hiveacid.orc.OrcFilters
 import com.qubole.spark.datasources.hiveacid.rdd.HiveTableReader
+import com.qubole.shaded.hadoop.hive.conf.HiveConf.ConfVars
+import org.apache.commons.codec.binary.Base64
+import org.apache.hadoop.conf.Configuration
+import org.apache.hadoop.hive.serde2.ColumnProjectionUtils
 import org.apache.spark.{SparkContext, SparkException}
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
@@ -126,6 +132,8 @@ class HiveAcidRelation(var sqlContext: SQLContext,
   override def buildScan(requiredColumns: Array[String], filters: Array[Filter]): RDD[Row] = {
     val tableDesc = new TableDesc(hTable.getInputFormatClass, hTable.getOutputFormatClass,
       hTable.getMetadata)
+    val partitionedColumnSet = hTable.getPartitionKeys.map(_.getName).toSet
+    val requiredNonPartitionedColumns = requiredColumns.filter(x => !partitionedColumnSet.contains(x))
     val requiredHiveFields = requiredColumns.map(x => hTable.getAllCols.find(_.getName == x).get)
     val requiredAttributes = requiredHiveFields.map { x =>
       PrettyAttribute(x.getName, getSparkSQLDataType(x))
@@ -146,15 +154,14 @@ class HiveAcidRelation(var sqlContext: SQLContext,
       s"dataFilters: ${dataFilters.size} " +
       s"partitionFilters: ${partitionFilters.size}")
 
-    // TODO: This has to be set only if its a Full ACID table, or if MM table with ORC.
-    // We need to set filters for MM table with Parquet as well. In fact, there should be a generic way to set filters
-    // for any Inputformat and it should handle it if it can.
+    setPushDownFiltersInHadoopConf(hadoopConf, dataFilters)
+    setRequiredColumnsInHadoopConf(hadoopConf, requiredNonPartitionedColumns)
 
-    if (sqlContext.sparkSession.sessionState.conf.orcFilterPushDown) {
-      OrcFilters.createFilter(dataSchema, dataFilters).foreach { f =>
-        OrcInputFormat.setSearchArgument(hadoopConf, f, dataSchema.fieldNames)
-      }
-    }
+    // TODO: change this to logDebug
+    log.warn(s"sarg.pushdown: ${hadoopConf.get("sarg.pushdown")}," +
+      s"hive.io.file.readcolumn.names: ${hadoopConf.get("hive.io.file.readcolumn.names")}, " +
+      s"hive.io.file.readcolumn.ids: ${hadoopConf.get("hive.io.file.readcolumn.ids")}")
+
 
     //TODO: Introduce a configurable value for heartbeat interval
     val acidState = new HiveAcidState(sqlContext.sparkSession, hiveConf, hTable,
@@ -174,6 +181,38 @@ class HiveAcidRelation(var sqlContext: SQLContext,
       hiveReader.makeRDDForTable(hTable).asInstanceOf[RDD[Row]]
     }
   }
+
+  private def setRequiredColumnsInHadoopConf(conf: Configuration, requiredColumns: Seq[String]): Unit = {
+    val dataCols: Seq[String] = hTable.getCols.map(_.getName)
+    val requiredColumnIndexes = requiredColumns.map(a => dataCols.indexOf(a): Integer)
+    val (sortedIDs, sortedNames) = requiredColumnIndexes.zip(requiredColumns).sorted.unzip
+    conf.set(ColumnProjectionUtils.READ_COLUMN_NAMES_CONF_STR, sortedNames.mkString(","))
+    conf.set(ColumnProjectionUtils.READ_COLUMN_IDS_CONF_STR, sortedIDs.mkString(","))
+  }
+
+  private def setPushDownFiltersInHadoopConf(conf: Configuration, dataFilters: Array[Filter]): Unit = {
+    if (isPredicatePushdownEnabled()) {
+      OrcFilters.createFilter(dataSchema, dataFilters).foreach { f =>
+        def toKryo(obj: com.qubole.shaded.hadoop.hive.ql.io.sarg.SearchArgument): String = {
+          val out = new Output(4 * 1024, 10 * 1024 * 1024)
+          new Kryo().writeObject(out, obj)
+          out.close()
+          return Base64.encodeBase64String(out.toBytes)
+        }
+
+        // TODO: change this to logDebug
+        log.warn(s"searchArgument: ${f}")
+        conf.set("sarg.pushdown", toKryo(f))
+        conf.setBoolean(ConfVars.HIVEOPTINDEXFILTER.varname, true)
+      }
+    }
+  }
+
+  private def isPredicatePushdownEnabled(): Boolean = {
+    val sqlConf = sqlContext.sparkSession.sessionState.conf
+    sqlConf.getConfString("spark.sql.acidDs.enablePredicatePushdown", "true") == "true"
+  }
+
 
   private def convertFilters(table: Table, filters: Seq[Filter]): String = {
     def convertInToOr(name: String, values: Seq[Any]): String = {
@@ -216,7 +255,6 @@ class HiveAcidRelation(var sqlContext: SQLContext,
       case _ => None
     }
 
-
     filters.flatMap(convert).mkString(" and ")
   }
 
@@ -239,7 +277,6 @@ class HiveAcidRelation(var sqlContext: SQLContext,
     logDebug(s"partition count = ${prunedPartitions.size()}")
     prunedPartitions.toSeq
   }
-
 }
 
 
