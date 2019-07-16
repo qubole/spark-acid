@@ -186,6 +186,7 @@ class HiveAcidRelation(var sqlContext: SQLContext,
     val dataCols: Seq[String] = hTable.getCols.map(_.getName)
     val requiredColumnIndexes = requiredColumns.map(a => dataCols.indexOf(a): Integer)
     val (sortedIDs, sortedNames) = requiredColumnIndexes.zip(requiredColumns).sorted.unzip
+    conf.set(ColumnProjectionUtils.READ_ALL_COLUMNS, "false")
     conf.set(ColumnProjectionUtils.READ_COLUMN_NAMES_CONF_STR, sortedNames.mkString(","))
     conf.set(ColumnProjectionUtils.READ_COLUMN_IDS_CONF_STR, sortedIDs.mkString(","))
   }
