@@ -157,8 +157,7 @@ class HiveAcidRelation(var sqlContext: SQLContext,
     setPushDownFiltersInHadoopConf(hadoopConf, dataFilters)
     setRequiredColumnsInHadoopConf(hadoopConf, requiredNonPartitionedColumns)
 
-    // TODO: change this to logDebug
-    log.warn(s"sarg.pushdown: ${hadoopConf.get("sarg.pushdown")}," +
+    logDebug(s"sarg.pushdown: ${hadoopConf.get("sarg.pushdown")}," +
       s"hive.io.file.readcolumn.names: ${hadoopConf.get("hive.io.file.readcolumn.names")}, " +
       s"hive.io.file.readcolumn.ids: ${hadoopConf.get("hive.io.file.readcolumn.ids")}")
 
@@ -201,8 +200,7 @@ class HiveAcidRelation(var sqlContext: SQLContext,
           return Base64.encodeBase64String(out.toBytes)
         }
 
-        // TODO: change this to logDebug
-        log.warn(s"searchArgument: ${f}")
+        logDebug(s"searchArgument: ${f}")
         conf.set("sarg.pushdown", toKryo(f))
         conf.setBoolean(ConfVars.HIVEOPTINDEXFILTER.varname, true)
       }

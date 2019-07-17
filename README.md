@@ -4,6 +4,7 @@ This datasource provides the capability to work with Hive ACID V2 tables, both F
 
 Please refer to [Quick Start](#Quick Start) for details on getting started with using this Datasource.
 
+
 # Latest Binaries
 
 ACID datasource is published to Maven Central Repository and can be used by adding a dependency in your POM file.
@@ -27,9 +28,11 @@ ACID datasource is published to Maven Central Repository and can be used by addi
 
 ACID datasource has been tested to work with Apache Spark 2.4.3, but it should work with older versions as well. However, because of a Hive dependency, this datasource needs Hadoop version 2.8.2 or higher due to [HADOOP-14683](https://jira.apache.org/jira/browse/HADOOP-14683)
 
+_NB: Hive ACID is supported in Hive 3.1.1 onwards and for that hive Metastore db needs to be [upgraded](https://cwiki.apache.org/confluence/display/Hive/Hive+Schema+Tool) to 3.1.1._
+
 ### Data Storage Compatibility
 
-1. ACID datasource does not control data storage format and layout, which is managed by Hive. It should be able to work with data written by Hive version 3.0.0 and above. Please see [Hive ACID storage layout](https://cwiki.apache.org/confluence/display/Hive/Hive+Transactions#HiveTransactions-BasicDesign).
+1. ACID datasource does not control data storage format and layout, which is managed by Hive. It works with data written by Hive version 3.0.0 and above. Please see [Hive ACID storage layout](https://cwiki.apache.org/confluence/display/Hive/Hive+Transactions#HiveTransactions-BasicDesign).
 
 2. ACID datasource works with data stored on local files, HDFS as well as cloud blobstores (AWS S3, Azure Blob Storage etc).
 
@@ -43,27 +46,25 @@ This project has the following sbt projects:
 
 To compile:
 
-1. Compile shaded dependencies 
+1. Compile shaded dependencies and publish it locally
 
 ```bash
-cd shaded-dependencies
-sbt clean assembly
+sbt "project shaded_dependencies" clean assembly
 ```
 
-2. publish the dependency locally
+2. Publish it locally for acid datsource
+
 ```bash
-sbt publishLocal
+sbt "project shaded_dependencies" publishLocal
 ```
 
 This would create and publish `spark-hiveacid-shaded-dependencies_2.11-assembly.jar` which has all the runtime and test dependencies.
 
-Create final assembled jar
-```bash
-cd acid-datasource
-sbt assembly
-```
+3. Compile acid-datasource
 
-This would create `hiveacid-datasource-assembly-0.1.jar`
+```bash
+sbt "project acid_datasource" clean package
+```
 
 # Testing
 
@@ -73,13 +74,21 @@ _NB: Container run HMS server, HS2 Server and HDFS and listens on port 10000,100
 
 To run unit test,
 
+```bash
+sbt "project acid_datasource" test
+```
 
-to run
+# Publishing
+
+To publish fully assembled jar
 
 ```bash
-cd acid-datasource
-sbt test
+sbt "project acid_datasource" assembly publish
 ```
+
+This would create `spark-hiveacid-datasource_2.11-assembly.jar`
+
+
 
 Refer to [SBT docs](https://www.scala-sbt.org/1.x/docs/Command-Line-Reference.html) for more commands.
 

@@ -1,0 +1,11 @@
+#!/bin/bash
+prn_row()  {
+	printf '%-32s | %-10s | %-16s | %-128s\n' "${1}" "${2}" "${3}" "${4}"
+}
+prn_row "DOCKER_NAME" "RUNNING" "IP" "PORT_MAPPING"
+id=spark-hiveacid-test-container
+NAME=`docker inspect --format='{{.Name}}' $id`
+RUNNING=`docker inspect --format='{{.State.Running}}' $id`
+IP=`docker inspect --format='{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $id`
+PORT_MAPPING=`docker inspect --format='{{range $p, $conf := .NetworkSettings.Ports}} {{$p}} -> {{(index $conf 0).HostPort}} {{end}}' $id | sed -e 's/\/tcp//g'`
+prn_row "$NAME" "${RUNNING}" "${IP}" "${PORT_MAPPING}"

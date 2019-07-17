@@ -21,9 +21,8 @@ public class TestHiveClient {
 	private static String driverName = "com.qubole.shaded.hive.jdbc.HiveDriver";
 	private static Connection con = null;
 	private static Statement stmt = null;
-	private Boolean verbose = false;
 
-	TestHiveClient(Boolean verbose) {
+	TestHiveClient() {
 		try {
 			Class.forName(driverName);
 		} catch (ClassNotFoundException e) {
@@ -31,7 +30,6 @@ public class TestHiveClient {
 			System.exit(1);
 		}
 		try {
-			this.verbose = verbose;
 			con = DriverManager.getConnection("jdbc:hive2://0.0.0.0:10001?allowMultiQueries=true", "root", "root");
 			stmt = con.createStatement();
 		}
@@ -41,7 +39,6 @@ public class TestHiveClient {
 	}
 
 	public String executeQuery(String cmd) throws Exception {
-		if (verbose) System.out.println("\n\nHive> " + cmd + "\n");
 		// Start Hive txn
 		ResultSet rs = null;
 		String resStr = null;
@@ -62,7 +59,6 @@ public class TestHiveClient {
 	}
 
 	public void execute(String cmd) throws SQLException {
-		if (verbose) System.out.println("\n\nHive> " + cmd + "\n");
 		stmt.execute(cmd);
 	}
 

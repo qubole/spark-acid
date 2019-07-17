@@ -29,6 +29,10 @@ import scala.collection.JavaConversions._
 import scala.collection.mutable.ListBuffer
 import scala.reflect.ClassTag
 
+object Cache {
+  import com.google.common.collect.MapMaker
+  val jobConf = new MapMaker().softValues().makeMap[String, Any]()
+}
 
 class Hive3Partition(rddId: Int, override val index: Int, s: InputSplit)
   extends Partition {
@@ -134,12 +138,12 @@ class Hive3RDD[K, V](
         logDebug("Re-using user-broadcasted JobConf")
         conf.asInstanceOf[JobConf]
       } else {
-//        Option(Hive3RDD.getCachedMetadata(jobConfCacheKey))
-//          .map { conf =>
-//            logDebug("Re-using cached JobConf")
-//            conf.asInstanceOf[JobConf]
-//          }
-//          .getOrElse {
+        Option(Hive3RDD.getCachedMetadata(jobConfCacheKey))
+          .map { conf =>
+            logDebug("Re-using cached JobConf")
+            conf.asInstanceOf[JobConf]
+          }
+          .getOrElse {
             // Create a JobConf that will be cached and used across this RDD's getJobConf() calls in
             // the local process. The local cache is accessed through Hive3RDD.putCachedMetadata().
             // The caching helps minimize GC, since a JobConf can contain ~10KB of temporary
@@ -152,7 +156,7 @@ class Hive3RDD[K, V](
               Hive3RDD.putCachedMetadata(jobConfCacheKey, newJobConf)
               newJobConf
             }
-//          }
+          }
       }
     }
   }
@@ -397,13 +401,11 @@ object Hive3RDD extends Logging {
   val RECORDS_BETWEEN_BYTES_READ_METRIC_UPDATES = 256
 
   def getCachedMetadata(key: String): Any = {
-    // SparkEnv.get.hadoopJobMetadata.get(key)
-    ()
+    Cache.jobConf.get(key)
   }
 
   private def putCachedMetadata(key: String, value: Any): Unit = {
-    //SparkEnv.get.hadoopJobMetadata.put(key, value)
-    ()
+    Cache.jobConf.put(key, value)
   }
 
   /** Add Hadoop configuration specific to a single partition and attempt. */
