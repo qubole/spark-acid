@@ -1,1 +1,1 @@
-# spark-acid
+# Hive ACID for Apache Spark
