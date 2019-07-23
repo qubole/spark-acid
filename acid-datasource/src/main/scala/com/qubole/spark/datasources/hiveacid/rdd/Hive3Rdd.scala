@@ -176,7 +176,6 @@ class Hive3RDD[K, V](
     //val ValidWriteIdList = acidState.getValidWriteIdsNoTxn
     var jobConf = getJobConf()
 
-    //TODO: Utilities.copyTablePropertiesToConf(table, conf)?
     if (acidState.isFullAcidTable) {
       // If full ACID table, just set the right writeIds, the OrcInputFormat.getSplits() will take care of the rest
       AcidUtils.setValidWriteIdList(jobConf, validWriteIds)
@@ -185,7 +184,7 @@ class Hive3RDD[K, V](
       val pathsWithFileOriginals = new ListBuffer[Path]()
       val dirs = FileInputFormat.getInputPaths(jobConf).toSeq // Seq(acidState.location)
       HiveInputFormat.processPathsForMmRead(dirs, jobConf, validWriteIds,
-        finalPaths, pathsWithFileOriginals) //TODO: AllowOriginals: Need to do something about that: ConfVars.HIVE_MM_ALLOW_ORIGINALS
+        finalPaths, pathsWithFileOriginals)
 
       if (finalPaths.nonEmpty) {
         FileInputFormat.setInputPaths(jobConf, finalPaths.toList: _*)
