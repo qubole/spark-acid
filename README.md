@@ -1,4 +1,6 @@
-ACID Datasource a datasource built on top of Spark Datasource V1 APIs, and provides Spark support for [Hive ACID transactions](https://cwiki.apache.org/confluence/display/Hive/Hive+Transactions).
+# Hive ACID Data Source for Apache Spark
+
+Datasource for Spark on the top of Spark Datasource V1 APIs, and provides Spark support for [Hive ACID transactions](https://cwiki.apache.org/confluence/display/Hive/Hive+Transactions).
 
 This datasource provides the capability to work with Hive ACID V2 tables, both Full ACID tables as well as Insert-Only tables. Currently, it supports reading from these ACID tables only, and ability to write (insert, insert overwrite) will soon be added in the near future.
 
@@ -12,13 +14,8 @@ ACID datasource is published to Maven Central Repository and can be used by addi
      <depenencies>
        <dependency>
          <groupId>com.qubole</groupId>
-         <artifactId>spark-hiveacid-datasource-core_2.11</artifactId>
-         <version>0.1.0</version>
-       </dependency>
-       <dependency>
-         <groupId>com.qubole</groupId>
-         <artifactId>spark-hiveacid-shaded-dependencies_2.11-assembly</artifactId>
-         <version>0.1.0</version>
+         <artifactId>spark-acid_2.11</artifactId>
+         <version>0.1-SNAPSHOT</version>
        </dependency>
      </dependencies>
 
@@ -41,7 +38,7 @@ _NB: Hive ACID is supported in Hive 3.1.1 onwards and for that hive Metastore db
 This project has the following sbt projects:
 
 1. **acid-datasource**: The main project for the datasource. This has the actual code for the datasource, which implements the interaction with Hive ACID transaction and HMS subsystem.
-2. **shaded-dependencies**: This is an sbt project to create the shaded hive metastore and hive exec jars combined into a fat jar(spark-hiveacid-shaded-dependencies-assembly-0.1.jar referred below). This jar has been created already and packaged into the lib folder of acid-datasource as an umanaged dependency. This is required due to our dependency on Hive 3 for Hive ACID, and Spark currently only supports Hive 1.2
+2. **shaded-dependencies**: This is an sbt project to create the shaded hive metastore and hive exec jars combined into a fat jar(spark-acid-shaded-dependencies-assembly-0.1.jar referred below). This jar has been created already and packaged into the lib folder of acid-datasource as an umanaged dependency. This is required due to our dependency on Hive 3 for Hive ACID, and Spark currently only supports Hive 1.2
 
 
 To compile:
@@ -58,7 +55,7 @@ sbt "project shaded_dependencies" clean assembly
 sbt "project shaded_dependencies" publishLocal
 ```
 
-This would create and publish `spark-hiveacid-shaded-dependencies_2.11-assembly.jar` which has all the runtime and test dependencies.
+This would create and publish `spark-acid-shaded-dependencies_2.11-assembly.jar` which has all the runtime and test dependencies.
 
 3. Compile acid-datasource
 
@@ -86,7 +83,7 @@ To publish fully assembled jar
 sbt "project acid_datasource" assembly publish
 ```
 
-This would create `spark-hiveacid-datasource_2.11-assembly.jar`
+This would create `spark-acid_2.11-assembly.jar`
 
 
 
@@ -122,7 +119,7 @@ There are couple of ways to use the library while running spark-shell
 
 1. Pass it as part of command line
 
-`spark-shell --jars ${ACID_DS_HOME}/acid-datasource/target/scala-2.11/hiveacid-datasource-assembly-0.1.jar
+`spark-shell --jars ${ACID_DS_HOME}/acid-datasource/target/scala-2.11/spark-acid-assembly-0.1-SNAPSHOT.jar`
 
 2. Copy the acid-datasource assembly jar intto `$SPARK_HOME/assembly/target/scala.2_11/jars` and run
 
@@ -194,7 +191,7 @@ We are looking into removing this restriction, and hope to be able to fix this i
 
 ## Contributing
 
-We use [BitBucket Issues](https://bitbucket.com/qubole/acid-ds) to track issues.
+We use [Github Issues](https://github.com/qubole/spark-acid) to track issues.
 
 ## Reporting bugs or feature requests
 

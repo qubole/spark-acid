@@ -100,10 +100,10 @@ lazy val commonShadeSettings = Seq(
 
     assemblyOption in assembly := (assemblyOption in assembly).value.copy(includeScala = false),
 
-	publishMavenStyle := false
+    publishMavenStyle := false
 )
 
-lazy val commonHiveAcidSettings = Seq(
+lazy val commonAcidDatasourceSettings = Seq(
     libraryDependencies ++= Seq(
         // Adding test classifier seems to break transitive resolution of the core dependencies
         "org.apache.spark" %% "spark-hive" % "2.4.3" % "provided" excludeAll(
@@ -144,7 +144,7 @@ lazy val commonHiveAcidSettings = Seq(
 
 val oss_hive_version = "3.1.1"
 val oss_orc_version = "1.5.6"
-val dependencies_jar_name = "spark-hiveacid-shaded-dependencies"
+val dependencies_jar_name = "spark-acid-shaded-dependencies"
 
 // Shaded dependency
 lazy val shaded_dependencies = project
@@ -169,26 +169,26 @@ lazy val shaded_dependencies = project
             "org.apache.hive" % "hive-common" % oss_hive_version intransitive(),
         ),
 
-		// For publishing
-		artifact in (Compile, assembly) := {
-			val art = (artifact in (Compile, assembly)).value
-				art.withClassifier(Some("assembly"))
-		},
+        // For publishing
+        artifact in (Compile, assembly) := {
+            val art = (artifact in (Compile, assembly)).value
+                art.withClassifier(Some("assembly"))
+        },
         addArtifact(artifact in (Compile, assembly), assembly)
     )
 
 lazy val acid_datasource = (project in file("acid-datasource"))
     .settings(
-        name := "spark-hiveacid-datasource",
+        name := "spark-acid",
         commonSettings,
-        commonHiveAcidSettings,
+        commonAcidDatasourceSettings,
         libraryDependencies ++= Seq(
             orgPrefix %% dependencies_jar_name % publishVersion,
         ),
-		// For publishing
-		artifact in (Compile, assembly) := {
-			val art = (artifact in (Compile, assembly)).value
-			art.withClassifier(Some("assembly"))
-		},
+        // For publishing
+        artifact in (Compile, assembly) := {
+            val art = (artifact in (Compile, assembly)).value
+            art.withClassifier(Some("assembly"))
+        },
         addArtifact(artifact in (Compile, assembly), assembly)
     )
