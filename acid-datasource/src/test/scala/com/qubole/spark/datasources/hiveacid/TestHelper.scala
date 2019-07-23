@@ -219,6 +219,7 @@ class TestHelper {
     if (createSymlinkSparkTables) {
       sparkCollect(table.sparkCreate)
     }
+    hiveExecute(table.disableCompaction)
   }
 
   // Compare the results
