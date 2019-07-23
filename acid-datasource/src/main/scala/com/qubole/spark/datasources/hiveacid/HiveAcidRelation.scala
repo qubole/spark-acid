@@ -161,8 +161,6 @@ class HiveAcidRelation(var sqlContext: SQLContext,
       s"hive.io.file.readcolumn.names: ${hadoopConf.get("hive.io.file.readcolumn.names")}, " +
       s"hive.io.file.readcolumn.ids: ${hadoopConf.get("hive.io.file.readcolumn.ids")}")
 
-
-    //TODO: Introduce a configurable value for heartbeat interval
     val acidState = new HiveAcidState(sqlContext.sparkSession, hiveConf, hTable,
       sqlContext.sparkSession.sessionState.conf.defaultSizeInBytes, partitionSchema, isFullAcidTable)
 
