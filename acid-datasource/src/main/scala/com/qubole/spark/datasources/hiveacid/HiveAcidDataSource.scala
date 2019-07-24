@@ -39,7 +39,3 @@ class HiveAcidDataSource
     HiveAcidUtils.NAME
   }
 }
-
-object HiveAcidDataSource extends Logging {
-  val agentName: String = "HiveAcidDataSource"
-}
