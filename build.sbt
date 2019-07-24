@@ -18,7 +18,7 @@ spShade := true
 lazy val acid_datasource = project in file("acid-datasource")
 assembly in spPackage := (assembly in acid_datasource).value
 
-credentials in ThisBuild += Credentials(Path.userHome / ".ivy2" / ".sbtcredentials"),
+credentials in ThisBuild += Credentials(Path.userHome / ".ivy2" / ".sbtcredentials")
 
 licenses in ThisBuild += "Apache-2.0" -> url("http://opensource.org/licenses/Apache-2.0")
 
