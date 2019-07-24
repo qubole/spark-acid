@@ -291,7 +291,4 @@ object HiveAcidRelation extends Logging {
     }
     hiveConf
   }
-
-  val agentName: String = "HiveAcidDataSource"
-
 }
