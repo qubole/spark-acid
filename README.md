@@ -89,7 +89,7 @@ _NB: Hive ACID is supported in Hive 3.1.1 onwards and for that hive Metastore db
 2. ACID datasource works with data stored on local files, HDFS as well as cloud blobstores (AWS S3, Azure Blob Storage etc).
 
 ## Developer resources:
-###Build
+### Build
 
 This project has the following sbt projects:
 
@@ -119,7 +119,7 @@ To run the full integration test:
     sbt acid_datasource/test
 
 
-###Release
+### Release
 
 To release a new version use
 
@@ -129,7 +129,7 @@ sbt release
 
 Read more about [sbt release](https://github.com/sbt/sbt-release)
 
-###Publish
+### Publish
 
 To publish fully assembled jar to spark package
 
