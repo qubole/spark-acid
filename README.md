@@ -1,17 +1,78 @@
 # Hive ACID Data Source for Apache Spark
 
-A Datasource for Spark on top of Spark Datasource V1 APIs, that provides Spark support for [Hive ACID transactions](https://cwiki.apache.org/confluence/display/Hive/Hive+Transactions).
+A Datasource on top of Spark Datasource V1 APIs, that provides Spark support for [Hive ACID transactions](https://cwiki.apache.org/confluence/display/Hive/Hive+Transactions).
 
-This datasource provides the capability to work with Hive ACID V2 tables, both Full ACID tables as well as Insert-Only tables. Currently, it supports reading from these ACID tables only, and ability to write (insert, insert overwrite) will soon be added in the near future.
+This datasource provides the capability to work with Hive ACID V2 tables, both Full ACID tables as well as Insert-Only tables. Currently, it supports reading from these ACID tables only, and ability to write will be added in the near future.
 
-Please refer to [Quick Start](#Quick Start) for details on getting started with using this Datasource.
+## Quick Start
+
+These are the pre-requisites to using this library:
+
+1. You already have Hive ACID tables (ACID V2) and need to read it from Spark (as currently write is not _NOT_ supported).
+2. You have Hive Metastore DB with version 3.0.0 or higher. Please refer to [Hive Metastore](https://cwiki.apache.org/confluence/display/Hive/Design#Design-MetastoreArchitecture) for details.
+3. You have a Hive Metastore Server running with version 3.0.0 or higher, as Hive ACID needs a standalone Hive Metastore Server to operate. Please refer to [Hive Configuration](https://cwiki.apache.org/confluence/display/Hive/Hive+Transactions#HiveTransactions-Configuration) for configuration options.
+4. You are using the above Hive Metastore Server with your Spark for its metastore communications.
+
+### Config
+
+Change configuration in `$SPARK_HOME/conf/hive-site.xml` to point to already configured HMS server endpoint. If you meet the above pre-requisites, this is probably already configured.
+
+```xml
+<configuration>
+  <property>
+  <name>hive.metastore.uris</name>
+    <!-- hostname must point to the Hive metastore URI in your cluster -->
+    <value>thrift://hostname:10000</value>
+    <description>URI for spark to contact the hive metastore server</description>
+  </property>
+</configuration>
+```
+
+### Run
+
+There are a couple of ways to use the library while running spark-shell
+
+1. Pass it as part of command line 
+
+       spark-shell --package com.qubole:spark-acid_2.11:0.1
+
+2. Copy the `spark-acid-0.1.jar` jar into `$SPARK_HOME/assembly/target/scala.2_11/jars` and run
+
+       spark-shell
+        
+#### Scala/Python
+
+To read the acid table from Scala / pySpark, the table can be directly accessed using this datasource. 
+Note the short name of this datasource is `HiveAcid`
+
+    scala> val df = spark.read.format("HiveAcid").options(Map("table" -> "default.acidtbl")).load()
+    scala> df.collect()
+
+#### SQL
+To read an existing Hive acid table through pure SQL, you need to create a dummy table that acts as a symlink to the
+original acid table. This symlink is required to instruct Spark to use this datasource against an existing table.
+
+To create the symlink table
+
+    scala> spark.sql("create table symlinkacidtable using HiveAcid options ('table' 'default.acidtbl')")
+
+_NB: This will produce a warning indicating that Hive does not understand this format_
+
+    WARN hive.HiveExternalCatalog: Couldn’t find corresponding Hive SerDe for data source provider com.qubole.spark.datasources.hiveacid.HiveAcidDataSource. Persisting data source table `default`.`sparkacidtbl` into Hive metastore in Spark SQL specific format, which is NOT compatible with Hive.
+
+_Please ignore it, as this is a sym table for Spark to operate with and no underlying storage._
+
+To read the table data:
+
+    scala> var df = spark.sql("select * from symlinkacidtable")
+    scala> df.collect()
 
 
-# Latest Binaries
 
-ACID datasource is published spark-packages.org. It can be used as spark package
+## Latest Binaries
 
-`spark-shell --package com.qubole:spark-acid_2.11:0.1`
+ACID datasource is published spark-packages.org. The latest version of the binary is `com.qubole:spark-acid_2.11:0.1`
+
 
 ## Version Compatibility
 
@@ -27,40 +88,38 @@ _NB: Hive ACID is supported in Hive 3.1.1 onwards and for that hive Metastore db
 
 2. ACID datasource works with data stored on local files, HDFS as well as cloud blobstores (AWS S3, Azure Blob Storage etc).
 
-# Building
+## Developer resources:
+###Build
 
 This project has the following sbt projects:
 
-1. **shaded-dependencies**: This is an sbt project to create the shaded hive metastore and hive exec jars combined into a fat jar(spark-acid-shaded-dependencies-assembly-0.1.jar referred below). This jar has been created already and packaged into the lib folder of acid-datasource as an umanaged dependency. This is required due to our dependency on Hive 3 for Hive ACID, and Spark currently only supports Hive 1.2
+* **shaded-dependencies**: This is an sbt project to create the shaded hive metastore and hive exec jars combined into a fat jar(spark-acid-shaded-dependencies-assembly-0.1.jar referred below). This jar has been created already and packaged into the lib folder of acid-datasource as an umanaged dependency. This is required due to our dependency on Hive 3 for Hive ACID, and Spark currently only supports Hive 1.2
 
 To compile and publish shaded dependencies jar:
 
-```bash
-cd shaded-dependencies
-sbt clean publishLocal
-```
-This would create and publish `spark-acid-shaded-dependencies_2.11-assembly.jar` which has all the runtime and test dependencies.
+    cd shaded-dependencies
+    sbt clean publishLocal
+
+This will create and publish `spark-acid-shaded-dependencies_2.11-assembly.jar` which has all the runtime and test dependencies.
+
+* **acid-datasource**: The main project for the datasource. This has the actual code for the datasource, which implements the interaction with Hive ACID transaction and HMS subsystem.
+
+To compile, first publish the dependencies jar locally as mentioned above. After that:
+
+    sbt acid_datasource/package
 
 
-2. **acid-datasource**: The main project for the datasource. This has the actual code for the datasource, which implements the interaction with Hive ACID transaction and HMS subsystem.
-
-To compile acid-datasource
-
-```bash
-sbt acid_datasource/package
-```
-
-Tests run against a standalone docker setup. Please refer to [Docker setup] (docker/README.md) to build and start a container.
+Tests are run against a standalone docker setup. Please refer to [Docker setup] (docker/README.md) to build and start a container.
 
 _NB: Container run HMS server, HS2 Server and HDFS and listens on port 10000,10001 and 9000 respectively. So stop if you are running HMS or HDFS on same port on host machine._
 
-To run full integration test,
+To run the full integration test:
 
-```bash
-sbt acid_datasource/test
-```
+    bash
+    sbt acid_datasource/test
 
-# Release
+
+###Release
 
 To release a new version use
 
@@ -70,90 +129,26 @@ sbt release
 
 Read more about [sbt release](https://github.com/sbt/sbt-release)
 
-# Publishing
+###Publish
 
 To publish fully assembled jar to spark package
 
-```bash
-sbt spPublish
-```
+    sbt spPublish
 
-Refer to [SBT docs](https://www.scala-sbt.org/1.x/docs/Command-Line-Reference.html) for more commands.
-
-# Quick Start
-
-These are the pre-requisites to using this library:
-
-1. You already have Hive ACID tables (ACID V2) and need to read it from Spark (Currently write is not _NOT_ supported).
-2. You have Hive Metastore DB with version 3.0.0 or higher. Please refer to [Hive Metastore](https://cwiki.apache.org/confluence/display/Hive/Design#Design-MetastoreArchitecture) for details.
-3. You have a Hive Metastore Server running with version 3.0.0 or higher, as Hive ACID needs a standalone Hive Metastore Server to operate. Please refer to [Hive Configuration](https://cwiki.apache.org/confluence/display/Hive/Hive+Transactions#HiveTransactions-Configuration) for configuration options.
-4. You are using the above Hive Metastore Server with your Spark for its metastore communications.
-
-## Config
-
-Change configuration in `$SPARK_HOME/conf/hive-site.xml` to point to already configured HMS server endpoint. If you meet the above pre-requisites, this is probably already configured.
-
-```xml
-<configuration>
-  <property>
-  <name>hive.metastore.uris</name>
-    <!-- hostname must point to the Hive metastore URI in your cluster -->
-    <value>thrift://hostname:10000</value>
-    <description>URI for spark to contact the hive metastore server</description>
-  </property>
-</configuration>
-```
-
-## Run
-
-There are couple of ways to use the library while running spark-shell
-
-1. Pass it as part of command line 
-
-       spark-shell --jars spark-acid-assembly-0.1-SNAPSHOT.jar
-
-2. Copy the `spark-acid-assembly-0.1-SNAPSHOT.jar` jar into `$SPARK_HOME/assembly/target/scala.2_11/jars` and run
-
-       spark-shell
-        
-### Scala/Python
-
-To read the acid table from Scala / pySpark, the table can be directly accessed using this datasource. 
-Note the short name of this datasource is `HiveAcid`
-
-    scala> val df = spark.read.format("HiveAcid").options(Map("table" -> "default.acidtbl")).load()
-    scala> df.collect()
-
-### SQL
-To read an existing Hive acid table through pure SQL, you need to create a dummy table that acts as a symlink to the
-original acid table. This symlink is required to instruct Spark to use this datasource against an existing table.
-
-To create the symlink table
-
-`scala> spark.sql("create table symlinkacidtable using HiveAcid options ('table' 'default.acidtbl')")`
-
-_NB: This will produce a warning indicating that Hive does not understand this format_
-
-    WARN hive.HiveExternalCatalog: Couldn’t find corresponding Hive SerDe for data source provider com.qubole.spark.datasources.hiveacid.HiveAcidDataSource. Persisting data source table `default`.`sparkacidtbl` into Hive metastore in Spark SQL specific format, which is NOT compatible with Hive.
-
-_Please ignore it, as this is a sym table for Spark to operate with and no underlying storage._
-
-To read the table data:
-
-    scala> var df = spark.sql("select * from symlinkacidtable")
-    scala> df.collect()
+Refer [SBT docs](https://www.scala-sbt.org/1.x/docs/Command-Line-Reference.html) for more commands.
 
 
-## Design <TBD>
 
-## Transactional Guarantees
+### Design <TBD>
+
+#### Transactional Guarantees
 
 Spark ACID datasource uses [Hive Transaction](https://cwiki.apache.org/confluence/display/Hive/Hive+Transactions) to provide transactional guarantees over it.
 
-###1. Snapshot Isolation
+#####1. Snapshot Isolation
 When you start reading data from an acid table using this datasource, the snapshot of data to be read is acquired lazily just before query execution. In RDD terms, the snapshot to be read is acquired just when computing the partitions for the RDD lazily, and is maintained (or cached) in the RDD throughout its lifetime. This means that if you end up reusing the RDD or recomputing some partitions of the RDD, you will see consistent data for the lifetime of that RDD.
 
-###2. Locks
+#####2. Locks
 Hive ACID works with locks, where every client that is operating on ACID tables is expected to acquire locks for the duration of reads and writes. This datasource however does not acquire read locks. When it needs to read data, it talks to the HiveMetaStore Server to get the list of transactions that have been committed, and using that, the list of files it should read from the filesystem. But it does not lock the table or partition for the duration of the read.
 
 Because it does not acquire read locks, there is a chance that the data being read could get deleted by Hive's ACID management(perhaps because the data was ready to be cleaned up due to compaction). To avoid this scenario which can read to query failures, we recommend that you disable automatic compaction and cleanup in Hive on the tables that you are going to be reading using this datasource, and recommend that the compaction and cleanup be done when you know that no users are reading those tables. Ideally, we would have wanted to just disable automatic cleanup and let the compaction happen, but there is no way in Hive today to just disable cleanup and it is tied to compaction, so we recommend to disable compaction.
