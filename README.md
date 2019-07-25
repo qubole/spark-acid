@@ -34,9 +34,9 @@ There are a couple of ways to use the library while running spark-shell
 
 1. Pass it as part of command line 
 
-       spark-shell --package com.qubole:spark-acid_2.11:0.1
+       spark-shell --package com.qubole:spark-acid_2.11:0.1.0
 
-2. Copy the `spark-acid-0.1.jar` jar into `$SPARK_HOME/assembly/target/scala.2_11/jars` and run
+2. Copy the `spark-acid-0.1.0.jar` jar into `$SPARK_HOME/assembly/target/scala.2_11/jars` and run
 
        spark-shell
         
@@ -71,7 +71,7 @@ To read the table data:
 
 ## Latest Binaries
 
-ACID datasource is published spark-packages.org. The latest version of the binary is `com.qubole:spark-acid_2.11:0.1`
+ACID datasource is published spark-packages.org. The latest version of the binary is `com.qubole:spark-acid_2.11:0.1.0`
 
 
 ## Version Compatibility
@@ -93,7 +93,7 @@ _NB: Hive ACID is supported in Hive 3.1.1 onwards and for that hive Metastore db
 
 This project has the following sbt projects:
 
-* **shaded-dependencies**: This is an sbt project to create the shaded hive metastore and hive exec jars combined into a fat jar(spark-acid-shaded-dependencies-assembly-0.1.jar referred below). This is required due to our dependency on Hive 3 for Hive ACID, and Spark currently only supports Hive 1.2
+* **shaded-dependencies**: This is an sbt project to create the shaded hive metastore and hive exec jars combined into a fat jar(spark-acid-shaded-dependencies-assembly-0.1.0.jar referred below). This is required due to our dependency on Hive 3 for Hive ACID, and Spark currently only supports Hive 1.2
 
 To compile and publish shaded dependencies jar:
 
