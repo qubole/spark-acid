@@ -47,12 +47,11 @@ pomExtra :=
         </developers>
 
 
-bintrayOrganization := Some("qubole")
-
-bintrayRepository := "spark-acid"
+bintrayReleaseOnPublish in ThisBuild := false
 
 import ReleaseTransformations._
 
+// Add publishing to spark packages as another step.
 releaseProcess := Seq[ReleaseStep](
   checkSnapshotDependencies,
   inquireVersions,
@@ -60,7 +59,8 @@ releaseProcess := Seq[ReleaseStep](
   setReleaseVersion,
   commitReleaseVersion,
   tagRelease,
-//publishArtifacts,
+  publishArtifacts,
   setNextVersion,
-  commitNextVersion
+  commitNextVersion,
+  releaseStepTask(spPublish)
 )
