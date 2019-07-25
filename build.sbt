@@ -6,7 +6,7 @@ scalaVersion in ThisBuild := "2.11.12"
 
 sparkVersion in ThisBuild := "2.4.3"
 
-spName in ThisBuild := s"qubole/spark-acid"
+spName in ThisBuild := "qubole/spark-acid"
 
 
 spAppendScalaVersion := true
@@ -61,5 +61,7 @@ releaseProcess := Seq[ReleaseStep](
   tagRelease,
   setNextVersion,
   commitNextVersion,
+  pushChanges,
+  releaseStepTask(spDist)
   releaseStepTask(spPublish)
 )
