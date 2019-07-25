@@ -8,7 +8,6 @@ sparkVersion in ThisBuild := "2.4.3"
 
 spName in ThisBuild := s"qubole/spark-acid"
 
-publishMavenStyle := true
 
 spAppendScalaVersion := true
 
@@ -47,6 +46,8 @@ pomExtra :=
         </developers>
 
 
+publishMavenStyle := true
+
 bintrayReleaseOnPublish in ThisBuild := false
 
 import ReleaseTransformations._
@@ -55,11 +56,9 @@ import ReleaseTransformations._
 releaseProcess := Seq[ReleaseStep](
   checkSnapshotDependencies,
   inquireVersions,
-//runTest,
   setReleaseVersion,
   commitReleaseVersion,
   tagRelease,
-  publishArtifacts,
   setNextVersion,
   commitNextVersion,
   releaseStepTask(spPublish)
