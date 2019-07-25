@@ -34,7 +34,7 @@ There are a few ways to use the library while running spark-shell
 
 1. Use the published package 
 
-       spark-shell --package com.qubole:spark-acid_2.11:0.1.0
+       spark-shell --package qubole:spark-acid_2.11:0.1.0
 
 2. If you built the jar yourself, copy the `spark-acid-0.1.0.jar` jar into `$SPARK_HOME/assembly/target/scala.2_11/jars` and run
 
@@ -71,7 +71,7 @@ To read the table data:
 
 ## Latest Binaries
 
-ACID datasource is published spark-packages.org. The latest version of the binary is `com.qubole:spark-acid_2.11:0.1.0`
+ACID datasource is published spark-packages.org. The latest version of the binary is `0.1.0`
 
 
 ## Version Compatibility
@@ -159,7 +159,7 @@ We are looking into removing this restriction, and hope to be able to fix this i
 
 ## Contributing
 
-We use [Github Issues](https://github.com/qubole/spark-acid) to track issues.
+We use [Github Issues](https://github.com/qubole/spark-acid/issues) to track issues.
 
 ## Reporting bugs or feature requests
 
