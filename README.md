@@ -1,6 +1,6 @@
 # Hive ACID Data Source for Apache Spark
 
-Datasource for Spark on the top of Spark Datasource V1 APIs, and provides Spark support for [Hive ACID transactions](https://cwiki.apache.org/confluence/display/Hive/Hive+Transactions).
+A Datasource for Spark on top of Spark Datasource V1 APIs, that provides Spark support for [Hive ACID transactions](https://cwiki.apache.org/confluence/display/Hive/Hive+Transactions).
 
 This datasource provides the capability to work with Hive ACID V2 tables, both Full ACID tables as well as Insert-Only tables. Currently, it supports reading from these ACID tables only, and ability to write (insert, insert overwrite) will soon be added in the near future.
 
@@ -91,9 +91,9 @@ Refer to [SBT docs](https://www.scala-sbt.org/1.x/docs/Command-Line-Reference.ht
 
 # Quick Start
 
-These are pre-requisites to using this library
+These are the pre-requisites to using this library:
 
-1. That you already have Hive table (ACID V2) data somewhere and need to read it from Spark (Currently write is not _NOT_ supported).
+1. You already have Hive ACID tables (ACID V2) and need to read it from Spark (Currently write is not _NOT_ supported).
 2. You have Hive Metastore DB with version 3.0.0 or higher. Please refer to [Hive Metastore](https://cwiki.apache.org/confluence/display/Hive/Design#Design-MetastoreArchitecture) for details.
 3. You have a Hive Metastore Server running with version 3.0.0 or higher, as Hive ACID needs a standalone Hive Metastore Server to operate. Please refer to [Hive Configuration](https://cwiki.apache.org/confluence/display/Hive/Hive+Transactions#HiveTransactions-Configuration) for configuration options.
 4. You are using the above Hive Metastore Server with your Spark for its metastore communications.
@@ -107,8 +107,8 @@ Change configuration in `$SPARK_HOME/conf/hive-site.xml` to point to already con
   <property>
   <name>hive.metastore.uris</name>
     <!-- hostname must point to the Hive metastore URI in your cluster -->
-    <value>thrift://hostname:10001</value>
-    <description>URI for client to contact metastore server</description>
+    <value>thrift://hostname:10000</value>
+    <description>URI for spark to contact the hive metastore server</description>
   </property>
 </configuration>
 ```
@@ -117,40 +117,41 @@ Change configuration in `$SPARK_HOME/conf/hive-site.xml` to point to already con
 
 There are couple of ways to use the library while running spark-shell
 
-1. Pass it as part of command line
+1. Pass it as part of command line 
 
-`spark-shell --jars ${ACID_DS_HOME}/acid-datasource/target/scala-2.11/spark-acid-assembly-0.1-SNAPSHOT.jar`
+       spark-shell --jars spark-acid-assembly-0.1-SNAPSHOT.jar
 
-2. Copy the acid-datasource assembly jar intto `$SPARK_HOME/assembly/target/scala.2_11/jars` and run
+2. Copy the `spark-acid-assembly-0.1-SNAPSHOT.jar` jar into `$SPARK_HOME/assembly/target/scala.2_11/jars` and run
 
-`spark-shell`
+       spark-shell
+        
+### Scala/Python
+
+To read the acid table from Scala / pySpark, the table can be directly accessed using this datasource. 
+Note the short name of this datasource is `HiveAcid`
+
+    scala> val df = spark.read.format("HiveAcid").options(Map("table" -> "default.acidtbl")).load()
+    scala> df.collect()
 
 ### SQL
-To read an existing Hive ACID table through SparkSQL, you need to create a symlink table against it. This symlink is required to instruct Spark to use this datasource against an existing table.
+To read an existing Hive acid table through pure SQL, you need to create a dummy table that acts as a symlink to the
+original acid table. This symlink is required to instruct Spark to use this datasource against an existing table.
 
 To create the symlink table
 
 `scala> spark.sql("create table symlinkacidtable using HiveAcid options ('table' 'default.acidtbl')")`
 
-_NB: This will produce a warning indicating that Hive does not understand this format
+_NB: This will produce a warning indicating that Hive does not understand this format_
 
-`WARN hive.HiveExternalCatalog: Couldn’t find corresponding Hive SerDe for data source provider com.qubole.spark.datasources.hiveacid.HiveAcidDataSource. Persisting data source table `default`.`sparkacidtbl` into Hive metastore in Spark SQL specific format, which is NOT compatible with Hive.`
+    WARN hive.HiveExternalCatalog: Couldn’t find corresponding Hive SerDe for data source provider com.qubole.spark.datasources.hiveacid.HiveAcidDataSource. Persisting data source table `default`.`sparkacidtbl` into Hive metastore in Spark SQL specific format, which is NOT compatible with Hive.
 
-Please ignore it, as this is a sym table for Spark to operate with and no underlying storage._
+_Please ignore it, as this is a sym table for Spark to operate with and no underlying storage._
 
-To read
+To read the table data:
 
-`scala> var df = spark.sql("select * from symlinkacidtable")`
+    scala> var df = spark.sql("select * from symlinkacidtable")
+    scala> df.collect()
 
-`scala> df.collect()`
-
-### scala
-
-To read table from scala / pySpark table can be directly accessed.
-
-`scala> val df = spark.read.format("HiveAcid").options(Map("table" -> "default.acidtbl")).load()`
-
-`scala> df.collect()`
 
 ## Design <TBD>
 
