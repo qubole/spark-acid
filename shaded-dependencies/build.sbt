@@ -26,6 +26,8 @@ publishArtifact in (Compile, packageDoc) := false
 
 publishArtifact in (Compile, packageSrc) := false
 
+publishArtifact in (Compile, packageBin) := false
+
 val hive_version = "3.1.1"
 
 val orc_version = "1.5.6"
@@ -122,7 +124,7 @@ publishMavenStyle := false
 
 artifact in (Compile, assembly) := {
 	val art = (artifact in (Compile, assembly)).value
-		art.withClassifier(Some("assembly"))
+	art.withClassifier(None)
 }
 
 addArtifact(artifact in (Compile, assembly), assembly)

@@ -93,14 +93,12 @@ _NB: Hive ACID is supported in Hive 3.1.1 onwards and for that hive Metastore db
 
 This project has the following sbt projects:
 
-* **shaded-dependencies**: This is an sbt project to create the shaded hive metastore and hive exec jars combined into a fat jar(spark-acid-shaded-dependencies-assembly-0.1.0.jar referred below). This is required due to our dependency on Hive 3 for Hive ACID, and Spark currently only supports Hive 1.2
+* **shaded-dependencies**: This is an sbt project to create the shaded hive metastore and hive exec jars combined into a fat jar `spark-acid-shaded-dependencies`. This is required due to our dependency on Hive 3 for Hive ACID, and Spark currently only supports Hive 1.2
 
 To compile and publish shaded dependencies jar:
 
     cd shaded-dependencies
     sbt clean publishLocal
-
-This will create and publish `spark-acid-shaded-dependencies_2.11-assembly.jar` which has all the runtime and test dependencies.
 
 * **acid-datasource**: The main project for the datasource. This has the actual code for the datasource, which implements the interaction with Hive ACID transaction and HMS subsystem.
 
@@ -163,4 +161,4 @@ We use [Github Issues](https://github.com/qubole/spark-acid/issues) to track iss
 
 ## Reporting bugs or feature requests
 
-Please use the github issues for the spark-acid-ds project to report issues or raise feature requests.
+Please use the github issues for the spark-acid project to report issues or raise feature requests.
