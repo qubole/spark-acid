@@ -30,13 +30,13 @@ Change configuration in `$SPARK_HOME/conf/hive-site.xml` to point to already con
 
 ### Run
 
-There are a couple of ways to use the library while running spark-shell
+There are a few ways to use the library while running spark-shell
 
-1. Pass it as part of command line 
+1. Use the published package 
 
        spark-shell --package com.qubole:spark-acid_2.11:0.1.0
 
-2. Copy the `spark-acid-0.1.0.jar` jar into `$SPARK_HOME/assembly/target/scala.2_11/jars` and run
+2. If you built the jar yourself, copy the `spark-acid-0.1.0.jar` jar into `$SPARK_HOME/assembly/target/scala.2_11/jars` and run
 
        spark-shell
         
@@ -88,7 +88,7 @@ _NB: Hive ACID is supported in Hive 3.1.1 onwards and for that hive Metastore db
 
 2. ACID datasource works with data stored on local files, HDFS as well as cloud blobstores (AWS S3, Azure Blob Storage etc).
 
-## Developer resources:
+## Developer resources
 ### Build
 
 This project has the following sbt projects:
@@ -123,20 +123,9 @@ To run the full integration test:
 
 To release a new version use
 
-```bash
-sbt release
-```
+    sbt release
 
 Read more about [sbt release](https://github.com/sbt/sbt-release)
-
-### Publish
-
-To publish fully assembled jar to spark package
-
-    sbt spPublish
-
-Refer [SBT docs](https://www.scala-sbt.org/1.x/docs/Command-Line-Reference.html) for more commands.
-
 
 
 ### Design Constraints
