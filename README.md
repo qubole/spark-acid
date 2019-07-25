@@ -93,7 +93,7 @@ _NB: Hive ACID is supported in Hive 3.1.1 onwards and for that hive Metastore db
 
 This project has the following sbt projects:
 
-* **shaded-dependencies**: This is an sbt project to create the shaded hive metastore and hive exec jars combined into a fat jar(spark-acid-shaded-dependencies-assembly-0.1.jar referred below). This jar has been created already and packaged into the lib folder of acid-datasource as an umanaged dependency. This is required due to our dependency on Hive 3 for Hive ACID, and Spark currently only supports Hive 1.2
+* **shaded-dependencies**: This is an sbt project to create the shaded hive metastore and hive exec jars combined into a fat jar(spark-acid-shaded-dependencies-assembly-0.1.jar referred below). This is required due to our dependency on Hive 3 for Hive ACID, and Spark currently only supports Hive 1.2
 
 To compile and publish shaded dependencies jar:
 
@@ -145,10 +145,10 @@ Refer [SBT docs](https://www.scala-sbt.org/1.x/docs/Command-Line-Reference.html)
 
 Spark ACID datasource uses [Hive Transaction](https://cwiki.apache.org/confluence/display/Hive/Hive+Transactions) to provide transactional guarantees over it.
 
-#####1. Snapshot Isolation
+##### 1. Snapshot Isolation
 When you start reading data from an acid table using this datasource, the snapshot of data to be read is acquired lazily just before query execution. In RDD terms, the snapshot to be read is acquired just when computing the partitions for the RDD lazily, and is maintained (or cached) in the RDD throughout its lifetime. This means that if you end up reusing the RDD or recomputing some partitions of the RDD, you will see consistent data for the lifetime of that RDD.
 
-#####2. Locks
+##### 2. Locks
 Hive ACID works with locks, where every client that is operating on ACID tables is expected to acquire locks for the duration of reads and writes. This datasource however does not acquire read locks. When it needs to read data, it talks to the HiveMetaStore Server to get the list of transactions that have been committed, and using that, the list of files it should read from the filesystem. But it does not lock the table or partition for the duration of the read.
 
 Because it does not acquire read locks, there is a chance that the data being read could get deleted by Hive's ACID management(perhaps because the data was ready to be cleaned up due to compaction). To avoid this scenario which can read to query failures, we recommend that you disable automatic compaction and cleanup in Hive on the tables that you are going to be reading using this datasource, and recommend that the compaction and cleanup be done when you know that no users are reading those tables. Ideally, we would have wanted to just disable automatic cleanup and let the compaction happen, but there is no way in Hive today to just disable cleanup and it is tied to compaction, so we recommend to disable compaction.
