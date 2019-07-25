@@ -139,16 +139,8 @@ Refer [SBT docs](https://www.scala-sbt.org/1.x/docs/Command-Line-Reference.html)
 
 
 
-### Design <TBD>
+### Design Constraints
 
-#### Transactional Guarantees
-
-Spark ACID datasource uses [Hive Transaction](https://cwiki.apache.org/confluence/display/Hive/Hive+Transactions) to provide transactional guarantees over it.
-
-##### 1. Snapshot Isolation
-When you start reading data from an acid table using this datasource, the snapshot of data to be read is acquired lazily just before query execution. In RDD terms, the snapshot to be read is acquired just when computing the partitions for the RDD lazily, and is maintained (or cached) in the RDD throughout its lifetime. This means that if you end up reusing the RDD or recomputing some partitions of the RDD, you will see consistent data for the lifetime of that RDD.
-
-##### 2. Locks
 Hive ACID works with locks, where every client that is operating on ACID tables is expected to acquire locks for the duration of reads and writes. This datasource however does not acquire read locks. When it needs to read data, it talks to the HiveMetaStore Server to get the list of transactions that have been committed, and using that, the list of files it should read from the filesystem. But it does not lock the table or partition for the duration of the read.
 
 Because it does not acquire read locks, there is a chance that the data being read could get deleted by Hive's ACID management(perhaps because the data was ready to be cleaned up due to compaction). To avoid this scenario which can read to query failures, we recommend that you disable automatic compaction and cleanup in Hive on the tables that you are going to be reading using this datasource, and recommend that the compaction and cleanup be done when you know that no users are reading those tables. Ideally, we would have wanted to just disable automatic cleanup and let the compaction happen, but there is no way in Hive today to just disable cleanup and it is tied to compaction, so we recommend to disable compaction.
@@ -157,18 +149,18 @@ You have a few options available to you to disable automatic compaction:
 
 1. Disable automatic compaction globally, i.e. for all ACID tables: To do this, we recommend you set the following compaction thresholds on the Hive Metastore Server to a very high number(like 1000000 below) so that compaction never gets initiated automatically and can only be initiated manually.
 
-`hive.compactor.delta.pct.threshold=1000000`
-`hive.compactor.delta.num.threshold=1000000`
+        hive.compactor.delta.pct.threshold=1000000
+        hive.compactor.delta.num.threshold=1000000
 
 2. Disable automatic compaction for selected ACID tables: To do this, you can set a table property using the ALTER TABLE command:
 
-`ALTER TABLE <> SET TBLPROPERTIES ("NO_AUTO_COMPACTION"="true")`
+        ALTER TABLE <> SET TBLPROPERTIES ("NO_AUTO_COMPACTION"="true")  
 
 This will disable automatic compaction on a particular table, and you can use this approach if you have a limited set of ACID tables that you intend to access using this datasource.
 
 Once you have disabled automatic compaction either globally or on a particular set of tables, you can chose to run compaction manually at a desired time when you know there are no readers reading these acid tables, using an ALTER TABLE command:
 
-`ALTER TABLE table_name [PARTITION (partition_key = 'partition_value' [, ...])] COMPACT 'compaction_type'[AND WAIT] [WITH OVERWRITE TBLPROPERTIES ("property"="value" [, ...])];`
+        ALTER TABLE table_name [PARTITION (partition_key = 'partition_value' [, ...])] COMPACT 'compaction_type'[AND WAIT] [WITH OVERWRITE TBLPROPERTIES ("property"="value" [, ...])];
 
 compaction_type are either `MAJOR` or `MINOR`
 
