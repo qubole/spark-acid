@@ -9,15 +9,9 @@ Please refer to [Quick Start](#Quick Start) for details on getting started with 
 
 # Latest Binaries
 
-ACID datasource is published to Maven Central Repository and can be used by adding a dependency in your POM file.
+ACID datasource is published spark-packages.org. It can be used as spark package
 
-     <depenencies>
-       <dependency>
-         <groupId>com.qubole</groupId>
-         <artifactId>spark-acid_2.11</artifactId>
-         <version>0.1-SNAPSHOT</version>
-       </dependency>
-     </dependencies>
+`spark-shell --package com.qubole:spark-acid_2.11:0.1`
 
 ## Version Compatibility
 
@@ -37,55 +31,52 @@ _NB: Hive ACID is supported in Hive 3.1.1 onwards and for that hive Metastore db
 
 This project has the following sbt projects:
 
-1. **acid-datasource**: The main project for the datasource. This has the actual code for the datasource, which implements the interaction with Hive ACID transaction and HMS subsystem.
-2. **shaded-dependencies**: This is an sbt project to create the shaded hive metastore and hive exec jars combined into a fat jar(spark-acid-shaded-dependencies-assembly-0.1.jar referred below). This jar has been created already and packaged into the lib folder of acid-datasource as an umanaged dependency. This is required due to our dependency on Hive 3 for Hive ACID, and Spark currently only supports Hive 1.2
+1. **shaded-dependencies**: This is an sbt project to create the shaded hive metastore and hive exec jars combined into a fat jar(spark-acid-shaded-dependencies-assembly-0.1.jar referred below). This jar has been created already and packaged into the lib folder of acid-datasource as an umanaged dependency. This is required due to our dependency on Hive 3 for Hive ACID, and Spark currently only supports Hive 1.2
 
-
-To compile:
-
-1. Compile shaded dependencies and publish it locally
+To compile and publish shaded dependencies jar:
 
 ```bash
-sbt "project shaded_dependencies" clean assembly
+cd shaded-dependencies
+sbt clean publishLocal
 ```
-
-2. Publish it locally for acid datsource
-
-```bash
-sbt "project shaded_dependencies" publishLocal
-```
-
 This would create and publish `spark-acid-shaded-dependencies_2.11-assembly.jar` which has all the runtime and test dependencies.
 
-3. Compile acid-datasource
+
+2. **acid-datasource**: The main project for the datasource. This has the actual code for the datasource, which implements the interaction with Hive ACID transaction and HMS subsystem.
+
+To compile acid-datasource
 
 ```bash
-sbt "project acid_datasource" clean package
+sbt acid_datasource/package
 ```
-
-# Testing
 
 Tests run against a standalone docker setup. Please refer to [Docker setup] (docker/README.md) to build and start a container.
 
 _NB: Container run HMS server, HS2 Server and HDFS and listens on port 10000,10001 and 9000 respectively. So stop if you are running HMS or HDFS on same port on host machine._
 
-To run unit test,
+To run full integration test,
 
 ```bash
-sbt "project acid_datasource" test
+sbt acid_datasource/test
 ```
+
+# Release
+
+To release a new version use
+
+```bash
+sbt release
+```
+
+Read more about [sbt release](https://github.com/sbt/sbt-release)
 
 # Publishing
 
-To publish fully assembled jar
+To publish fully assembled jar to spark package
 
 ```bash
-sbt "project acid_datasource" assembly publish
+sbt spPublish
 ```
-
-This would create `spark-acid_2.11-assembly.jar`
-
-
 
 Refer to [SBT docs](https://www.scala-sbt.org/1.x/docs/Command-Line-Reference.html) for more commands.
 
