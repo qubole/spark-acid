@@ -34,7 +34,7 @@ There are a few ways to use the library while running spark-shell
 
 1. Use the published package 
 
-       spark-shell --package qubole:spark-acid:0.4.0-s_2.11
+       spark-shell --packages qubole:spark-acid:0.4.0-s_2.11
 
 2. If you built the jar yourself, copy the `spark-acid-assembly-0.4.0.jar` jar into `$SPARK_HOME/assembly/target/scala.2_11/jars` and run
 
@@ -79,7 +79,7 @@ ACID datasource is published spark-packages.org. The latest version of the binar
 
 ACID datasource has been tested to work with Apache Spark 2.4.3, but it should work with older versions as well. However, because of a Hive dependency, this datasource needs Hadoop version 2.8.2 or higher due to [HADOOP-14683](https://jira.apache.org/jira/browse/HADOOP-14683)
 
-_NB: Hive ACID is supported in Hive 3.1.1 onwards and for that hive Metastore db needs to be [upgraded](https://cwiki.apache.org/confluence/display/Hive/Hive+Schema+Tool) to 3.1.1._
+_NB: Hive ACID V2 is supported in Hive 3.0.0 onwards and for that hive Metastore db needs to be [upgraded](https://cwiki.apache.org/confluence/display/Hive/Hive+Schema+Tool) to 3.0.0 or above._
 
 ### Data Storage Compatibility
 
