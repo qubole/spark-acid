@@ -68,7 +68,6 @@ To read the table data:
     scala> df.collect()
 
 
-
 ## Latest Binaries
 
 ACID datasource is published spark-packages.org. The latest version of the binary is `0.1.0`
@@ -97,14 +96,13 @@ This project has the following sbt projects:
 
 To compile and publish shaded dependencies jar:
 
-    cd shaded-dependencies
     sbt clean publishLocal
 
 * **acid-datasource**: The main project for the datasource. This has the actual code for the datasource, which implements the interaction with Hive ACID transaction and HMS subsystem.
 
 To compile, first publish the dependencies jar locally as mentioned above. After that:
 
-    sbt acid_datasource/package
+    sbt package
 
 
 Tests are run against a standalone docker setup. Please refer to [Docker setup] (docker/README.md) to build and start a container.
@@ -113,8 +111,7 @@ _NB: Container run HMS server, HS2 Server and HDFS and listens on port 10000,100
 
 To run the full integration test:
 
-    bash
-    sbt acid_datasource/test
+    sbt test
 
 
 ### Release
@@ -122,6 +119,10 @@ To run the full integration test:
 To release a new version use
 
     sbt release
+
+To publish a new version use
+
+    sbt spPublish
 
 Read more about [sbt release](https://github.com/sbt/sbt-release)
 
