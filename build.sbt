@@ -52,6 +52,24 @@ libraryDependencies ++= Seq(
 	"com.qubole" %% "spark-acid-shaded-dependencies" % "0.1"
 )
 
+
+// Remove shaded dependency jar from pom.
+import scala.xml.{Node => XmlNode, NodeSeq => XmlNodeSeq, _}
+import scala.xml.transform.{RewriteRule, RuleTransformer}
+
+pomPostProcess := { (node: XmlNode) =>
+  new RuleTransformer(new RewriteRule {
+    override def transform(node: XmlNode): XmlNodeSeq = node match {
+      case e: Elem if e.label == "dependency" && e.child.filter(_.label == "groupId").text.mkString == "com.qubole" =>
+        val organization = e.child.filter(_.label == "groupId").flatMap(_.text).mkString
+        val artifact = e.child.filter(_.label == "artifactId").flatMap(_.text).mkString
+        val version = e.child.filter(_.label == "version").flatMap(_.text).mkString
+        Comment(s"dependency $organization#$artifact;$version has been omitted")
+      case _ => node
+    }
+  }).transform(node).head
+}
+
 excludeDependencies ++= Seq (
 	// hive
 	"org.apache.hive" % "hive-exec",
@@ -106,6 +124,8 @@ pomExtra :=
 
 
 publishMavenStyle := true
+
+bintrayReleaseOnPublish := false
 
 import ReleaseTransformations._
 
