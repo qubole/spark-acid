@@ -98,8 +98,8 @@ To compile and publish shaded dependencies jar:
     sbt clean publishLocal
     
 2. Next, build the main project:
-    
-    
+
+
     cd ..
     sbt assembly
 
