@@ -90,7 +90,7 @@ _NB: Hive ACID V2 is supported in Hive 3.0.0 onwards and for that hive Metastore
 ## Developer resources
 ### Build
 
-This project has the following sbt projects:
+This project has the following sbt projects which have to be built in sequence, one after the other:
 
 * **shaded-dependencies**: This is an sbt project to create the shaded hive metastore and hive exec jars combined into a fat jar `spark-acid-shaded-dependencies`. This is required due to our dependency on Hive 3 for Hive ACID, and Spark currently only supports Hive 1.2
 
@@ -102,7 +102,9 @@ To compile and publish shaded dependencies jar:
 
 To compile, first publish the dependencies jar locally as mentioned above. After that:
 
-    sbt package
+    sbt assembly
+
+This will create the `spark-acid-assembly-0.4.0.jar` which can be now used in your application.
 
 
 Tests are run against a standalone docker setup. Please refer to [Docker setup] (docker/README.md) to build and start a container.
