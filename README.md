@@ -100,7 +100,7 @@ To compile and publish shaded dependencies jar:
 2. Next, build the main project:
 
 
-    cd ..
+    cd ../
     sbt assembly
 
 This will create the `spark-acid-assembly-0.4.0.jar` which can be now used in your application.
