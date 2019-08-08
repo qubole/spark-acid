@@ -19,23 +19,6 @@
 
 package com.qubole.spark.datasources.hiveacid.rdd
 
-/*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 import java.util
 import java.util.Properties
 
@@ -43,16 +26,16 @@ import com.qubole.shaded.hadoop.hive.metastore.api.FieldSchema
 import com.qubole.shaded.hadoop.hive.metastore.api.hive_metastoreConstants._
 import com.qubole.shaded.hadoop.hive.metastore.utils.MetaStoreUtils.{getColumnNamesFromFieldSchema, getColumnTypesFromFieldSchema}
 import com.qubole.shaded.hadoop.hive.ql.exec.Utilities
+import com.qubole.shaded.hadoop.hive.ql.io.AcidUtils
 import com.qubole.shaded.hadoop.hive.ql.metadata.{Partition => HiveJarPartition, Table => HiveTable}
 import com.qubole.shaded.hadoop.hive.ql.plan.TableDesc
 import com.qubole.shaded.hadoop.hive.serde2.Deserializer
 import com.qubole.shaded.hadoop.hive.serde2.objectinspector.primitive._
 import com.qubole.shaded.hadoop.hive.serde2.objectinspector.{ObjectInspectorConverters, StructObjectInspector}
-import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.fs.{Path, PathFilter}
-import com.qubole.shaded.hadoop.hive.ql.io.AcidUtils
 import com.qubole.spark.datasources.hiveacid.HiveAcidState
 import com.qubole.spark.datasources.hiveacid.util.{EmptyRDD, SerializableConfiguration, Util}
+import org.apache.hadoop.conf.Configuration
+import org.apache.hadoop.fs.{Path, PathFilter}
 import org.apache.hadoop.io.Writable
 import org.apache.hadoop.mapred.{FileInputFormat, InputFormat, JobConf}
 import org.apache.spark.broadcast.Broadcast
@@ -138,7 +121,8 @@ class HiveTableReader(
 
     // logDebug("Table input: %s".format(tablePath))
     val ifcName = hiveTable.getInputFormatClass.getName
-    val ifc = Util.classForName(ifcName, true).asInstanceOf[java.lang.Class[InputFormat[Writable, Writable]]]
+    val ifc = Util.classForName(ifcName, true)
+      .asInstanceOf[java.lang.Class[InputFormat[Writable, Writable]]]
     val hiveRDD = createRddForTable(localTableDesc, hiveTable.getSd.getCols,
       hiveTable.getParameters, tablePath.toString, true, ifc)
 
@@ -160,7 +144,7 @@ class HiveTableReader(
     val partitionToDeserializer = partitions.map{
       part =>
         val deserializerClassName = part.getTPartition.getSd.getSerdeInfo.getSerializationLib
-        val deserializer =  Util.classForName(deserializerClassName, true)
+        val deserializer = Util.classForName(deserializerClassName, true)
           .asInstanceOf[Class[Deserializer]]
         (part, deserializer)
     }.toMap
@@ -176,8 +160,8 @@ class HiveTableReader(
     *     subdirectory of each partition being read. If None, then all files are accepted.
     */
   def makeRDDForPartitionedTable(
-                                  partitionToDeserializer: Map[HiveJarPartition, Class[_ <: Deserializer]],
-                                  filterOpt: Option[PathFilter]): RDD[InternalRow] = {
+      partitionToDeserializer: Map[HiveJarPartition, Class[_ <: Deserializer]],
+      filterOpt: Option[PathFilter]): RDD[InternalRow] = {
 
     val partitionStrings = partitionToDeserializer.map { case (partition, _) =>
       //      val partKeysFieldSchema = partition.getTable.getPartitionKeys.asScala
@@ -227,7 +211,8 @@ class HiveTableReader(
 
       // Create local references so that the outer object isn't serialized.
       val localTableDesc = tableDesc
-      createRddForTable(localTableDesc,  partition.getCols, partition.getTable.getParameters, inputPathStr, false,
+      createRddForTable(localTableDesc, partition.getCols,
+        partition.getTable.getParameters, inputPathStr, false,
         ifc).mapPartitions { iter =>
         val hconf = broadcastedHiveConf.value.value
         val deserializer = localDeserializer.newInstance()
@@ -243,7 +228,8 @@ class HiveTableReader(
         deserializer.initialize(hconf, props)
         // get the table deserializer
         val tableSerDeClassName = localTableDesc.getSerdeClassName
-        val tableSerDe = Util.classForName(tableSerDeClassName, true).newInstance().asInstanceOf[Deserializer]
+        val tableSerDe = Util.classForName(tableSerDeClassName,
+          true).newInstance().asInstanceOf[Deserializer]
         tableSerDe.initialize(hconf, localTableDesc.getProperties)
 
         // fill the non partition key attributes
@@ -253,7 +239,7 @@ class HiveTableReader(
     }.toSeq
 
     // Even if we don't use any partitions, we still need an empty RDD
-    if (hivePartitionRDDs.size == 0) {
+    if (hivePartitionRDDs.isEmpty) {
       new EmptyRDD[InternalRow](sparkSession.sparkContext)
     } else {
       new AcidLockUnionRDD[InternalRow](hivePartitionRDDs(0).context, hivePartitionRDDs,
@@ -311,8 +297,8 @@ object HiveTableUtil {
   // copied from PlanUtils.configureJobPropertiesForStorageHandler(tableDesc)
   // that calls Hive.get() which tries to access metastore, but it's not valid in runtime
   // it would be fixed in next version of hive but till then, we should use this instead
-  def configureJobPropertiesForStorageHandler(
-                                               tableDesc: TableDesc, conf: Configuration, input: Boolean) {
+  def configureJobPropertiesForStorageHandler(tableDesc: TableDesc,
+                                              conf: Configuration, input: Boolean) {
     val property = tableDesc.getProperties.getProperty(META_TABLE_STORAGE)
     val storageHandler =
       com.qubole.shaded.hadoop.hive.ql.metadata.HiveUtils.getStorageHandler(conf, property)

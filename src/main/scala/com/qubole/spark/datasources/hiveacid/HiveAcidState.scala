@@ -23,42 +23,36 @@ import com.qubole.shaded.hadoop.hive.common.{ValidTxnWriteIdList, ValidWriteIdLi
 import com.qubole.shaded.hadoop.hive.conf.HiveConf
 import com.qubole.shaded.hadoop.hive.metastore.HiveMetaStoreClient
 import com.qubole.shaded.hadoop.hive.metastore.txn.TxnUtils
-import com.qubole.shaded.hadoop.hive.ql.metadata
 import org.apache.hadoop.fs.Path
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.types.StructType
 
 import scala.collection.JavaConversions._
 
 class HiveAcidState(sparkSession: SparkSession,
                     val hiveConf: HiveConf,
-                    val table: metadata.Table,
-                    val sizeInBytes: Long,
-                    val pSchema: StructType,
-                    val isFullAcidTable: Boolean) extends Logging {
+                    val table: HiveAcidTable,
+                    val sizeInBytes: Long) extends Logging {
 
-  val location: Path = table.getDataLocation
-  private val dbName: String = table.getDbName
-  private val tableName: String = table.getTableName
+  val location: Path = table.rootPath
   private val txnId: Long = -1
   private var validWriteIdsNoTxn: ValidWriteIdList = _
 
   def beginRead(): Unit = {
-    // Get write ids to read. Currently, this data source does not open a transaction or take locks against
-    // it's read entities(partitions). This can be enhanced in the future
+    // Get write ids to read. Currently, this data source does not open a transaction or take
+    // locks against it's read entities(partitions). This can be enhanced in the future
     val client = new HiveMetaStoreClient(hiveConf, null, false)
     val validTxns = client.getValidTxns()
     val txnWriteIds: ValidTxnWriteIdList = TxnUtils.createValidTxnWriteIdList(txnId,
-      client.getValidWriteIds(Seq(dbName + "." + tableName),
+      client.getValidWriteIds(Seq(table.fullyQualifiedName),
         validTxns.writeToString()))
-    validWriteIdsNoTxn = txnWriteIds.getTableValidWriteIdList(table.getDbName + "." + table.getTableName)
+    validWriteIdsNoTxn = txnWriteIds.getTableValidWriteIdList(table.fullyQualifiedName)
     client.close()
   }
 
   def end(): Unit = {
-    // no op for now. If we start taking locks in the future, this can be implemented to release the locks and
-    // close the transaction
+    // no op for now. If we start taking locks in the future, this can be
+    // implemented to release the locks and close the transaction
   }
 
   def getValidWriteIds: ValidWriteIdList = {

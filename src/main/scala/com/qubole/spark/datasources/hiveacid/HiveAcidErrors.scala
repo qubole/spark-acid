@@ -34,6 +34,30 @@ object HiveAcidErrors {
     new RuntimeException("Valid WriteIds not initialized")
   }
 
+  def couldNotAcquireLockException(exception: Exception = null): Throwable = {
+    new RuntimeException(s"Could not acquire lock.", exception)
+  }
+
+  def couldNotAcquireLockException(state: String): Throwable = {
+    new RuntimeException(s"Could not acquire lock. Lock State: $state")
+  }
+
+  def txnClosedException: Throwable = {
+    new RuntimeException("The transaction has been closed")
+  }
+
+  def txnAlreadyOpen(txnId: Long): Throwable = {
+    new RuntimeException("A transaction with id " + txnId + " is already open")
+  }
+
+  def heartBeaterAlreadyExists: Throwable = {
+    new RuntimeException("A heartBeater already exists")
+  }
+
+  def invalidOperationType(operation: String): Throwable = {
+    new RuntimeException(s"Invalid operation type - $operation")
+  }
+
 }
 
 class AnalysisException (
