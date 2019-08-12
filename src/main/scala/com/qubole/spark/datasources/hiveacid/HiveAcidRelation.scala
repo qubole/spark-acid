@@ -25,10 +25,12 @@ import com.esotericsoftware.kryo.Kryo
 import com.esotericsoftware.kryo.io.Output
 import com.qubole.shaded.hadoop.hive.conf.HiveConf
 import com.qubole.shaded.hadoop.hive.conf.HiveConf.ConfVars
+import com.qubole.shaded.hadoop.hive.ql.io.RecordIdentifier
 import com.qubole.shaded.hadoop.hive.ql.metadata
 import com.qubole.shaded.hadoop.hive.ql.metadata.Hive
 import com.qubole.spark.datasources.hiveacid.orc.OrcFilters
 import com.qubole.spark.datasources.hiveacid.rdd.HiveTableReader
+import com.qubole.spark.datasources.hiveacid.util.HiveSparkConversionUtil
 import org.apache.commons.codec.binary.Base64
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.hive.serde2.ColumnProjectionUtils
@@ -51,11 +53,17 @@ class HiveAcidRelation(var sqlContext: SQLContext,
   private val fullyQualifiedTableName: String = parameters.getOrElse("table", {
     throw HiveAcidErrors.tableNotSpecifiedException
   })
-  val hiveConf: HiveConf = HiveAcidRelation.createHiveConf(sqlContext.sparkContext)
+  private val includeRowIds: Boolean = parameters.getOrElse("includeRowIds", "false").toBoolean
+
+  val hiveConf: HiveConf = HiveSparkConversionUtil.createHiveConf(sqlContext.sparkContext)
   val hiveAcidTable: HiveAcidTable = HiveAcidTable.fromTableName(fullyQualifiedTableName,
     hiveConf)
 
-  override val schema: StructType = hiveAcidTable.schema
+  override val schema: StructType = if (includeRowIds) {
+    hiveAcidTable.tableSchemaWithRowId
+  } else {
+    hiveAcidTable.tableSchema
+  }
 
   override def sizeInBytes: Long = {
     val compressionFactor = sqlContext.sparkSession.sessionState.conf.fileCompressionFactor
@@ -64,7 +72,8 @@ class HiveAcidRelation(var sqlContext: SQLContext,
 
   override val needConversion: Boolean = false
 
-  override def buildScan(requiredColumns: Array[String], filters: Array[Filter]): RDD[Row] = {
+  override def buildScan(requiredColumnsAll: Array[String], filters: Array[Filter]): RDD[Row] = {
+    val requiredColumns = requiredColumnsAll.filterNot(hiveAcidTable.rowIdColumnSet.contains)
     val tableDesc = hiveAcidTable.tableDesc
     val hadoopConf = sqlContext.sparkSession.sessionState.newHadoopConf()
     val partitionColumnNames = hiveAcidTable.partitionSchema.fields.map(_.name)
@@ -73,7 +82,7 @@ class HiveAcidRelation(var sqlContext: SQLContext,
       x => !partitionedColumnSet.contains(x))
     val requiredAttributes = requiredColumns.map {
       x =>
-        val field = hiveAcidTable.schema.fields.find(_.name == x).get
+        val field = hiveAcidTable.tableSchema.fields.find(_.name == x).get
         PrettyAttribute(field.name, field.dataType)
     }
     val partitionAttributes = hiveAcidTable.partitionSchema.fields.map { x =>
@@ -107,6 +116,7 @@ class HiveAcidRelation(var sqlContext: SQLContext,
       tableDesc,
       sqlContext.sparkSession,
       acidState,
+      includeRowIds,
       hadoopConf)
     if (hiveAcidTable.isPartitioned) {
       val requiredPartitions = getRawPartitions(partitionFilters)
@@ -217,17 +227,4 @@ class HiveAcidRelation(var sqlContext: SQLContext,
 
 
 object HiveAcidRelation extends Logging {
-  def createHiveConf(sparkContext: SparkContext): HiveConf = {
-    val hiveConf = new HiveConf()
-    (sparkContext.hadoopConfiguration.iterator().map(kv => kv.getKey -> kv.getValue)
-      ++ sparkContext.getConf.getAll.toMap).foreach { case (k, v) =>
-      logDebug(
-        s"""
-           |Applying Hadoop/Hive/Spark and extra properties to Hive Conf:
-           |$k=${if (k.toLowerCase(Locale.ROOT).contains("password")) "xxx" else v}
-         """.stripMargin)
-      hiveConf.set(k, v)
-    }
-    hiveConf
-  }
 }

@@ -31,6 +31,7 @@ import org.apache.spark.sql.SparkSession
 import org.apache.thrift.TException
 
 import scala.collection.JavaConversions._
+import scala.language.implicitConversions
 
 class HiveAcidTxnManager(sparkSession: SparkSession,
                          val hiveConf: HiveConf,
@@ -44,6 +45,7 @@ class HiveAcidTxnManager(sparkSession: SparkSession,
   private val user: String = sparkSession.sparkContext.sparkUser
   private var _client: HiveMetaStoreClient = _
   private var txnId: Long = -1
+  private var currentWriteIdForTable: Long = -1
   private var isTxnClosed = false
   private var heartBeater: ScheduledExecutorService = _
   private lazy val heartBeaterClient: HiveMetaStoreClient =
@@ -78,13 +80,17 @@ class HiveAcidTxnManager(sparkSession: SparkSession,
     acquireLocks(partitionNames)
   }
 
-  def end(): Unit = {
+  def end(abort: Boolean = false): Unit = {
     if (txnId != -1 && !isTxnClosed) {
       synchronized {
         if (txnId != -1 && !isTxnClosed) {
           try {
-            logInfo("Closing txnid: " + txnId + " for table " + table.fullyQualifiedName)
-            client.commitTxn(txnId)
+            logInfo(s"Closing txnid: $txnId for table ${table.fullyQualifiedName}. abort = $abort")
+            if (abort) {
+              client.abortTxns(Seq(txnId).asInstanceOf[java.util.List[java.lang.Long]])
+            } else {
+              client.commitTxn(txnId)
+            }
             closeClient()
             txnId = -1
             isTxnClosed = true
@@ -258,7 +264,14 @@ class HiveAcidTxnManager(sparkSession: SparkSession,
     txnId
   }
 
-  def allocateTableWriteId(): Long = {
-    client.allocateTableWriteId(txnId, table.dbName, table.tableName)
+  def getCurrentWriteIdForTable(): Long = {
+    if (txnId == -1) {
+      throw HiveAcidErrors.tableWriteIdRequestedBeforeTxnStart(table.fullyQualifiedName)
+    }
+    if (currentWriteIdForTable != -1) {
+      return currentWriteIdForTable
+    }
+    currentWriteIdForTable = client.allocateTableWriteId(txnId, table.dbName, table.tableName)
+    return currentWriteIdForTable
   }
 }

@@ -50,6 +50,10 @@ object HiveAcidErrors {
     new RuntimeException("A transaction with id " + txnId + " is already open")
   }
 
+  def tableWriteIdRequestedBeforeTxnStart(table: String): Throwable = {
+    new RuntimeException(s"Write id requested for table $table before txn was started")
+  }
+
   def heartBeaterAlreadyExists: Throwable = {
     new RuntimeException("A heartBeater already exists")
   }

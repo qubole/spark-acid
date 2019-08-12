@@ -26,14 +26,14 @@ import com.qubole.shaded.hadoop.hive.metastore.api.FieldSchema
 import com.qubole.shaded.hadoop.hive.metastore.api.hive_metastoreConstants._
 import com.qubole.shaded.hadoop.hive.metastore.utils.MetaStoreUtils.{getColumnNamesFromFieldSchema, getColumnTypesFromFieldSchema}
 import com.qubole.shaded.hadoop.hive.ql.exec.Utilities
-import com.qubole.shaded.hadoop.hive.ql.io.AcidUtils
+import com.qubole.shaded.hadoop.hive.ql.io.{AcidUtils, RecordIdentifier}
 import com.qubole.shaded.hadoop.hive.ql.metadata.{Partition => HiveJarPartition, Table => HiveTable}
 import com.qubole.shaded.hadoop.hive.ql.plan.TableDesc
 import com.qubole.shaded.hadoop.hive.serde2.Deserializer
 import com.qubole.shaded.hadoop.hive.serde2.objectinspector.primitive._
 import com.qubole.shaded.hadoop.hive.serde2.objectinspector.{ObjectInspectorConverters, StructObjectInspector}
 import com.qubole.spark.datasources.hiveacid.HiveAcidState
-import com.qubole.spark.datasources.hiveacid.util.{EmptyRDD, SerializableConfiguration, Util}
+import com.qubole.spark.datasources.hiveacid.util.{EmptyRDD, HiveSparkConversionUtil, SerializableConfiguration, Util}
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{Path, PathFilter}
 import org.apache.hadoop.io.Writable
@@ -46,8 +46,10 @@ import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.CastSupport
 import org.apache.spark.sql.catalyst.expressions._
+import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.types.{IntegerType, LongType, StructType}
 import org.apache.spark.unsafe.types.UTF8String
 
 import scala.collection.JavaConverters._
@@ -66,13 +68,13 @@ sealed trait TableReader {
   * Helper class for scanning tables stored in Hadoop - e.g., to read Hive tables that reside in the
   * data warehouse directory.
   */
-class HiveTableReader(
-                         @transient private val attributes: Seq[Attribute],
-                         @transient private val partitionKeys: Seq[Attribute],
-                         @transient private val tableDesc: TableDesc,
-                         @transient private val sparkSession: SparkSession,
-                         @transient private val acidState: HiveAcidState,
-                         hadoopConf: Configuration)
+class HiveTableReader(@transient private val attributes: Seq[Attribute],
+                      @transient private val partitionKeys: Seq[Attribute],
+                      @transient private val tableDesc: TableDesc,
+                      @transient private val sparkSession: SparkSession,
+                      @transient private val acidState: HiveAcidState,
+                      @transient private val includeRowIds: Boolean,
+                      hadoopConf: Configuration)
   extends TableReader with CastSupport with Logging {
 
   private val _minSplitsPerRDD = if (sparkSession.sparkContext.isLocal) {
@@ -87,6 +89,8 @@ class HiveTableReader(
 
   private val _broadcastedHadoopConf =
     sparkSession.sparkContext.broadcast(new SerializableConfiguration(hadoopConf))
+
+  private val _includeRowIds = includeRowIds
 
   override def conf: SQLConf = sparkSession.sessionState.conf
 
@@ -116,7 +120,7 @@ class HiveTableReader(
     // serialized in the closure below.
     val localTableDesc = tableDesc
     val broadcastedHadoopConf = _broadcastedHadoopConf
-
+    val includeRowIds = _includeRowIds
     val tablePath = hiveTable.getPath
 
     // logDebug("Table input: %s".format(tablePath))
@@ -126,14 +130,26 @@ class HiveTableReader(
     val hiveRDD = createRddForTable(localTableDesc, hiveTable.getSd.getCols,
       hiveTable.getParameters, tablePath.toString, true, ifc)
 
+    val recordIdStructType = new StructType()
+      .add("writeId", "long")
+      .add("bucketId", "int")
+      .add("rowId", "long")
+
     val attrsWithIndex = attributes.zipWithIndex
-    val mutableRow = new SpecificInternalRow(attributes.map(_.dataType))
+    val recordIdentifierDataTypes = if (includeRowIds) {
+      Seq(recordIdStructType) ++ attributes.map(_.dataType)
+    } else {
+      attributes.map(_.dataType)
+    }
+    val mutableRowRecordIds = new SpecificInternalRow(recordIdStructType.fields.map(_.dataType))
+    val mutableRow = new SpecificInternalRow(recordIdentifierDataTypes)
 
     val deserializedHiveRDD = hiveRDD.mapPartitions { iter =>
       val hconf = broadcastedHadoopConf.value.value
       val deserializer = deserializerClass.newInstance()
       deserializer.initialize(hconf, localTableDesc.getProperties)
-      HiveTableReader.fillObject(iter, deserializer, attrsWithIndex, mutableRow, deserializer)
+      HiveTableReader.fillObject(iter, deserializer, attrsWithIndex, mutableRow,
+        mutableRowRecordIds, deserializer, includeRowIds)
     }
 
     new AcidLockUnionRDD[InternalRow](sparkSession.sparkContext, Seq(deserializedHiveRDD),
@@ -187,6 +203,7 @@ class HiveTableReader(
       }
 
       val broadcastedHiveConf = _broadcastedHadoopConf
+      val includeRowIds = _includeRowIds
       val localDeserializer = partDeserializer
       val mutableRow = new SpecificInternalRow(attributes.map(_.dataType))
 
@@ -234,7 +251,7 @@ class HiveTableReader(
 
         // fill the non partition key attributes
         HiveTableReader.fillObject(iter, deserializer, nonPartitionKeyAttrs,
-          mutableRow, tableSerDe)
+          mutableRow, null, tableSerDe, includeRowIds)
       }
     }.toSeq
 
@@ -271,11 +288,12 @@ class HiveTableReader(
                                 path: String,
                                 acquireLocks: Boolean,
                                 inputFormatClass: Class[InputFormat[Writable, Writable]]
-                               ): RDD[Writable] = {
+                               ): RDD[(RecordIdentifier, Writable)] = {
 
     val colNames = getColumnNamesFromFieldSchema(cols)
     val colTypes = getColumnTypesFromFieldSchema(cols)
-    val initializeJobConfFunc = HiveTableReader.initializeLocalJobConfFunc(path, tableDesc, tableParameters,
+    val initializeJobConfFunc = HiveTableReader.initializeLocalJobConfFunc(
+      path, tableDesc, tableParameters,
       colNames, colTypes) _
     val rdd = new Hive3RDD(
       sparkSession.sparkContext,
@@ -285,10 +303,9 @@ class HiveTableReader(
       inputFormatClass,
       classOf[Writable],
       classOf[Writable],
-      _minSplitsPerRDD)
+      _minSplitsPerRDD).asInstanceOf[Hive3RDD[RecordIdentifier, Writable]]
 
-    // Only take the value (skip the key) because Hive works only with values.
-    rdd.map(_._2)
+    rdd
   }
 }
 
@@ -357,11 +374,13 @@ object HiveTableReader extends Hive3Inspectors with Logging {
     * @return An `Iterator[Row]` transformed from `iterator`
     */
   def fillObject(
-                  iterator: Iterator[Writable],
+                  iterator: Iterator[(RecordIdentifier, Writable)],
                   rawDeser: Deserializer,
                   nonPartitionKeyAttrs: Seq[(Attribute, Int)],
                   mutableRow: InternalRow,
-                  tableDeser: Deserializer): Iterator[InternalRow] = {
+                  mutableRowRecordId: InternalRow,
+                  tableDeser: Deserializer,
+                  includeRowIds: Boolean): Iterator[InternalRow] = {
 
     val soi = if (rawDeser.getObjectInspector.equals(tableDeser.getObjectInspector)) {
       rawDeser.getObjectInspector.asInstanceOf[StructObjectInspector]
@@ -427,15 +446,27 @@ object HiveTableReader extends Hive3Inspectors with Logging {
 
     // Map each tuple to a row object
     iterator.map { value =>
-      val raw = converter.convert(rawDeser.deserialize(value))
+      val dataStartIndex =
+        if (includeRowIds) {
+          val recordIdentifier = value._1
+          mutableRowRecordId.setLong(0, recordIdentifier.getWriteId)
+          mutableRowRecordId.setInt(1, recordIdentifier.getBucketProperty)
+          mutableRowRecordId.setLong(2, recordIdentifier.getRowId)
+          mutableRow.update(0, mutableRowRecordId)
+          1
+        } else {
+          0
+        }
+
+      val raw = converter.convert(rawDeser.deserialize(value._2))
       var i = 0
       val length = fieldRefs.length
       while (i < length) {
         val fieldValue = soi.getStructFieldData(raw, fieldRefs(i))
         if (fieldValue == null) {
-          mutableRow.setNullAt(fieldOrdinals(i))
+          mutableRow.setNullAt(fieldOrdinals(i) + dataStartIndex)
         } else {
-          unwrappers(i)(fieldValue, mutableRow, fieldOrdinals(i))
+          unwrappers(i)(fieldValue, mutableRow, fieldOrdinals(i) + dataStartIndex)
         }
         i += 1
       }

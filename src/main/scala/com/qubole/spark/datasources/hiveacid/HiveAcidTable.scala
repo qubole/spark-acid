@@ -21,16 +21,15 @@ import java.util.Locale
 
 import com.qubole.shaded.hadoop.hive.conf.HiveConf
 import com.qubole.shaded.hadoop.hive.metastore.api.FieldSchema
+import com.qubole.shaded.hadoop.hive.ql.io.RecordIdentifier
 import com.qubole.shaded.hadoop.hive.ql.metadata
 import com.qubole.shaded.hadoop.hive.ql.metadata.Hive
 import com.qubole.shaded.hadoop.hive.ql.plan.TableDesc
-import com.qubole.spark.datasources.hiveacid.util.Util
+import com.qubole.spark.datasources.hiveacid.util.{HiveSparkConversionUtil, Util}
 import org.apache.hadoop.fs.Path
 import org.apache.hadoop.io.Writable
 import org.apache.hadoop.mapred.{InputFormat, OutputFormat}
-import org.apache.spark.SparkException
 import org.apache.spark.internal.Logging
-import org.apache.spark.sql.catalyst.parser.{CatalystSqlParser, ParseException}
 import org.apache.spark.sql.types._
 
 import scala.collection.JavaConversions._
@@ -62,10 +61,24 @@ class HiveAcidTable(val hTable: metadata.Table) extends Logging {
     outputFormatClass,
     hTable.getMetadata)
 
-  val dataSchema = StructType(hTable.getSd.getCols.toList.map(fromHiveColumn).toArray)
-  val partitionSchema = StructType(hTable.getPartitionKeys.toList.map(fromHiveColumn).toArray)
+  val dataSchema = StructType(hTable.getSd.getCols.toList.map(
+    HiveSparkConversionUtil.hiveColumnToSparkColumn).toArray)
+  val partitionSchema = StructType(hTable.getPartitionKeys.toList.map(
+    HiveSparkConversionUtil.hiveColumnToSparkColumn).toArray)
+  val rowIdSchema: StructType = {
+    StructType(
+      RecordIdentifier.Field.values().map {
+        x =>
+          StructField(
+            name = x.name(),
+            dataType = HiveSparkConversionUtil.getSparkSQLDataType(x.fieldType.getTypeName),
+            nullable = true)
+      }
+    )
+  }
+  val rowIdColumnSet: Set[String] = rowIdSchema.fields.map(_.name).toSet
 
-  val schema: StructType = {
+  val tableSchema: StructType = {
     val overlappedPartCols = mutable.Map.empty[String, StructField]
     partitionSchema.foreach { partitionField =>
       if (dataSchema.exists(getColName(_) == getColName(partitionField))) {
@@ -74,6 +87,13 @@ class HiveAcidTable(val hTable: metadata.Table) extends Logging {
     }
     StructType(dataSchema.map(f => overlappedPartCols.getOrElse(getColName(f), f)) ++
       partitionSchema.filterNot(f => overlappedPartCols.contains(getColName(f))))
+  }
+
+  val tableSchemaWithRowId: StructType = {
+    StructType(
+      Seq(
+        StructField("rowId", rowIdSchema)
+      ) ++ tableSchema.fields)
   }
 
   private def getColName(f: StructField): String = {
@@ -85,30 +105,6 @@ class HiveAcidTable(val hTable: metadata.Table) extends Logging {
     f.name.toLowerCase(Locale.ROOT)
   }
 
-  private def fromHiveColumn(hc: FieldSchema): StructField = {
-    val columnType = getSparkSQLDataType(hc)
-    val metadata = if (hc.getType != columnType.catalogString) {
-      new MetadataBuilder().putString(HIVE_TYPE_STRING, hc.getType).build()
-    } else {
-      Metadata.empty
-    }
-
-    val field = StructField(
-      name = hc.getName,
-      dataType = columnType,
-      nullable = true,
-      metadata = metadata)
-    Option(hc.getComment).map(field.withComment).getOrElse(field)
-  }
-
-  private def getSparkSQLDataType(hc: FieldSchema): DataType = {
-    try {
-      CatalystSqlParser.parseDataType(hc.getType)
-    } catch {
-      case e: ParseException =>
-        throw new SparkException("Cannot recognize hive type string: " + hc.getType, e)
-    }
-  }
 }
 
 object HiveAcidTable {

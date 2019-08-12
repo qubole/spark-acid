@@ -19,14 +19,10 @@
 
 package com.qubole.spark.datasources.hiveacid
 
-import com.qubole.shaded.hadoop.hive.ql.plan.FileSinkDesc
-import com.qubole.spark.datasources.hiveacid.util.SerializableConfiguration
-import com.qubole.spark.datasources.hiveacid.writer.{HiveAcidWriter, HiveAcidWriterOptions}
+import com.qubole.spark.datasources.hiveacid.writer.TableWriter
 import org.apache.spark.internal.Logging
-import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute
-import org.apache.spark.sql.catalyst.expressions.AttributeSet
+import org.apache.spark.sql._
 import org.apache.spark.sql.sources._
-import org.apache.spark.sql.{DataFrame, SQLContext, SaveMode}
 
 class HiveAcidDataSource
   extends RelationProvider
@@ -50,7 +46,6 @@ class HiveAcidDataSource
     val relation = createRelation(sqlContext, parameters).asInstanceOf[HiveAcidRelation]
     val hiveAcidTable = relation.hiveAcidTable
     val hiveConf = relation.hiveConf
-    val tableDesc = relation.hiveAcidTable.tableDesc
 
     val operationType = if (mode == SaveMode.Overwrite) {
       HiveAcidOperation.INSERT_OVERWRITE
@@ -58,51 +53,72 @@ class HiveAcidDataSource
       HiveAcidOperation.INSERT_INTO
     }
 
-    val txnManager = new HiveAcidTxnManager(sqlContext.sparkSession, hiveConf, hiveAcidTable,
-      operationType)
-    txnManager.begin(Seq())
-    val currentWriteId = txnManager.allocateTableWriteId()
-    val fsc = new FileSinkDesc()
-    fsc.setDirName(hiveAcidTable.rootPath)
-    fsc.setTableInfo(tableDesc)
-    if (mode == SaveMode.Overwrite) {
-      fsc.setInsertOverwrite(true)
-    }
-    fsc.setTableWriteId(currentWriteId)
-    val hadoopConf = sqlContext.sparkSession.sessionState.newHadoopConf()
-
-    val tableColumnNames = hiveAcidTable.schema.fields.map(_.name)
-    val allColumns = data.queryExecution.logical.output.zip(tableColumnNames).map {
-      case (attr, tableColumnName) =>
-        attr.withName(tableColumnName)
-    }
-    val partitionColumns = hiveAcidTable.partitionSchema.fields.map(
-      field => UnresolvedAttribute.quoted(field.name))
-    val partitionSet = AttributeSet(partitionColumns)
-    val dataColumns = allColumns.filterNot(partitionSet.contains)
-
-    val writerOptions = new HiveAcidWriterOptions(
-      currentWriteId = currentWriteId,
-      operationType = operationType,
-      fileSinkConf = fsc,
-      serializableHadoopConf = new SerializableConfiguration(hadoopConf),
-      dataColumns = dataColumns,
-      partitionColumns = partitionColumns,
-      allColumns = allColumns,
-      rootPath = hiveAcidTable.rootPath.toUri.toString,
-      timeZoneId = sqlContext.sparkSession.sessionState.conf.sessionLocalTimeZone
+    val tableWriter = new TableWriter(sqlContext.sparkSession, hiveAcidTable,
+      hiveConf, operationType, data, false
     )
-    data.queryExecution.executedPlan.execute().foreachPartition {
-      iterator =>
-        val writer = new HiveAcidWriter(writerOptions)
-        iterator.foreach { row => writer.write(row) }
-        writer.close()
-    }
-    txnManager.end()
+    tableWriter.writeToTable()
+    relation
+  }
+
+  def deleteRelation(sqlContext: SQLContext,
+                     parameters: Map[String, String],
+                     condition: String): BaseRelation = {
+    val deleteCondition = functions.expr(condition)
+    val relation = createRelation(sqlContext, parameters ++
+      Map("includeRowIds" -> "true")).asInstanceOf[HiveAcidRelation]
+    val spark = sqlContext.sparkSession
+    val df = spark.read.format("HiveAcid")
+      .options(parameters ++ Map("includeRowIds" -> "true")).load().filter(deleteCondition)
+
+    val hiveAcidTable = relation.hiveAcidTable
+    val hiveConf = relation.hiveConf
+
+    val operationType = HiveAcidOperation.DELETE
+
+    val tableWriter = new TableWriter(sqlContext.sparkSession, hiveAcidTable,
+      hiveConf, operationType, df, true
+    )
+    tableWriter.writeToTable()
     relation
   }
 
   override def shortName(): String = {
     HiveAcidUtils.NAME
   }
+
+//  def updateRelation(sqlContext: SQLContext,
+//                     parameters: Map[String, String],
+//                     condition: String, set: Map[String, String]): BaseRelation = {
+//
+//    def toStrColumnMap(map: Map[String, String]): Map[String, Column] = {
+//      map.toSeq.map { case (k, v) => k -> functions.expr(v) }.toMap
+//    }
+//
+//    def buildUpdatedColumns(condition: Expression, updateExpressions): Seq[Column] = {
+//      updateExpressions.zip(target.output).map { case (update, original) =>
+//        val updated = If(condition, update, original)
+//        new Column(Alias(updated, original.name)())
+//      }
+//    }
+//
+//    val updateValueMap = toStrColumnMap(set)
+//    val deleteCondition = functions.expr(condition)
+//    val relation = createRelation(sqlContext, parameters ++
+//      Map("includeRowIds" -> "true")).asInstanceOf[HiveAcidRelation]
+//    val spark = sqlContext.sparkSession
+//    val df = spark.read.format("HiveAcid")
+//      .options(parameters ++ Map("includeRowIds" -> "true")).load().filter(deleteCondition)
+//
+//    val hiveAcidTable = relation.hiveAcidTable
+//    val hiveConf = relation.hiveConf
+//
+//    val operationType = HiveAcidOperation.DELETE
+//
+//    val tableWriter = new TableWriter(sqlContext.sparkSession, hiveAcidTable,
+//      hiveConf, operationType, df, true
+//    )
+//    tableWriter.writeToTable()
+//    relation
+//  }
+
 }

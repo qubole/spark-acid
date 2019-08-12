@@ -24,7 +24,7 @@ import java.text.SimpleDateFormat
 import java.util.{Date, Locale}
 
 import com.qubole.shaded.hadoop.hive.common.ValidWriteIdList
-import com.qubole.shaded.hadoop.hive.ql.io.{AcidUtils, HiveInputFormat}
+import com.qubole.shaded.hadoop.hive.ql.io.{AcidInputFormat, AcidUtils, HiveInputFormat, RecordIdentifier}
 import com.qubole.spark.datasources.hiveacid.HiveAcidState
 import com.qubole.spark.datasources.hiveacid.util.{InputFileBlockHolder, NextIterator, SerializableConfiguration, Util}
 import com.qubole.spark.datasources.hiveacid.rdd.Hive3RDD.Hive3PartitionsWithSplitRDD
@@ -315,10 +315,18 @@ class Hive3RDD[K, V](
 
       private val key: K = if (reader == null) null.asInstanceOf[K] else reader.createKey()
       private val value: V = if (reader == null) null.asInstanceOf[V] else reader.createValue()
+      private var recordIdentifier: RecordIdentifier = null
+      val rowIdsNeeded = true
+      private val isRecordIdentifierNeeded = reader.isInstanceOf[
+        AcidInputFormat.AcidRecordReader[_, _]] && rowIdsNeeded
 
       override def getNext(): (K, V) = {
         try {
           finished = !reader.next(key, value)
+          if (!finished && isRecordIdentifierNeeded) {
+            recordIdentifier = reader.asInstanceOf[AcidInputFormat.AcidRecordReader[_, _]]
+              .getRecordIdentifier
+          }
         } catch {
           case e: FileNotFoundException if ignoreMissingFiles =>
             logWarning(s"Skipped missing file: ${split.inputSplit}", e)
@@ -336,7 +344,7 @@ class Hive3RDD[K, V](
 //        if (inputMetrics.recordsRead % SparkHadoopUtil.UPDATE_INPUT_METRICS_INTERVAL_RECORDS == 0) {
 //          updateBytesRead()
 //        }
-        (key, value)
+        (recordIdentifier.asInstanceOf[K], value)
       }
 
       override def close(): Unit = {
