@@ -119,7 +119,10 @@ class HiveAcidRelation(var sqlContext: SQLContext,
       includeRowIds,
       hadoopConf)
     if (hiveAcidTable.isPartitioned) {
-      val requiredPartitions = getRawPartitions(partitionFilters)
+      val requiredPartitions = hiveAcidTable.getRawPartitions(
+        HiveSparkConversionUtil.sparkToHiveFilters(partitionFilters),
+        sqlContext.sparkSession.sessionState.conf.metastorePartitionPruning,
+        hiveConf)
       hiveReader.makeRDDForPartitionedTable(requiredPartitions).asInstanceOf[RDD[Row]]
     } else {
       hiveReader.makeRDDForTable(hiveAcidTable.hTable).asInstanceOf[RDD[Row]]
@@ -159,70 +162,6 @@ class HiveAcidRelation(var sqlContext: SQLContext,
     sqlConf.getConfString("spark.sql.acidDs.enablePredicatePushdown", "true") == "true"
   }
 
-
-  private def convertFilters(filters: Seq[Filter]): String = {
-    def convertInToOr(name: String, values: Seq[Any]): String = {
-      values.map(value => s"$name = $value").mkString("(", " or ", ")")
-    }
-
-    def convert(filter: Filter): Option[String] = filter match {
-      case In (name, values) =>
-        Some(convertInToOr(name, values))
-
-      case EqualTo(name, value) =>
-        Some(s"$name = $value")
-
-      case GreaterThan(name, value) =>
-        Some(s"$name > $value")
-
-      case GreaterThanOrEqual(name, value) =>
-        Some(s"$name >= $value")
-
-      case LessThan(name, value) =>
-        Some(s"$name < $value")
-
-      case LessThanOrEqual(name, value) =>
-        Some(s"$name <= $value")
-
-      case And(filter1, filter2) =>
-        val converted = convert(filter1) ++ convert(filter2)
-        if (converted.isEmpty) {
-          None
-        } else {
-          Some(converted.mkString("(", " and ", ")"))
-        }
-
-      case Or(filter1, filter2) =>
-        for {
-          left <- convert(filter1)
-          right <- convert(filter2)
-        } yield s"($left or $right)"
-
-      case _ => None
-    }
-
-    filters.flatMap(convert).mkString(" and ")
-  }
-
-
-  def getRawPartitions(partitionFilters: Array[Filter]): Seq[metadata.Partition] = {
-    val prunedPartitions =
-      if (sqlContext.sparkSession.sessionState.conf.metastorePartitionPruning &&
-        partitionFilters.size > 0) {
-        val normalizedFilters = convertFilters(partitionFilters)
-        val hive: Hive = Hive.get(hiveConf)
-        val hT = hive.getPartitionsByFilter(hiveAcidTable.hTable, normalizedFilters)
-        Hive.closeCurrent()
-        hT
-      } else {
-        val hive: Hive = Hive.get(hiveConf)
-        val hT = hive.getPartitions(hiveAcidTable.hTable)
-        Hive.closeCurrent()
-        hT
-      }
-    logDebug(s"partition count = ${prunedPartitions.size()}")
-    prunedPartitions.toSeq
-  }
 }
 
 

@@ -25,6 +25,7 @@ import com.qubole.spark.datasources.hiveacid.HiveAcidRelation.logDebug
 import org.apache.spark.internal.Logging
 import org.apache.spark.{SparkContext, SparkException}
 import org.apache.spark.sql.catalyst.parser.{CatalystSqlParser, ParseException}
+import org.apache.spark.sql.sources._
 import org.apache.spark.sql.types._
 
 import scala.collection.JavaConversions._
@@ -67,6 +68,50 @@ object HiveSparkConversionUtil extends Logging {
       hiveConf.set(k, v)
     }
     hiveConf
+  }
+
+  def sparkToHiveFilters(filters: Seq[Filter]): String = {
+    def convertInToOr(name: String, values: Seq[Any]): String = {
+      values.map(value => s"$name = $value").mkString("(", " or ", ")")
+    }
+
+    def convert(filter: Filter): Option[String] = filter match {
+      case In (name, values) =>
+        Some(convertInToOr(name, values))
+
+      case EqualTo(name, value) =>
+        Some(s"$name = $value")
+
+      case GreaterThan(name, value) =>
+        Some(s"$name > $value")
+
+      case GreaterThanOrEqual(name, value) =>
+        Some(s"$name >= $value")
+
+      case LessThan(name, value) =>
+        Some(s"$name < $value")
+
+      case LessThanOrEqual(name, value) =>
+        Some(s"$name <= $value")
+
+      case And(filter1, filter2) =>
+        val converted = convert(filter1) ++ convert(filter2)
+        if (converted.isEmpty) {
+          None
+        } else {
+          Some(converted.mkString("(", " and ", ")"))
+        }
+
+      case Or(filter1, filter2) =>
+        for {
+          left <- convert(filter1)
+          right <- convert(filter2)
+        } yield s"($left or $right)"
+
+      case _ => None
+    }
+
+    filters.flatMap(convert).mkString(" and ")
   }
 
 }

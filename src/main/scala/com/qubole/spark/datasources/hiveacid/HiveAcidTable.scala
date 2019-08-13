@@ -30,6 +30,7 @@ import org.apache.hadoop.fs.Path
 import org.apache.hadoop.io.Writable
 import org.apache.hadoop.mapred.{InputFormat, OutputFormat}
 import org.apache.spark.internal.Logging
+import org.apache.spark.sql.sources.Filter
 import org.apache.spark.sql.types._
 
 import scala.collection.JavaConversions._
@@ -94,6 +95,26 @@ class HiveAcidTable(val hTable: metadata.Table) extends Logging {
       Seq(
         StructField("rowId", rowIdSchema)
       ) ++ tableSchema.fields)
+  }
+
+  def getRawPartitions(partitionFilters: String,
+                       metastorePartitionPruningEnabled: Boolean,
+                       hiveConf: HiveConf): Seq[metadata.Partition] = {
+    val prunedPartitions =
+      if (metastorePartitionPruningEnabled &&
+        partitionFilters.size > 0) {
+        val hive: Hive = Hive.get(hiveConf)
+        val hT = hive.getPartitionsByFilter(hTable, partitionFilters)
+        Hive.closeCurrent()
+        hT
+      } else {
+        val hive: Hive = Hive.get(hiveConf)
+        val hT = hive.getPartitions(hTable)
+        Hive.closeCurrent()
+        hT
+      }
+    logDebug(s"partition count = ${prunedPartitions.size()}")
+    prunedPartitions.toSeq
   }
 
   private def getColName(f: StructField): String = {
