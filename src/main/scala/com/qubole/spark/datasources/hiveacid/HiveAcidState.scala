@@ -31,10 +31,10 @@ import scala.collection.JavaConversions._
 
 class HiveAcidState(sparkSession: SparkSession,
                     val hiveConf: HiveConf,
-                    val table: HiveAcidTable,
+                    val acidTableMetadata: HiveAcidMetadata,
                     val sizeInBytes: Long) extends Logging {
 
-  val location: Path = table.rootPath
+  val location: Path = acidTableMetadata.rootPath
   private val txnId: Long = -1
   private var validWriteIdsNoTxn: ValidWriteIdList = _
 
@@ -44,9 +44,9 @@ class HiveAcidState(sparkSession: SparkSession,
     val client = new HiveMetaStoreClient(hiveConf, null, false)
     val validTxns = client.getValidTxns()
     val txnWriteIds: ValidTxnWriteIdList = TxnUtils.createValidTxnWriteIdList(txnId,
-      client.getValidWriteIds(Seq(table.fullyQualifiedName),
+      client.getValidWriteIds(Seq(acidTableMetadata.fullyQualifiedName),
         validTxns.writeToString()))
-    validWriteIdsNoTxn = txnWriteIds.getTableValidWriteIdList(table.fullyQualifiedName)
+    validWriteIdsNoTxn = txnWriteIds.getTableValidWriteIdList(acidTableMetadata.fullyQualifiedName)
     client.close()
   }
 

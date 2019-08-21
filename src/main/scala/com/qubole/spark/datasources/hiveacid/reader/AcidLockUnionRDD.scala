@@ -17,18 +17,23 @@
  * limitations under the License.
  */
 
-package com.qubole.spark.datasources.hiveacid.util
+package com.qubole.spark.datasources.hiveacid.reader
 
-import org.apache.spark.rdd.RDD
-import org.apache.spark.{Partition, SparkContext, TaskContext}
+import com.qubole.spark.datasources.hiveacid.HiveAcidState
+import org.apache.spark._
+import org.apache.spark.rdd.{RDD, UnionRDD}
 
 import scala.reflect.ClassTag
 
-class EmptyRDD[T: ClassTag](sc: SparkContext) extends RDD[T](sc, Nil) {
+private[reader] class AcidLockUnionRDD[T: ClassTag](
+   sc: SparkContext,
+   rddSeq: Seq[RDD[T]],
+   partitionList: Seq[String],
+   @transient val acidState: HiveAcidState) extends UnionRDD[T](sc, rddSeq) {
 
-  override def getPartitions: Array[Partition] = Array.empty
-
-  override def compute(split: Partition, context: TaskContext): Iterator[T] = {
-    throw new UnsupportedOperationException("empty RDD")
+  override def getPartitions: Array[Partition] = {
+    // Initialize the ACID state here to get the write-ids to read
+    acidState.beginRead
+    super.getPartitions
   }
 }

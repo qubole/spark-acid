@@ -17,7 +17,7 @@
  * limitations under the License.
  */
 
-package com.qubole.spark.datasources.hiveacid.rdd
+package com.qubole.spark.datasources.hiveacid.util
 
 import java.lang.reflect.{ParameterizedType, Type, WildcardType}
 import java.sql.Date
@@ -38,7 +38,7 @@ import org.apache.spark.sql.types
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.types.UTF8String
 
-trait Hive3Inspectors {
+private[hiveacid] trait Hive3Inspectors {
 
   def javaTypeToDataType(clz: Type): DataType = clz match {
     // writable

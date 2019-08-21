@@ -24,7 +24,11 @@ import java.io.{ObjectInputStream, ObjectOutputStream}
 import org.apache.hadoop.conf.Configuration
 import org.apache.spark.util.Utils
 
-class SerializableConfiguration(@transient var value: Configuration) extends Serializable {
+/**
+ * Utility class to make configuration object serializable
+ */
+private[hiveacid] class SerializableConfiguration(@transient var value: Configuration)
+  extends Serializable {
   private def writeObject(out: ObjectOutputStream): Unit = Util.tryOrIOException {
     out.defaultWriteObject()
     value.write(out)

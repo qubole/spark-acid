@@ -17,7 +17,7 @@
  * limitations under the License.
  */
 
-package com.qubole.spark.datasources.hiveacid.rdd
+package com.qubole.spark.datasources.hiveacid.reader
 
 import java.io.{FileNotFoundException, IOException}
 import java.text.SimpleDateFormat
@@ -26,8 +26,8 @@ import java.util.{Date, Locale}
 import com.qubole.shaded.hadoop.hive.common.ValidWriteIdList
 import com.qubole.shaded.hadoop.hive.ql.io.{AcidInputFormat, AcidUtils, HiveInputFormat, RecordIdentifier}
 import com.qubole.spark.datasources.hiveacid.HiveAcidState
-import com.qubole.spark.datasources.hiveacid.util.{InputFileBlockHolder, NextIterator, SerializableConfiguration, Util}
-import com.qubole.spark.datasources.hiveacid.rdd.Hive3RDD.Hive3PartitionsWithSplitRDD
+import com.qubole.spark.datasources.hiveacid.util.{SerializableConfiguration, Util}
+import com.qubole.spark.datasources.hiveacid.reader.Hive3RDD.Hive3PartitionsWithSplitRDD
 import com.qubole.spark.datasources.hiveacid.util.{SerializableWritable => _, _}
 import org.apache.hadoop.conf.{Configurable, Configuration}
 import org.apache.hadoop.fs.Path
@@ -83,7 +83,7 @@ class Hive3Partition(rddId: Int, override val index: Int, s: InputSplit)
   * `org.apache.spark.SparkContext.Hive3RDD()`
   */
 @DeveloperApi
-class Hive3RDD[K, V](
+private[reader] class Hive3RDD[K, V](
                       sc: SparkContext,
                       @transient val acidState: HiveAcidState,
                       broadcastedConf: Broadcast[SerializableConfiguration],
@@ -92,7 +92,7 @@ class Hive3RDD[K, V](
                       keyClass: Class[K],
                       valueClass: Class[V],
                       minPartitions: Int)
-  extends RDD[(K, V)](sc, Nil) with Logging {
+  extends RDD[(RecordIdentifier, V)](sc, Nil) with Logging {
 
   def this(
             sc: SparkContext,
@@ -195,7 +195,7 @@ class Hive3RDD[K, V](
     //val ValidWriteIdList = acidState.getValidWriteIdsNoTxn
     var jobConf = getJobConf()
 
-    if (acidState.table.isFullAcidTable) {
+    if (acidState.acidTableMetadata.isFullAcidTable) {
       // If full ACID table, just set the right writeIds, the OrcInputFormat.getSplits() will take care of the rest
       AcidUtils.setValidWriteIdList(jobConf, validWriteIds)
     } else {
@@ -248,26 +248,18 @@ class Hive3RDD[K, V](
     }
   }
 
-  override def compute(theSplit: Partition, context: TaskContext): InterruptibleIterator[(K, V)] = {
-    val iter: NextIterator[(K, V)] = new NextIterator[(K, V)] {
+  override def compute(theSplit: Partition,
+                       context: TaskContext): InterruptibleIterator[(RecordIdentifier, V)] = {
+    val iter: NextIterator[(RecordIdentifier, V)] = new NextIterator[(RecordIdentifier, V)] {
 
       private val split = theSplit.asInstanceOf[Hive3Partition]
       logInfo("Input split: " + split.inputSplit)
-      val scheme = Util.getSplitScheme(split.inputSplit.value)
       val jobConf = getJobConf()
 
       val inputMetrics = context.taskMetrics().inputMetrics
       val existingBytesRead = inputMetrics.bytesRead
       val blobStoreInputMetrics: Option[InputMetrics] = None
       val existingBlobStoreBytesRead = blobStoreInputMetrics.map(_.bytesRead).sum
-
-      // Sets InputFileBlockHolder for the file block's information
-      split.inputSplit.value match {
-        case fs: FileSplit =>
-          InputFileBlockHolder.set(fs.getPath.toString, fs.getStart, fs.getLength)
-        case _ =>
-          InputFileBlockHolder.unset()
-      }
 
       // Find a function that will return the FileSystem bytes read by this thread. Do this before
       // creating RecordReader, because RecordReader's constructor might read some bytes
@@ -316,16 +308,18 @@ class Hive3RDD[K, V](
       private val key: K = if (reader == null) null.asInstanceOf[K] else reader.createKey()
       private val value: V = if (reader == null) null.asInstanceOf[V] else reader.createValue()
       private var recordIdentifier: RecordIdentifier = null
-      val rowIdsNeeded = true
-      private val isRecordIdentifierNeeded = reader.isInstanceOf[
-        AcidInputFormat.AcidRecordReader[_, _]] && rowIdsNeeded
+      private val acidRecordReader = reader match {
+        case acidReader: AcidInputFormat.AcidRecordReader[_, _] =>
+          acidReader
+        case _ =>
+          null
+      }
 
-      override def getNext(): (K, V) = {
+      override def getNext(): (RecordIdentifier, V) = {
         try {
           finished = !reader.next(key, value)
-          if (!finished && isRecordIdentifierNeeded) {
-            recordIdentifier = reader.asInstanceOf[AcidInputFormat.AcidRecordReader[_, _]]
-              .getRecordIdentifier
+          if (!finished && acidRecordReader != null) {
+            recordIdentifier = acidRecordReader.getRecordIdentifier
           }
         } catch {
           case e: FileNotFoundException if ignoreMissingFiles =>
@@ -344,12 +338,11 @@ class Hive3RDD[K, V](
 //        if (inputMetrics.recordsRead % SparkHadoopUtil.UPDATE_INPUT_METRICS_INTERVAL_RECORDS == 0) {
 //          updateBytesRead()
 //        }
-        (recordIdentifier.asInstanceOf[K], value)
+        (recordIdentifier, value)
       }
 
       override def close(): Unit = {
         if (reader != null) {
-          InputFileBlockHolder.unset()
           try {
             reader.close()
           } catch {
@@ -377,7 +370,7 @@ class Hive3RDD[K, V](
         }
       }
     }
-    new InterruptibleIterator[(K, V)](context, iter)
+    new InterruptibleIterator[(RecordIdentifier, V)](context, iter)
   }
 
 
@@ -385,8 +378,8 @@ class Hive3RDD[K, V](
   /** Maps over a partition, providing the InputSplit that was used as the base of the partition. */
   @DeveloperApi
   def mapPartitionsWithInputSplit[U: ClassTag](
-                                                f: (InputSplit, Iterator[(K, V)]) => Iterator[U],
-                                                preservesPartitioning: Boolean = false): RDD[U] = {
+      f: (InputSplit, Iterator[(RecordIdentifier, V)]) => Iterator[U],
+      preservesPartitioning: Boolean = false): RDD[U] = {
     new Hive3PartitionsWithSplitRDD(this, f, preservesPartitioning)
   }
 
@@ -485,5 +478,76 @@ object Hive3RDD extends Logging {
         None
       }
     })
+  }
+}
+
+private abstract class NextIterator[U] extends Iterator[U] {
+
+  private var gotNext = false
+  private var nextValue: U = _
+  private var closed = false
+  protected var finished = false
+
+  /**
+    * Method for subclasses to implement to provide the next element.
+    *
+    * If no next element is available, the subclass should set `finished`
+    * to `true` and may return any value (it will be ignored).
+    *
+    * This convention is required because `null` may be a valid value,
+    * and using `Option` seems like it might create unnecessary Some/None
+    * instances, given some iterators might be called in a tight loop.
+    *
+    * @return U, or set 'finished' when done
+    */
+  protected def getNext(): U
+
+  /**
+    * Method for subclasses to implement when all elements have been successfully
+    * iterated, and the iteration is done.
+    *
+    * <b>Note:</b> `NextIterator` cannot guarantee that `close` will be
+    * called because it has no control over what happens when an exception
+    * happens in the user code that is calling hasNext/next.
+    *
+    * Ideally you should have another try/catch, as in HadoopRDD, that
+    * ensures any resources are closed should iteration fail.
+    */
+  protected def close()
+
+  /**
+    * Calls the subclass-defined close method, but only once.
+    *
+    * Usually calling `close` multiple times should be fine, but historically
+    * there have been issues with some InputFormats throwing exceptions.
+    */
+  def closeIfNeeded() {
+    if (!closed) {
+      // Note: it's important that we set closed = true before calling close(), since setting it
+      // afterwards would permit us to call close() multiple times if close() threw an exception.
+      closed = true
+      close()
+    }
+  }
+
+  override def hasNext: Boolean = {
+    if (!finished) {
+      if (!gotNext) {
+        nextValue = getNext()
+        if (finished) {
+          closeIfNeeded()
+        }
+        gotNext = true
+      }
+    }
+    !finished
+  }
+
+  override def next(): U = {
+    if (!hasNext) {
+      throw new NoSuchElementException("End of stream")
+    }
+    gotNext = false
+    nextValue
   }
 }

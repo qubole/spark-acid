@@ -17,11 +17,11 @@
  * limitations under the License.
  */
 
-package com.qubole.spark.datasources.hiveacid.orc
+package com.qubole.spark.datasources.hiveacid.reader
 
-import com.qubole.shaded.hadoop.hive.ql.io.sarg.{PredicateLeaf, SearchArgument}
 import com.qubole.shaded.hadoop.hive.ql.io.sarg.SearchArgument.Builder
 import com.qubole.shaded.hadoop.hive.ql.io.sarg.SearchArgumentFactory.newBuilder
+import com.qubole.shaded.hadoop.hive.ql.io.sarg.{PredicateLeaf, SearchArgument}
 import com.qubole.shaded.hadoop.hive.serde2.io.HiveDecimalWritable
 import org.apache.spark.sql.sources.{And, Filter}
 import org.apache.spark.sql.types._
@@ -56,8 +56,8 @@ import org.apache.spark.sql.types._
   * builder methods mentioned above can only be found in test code, where all tested filters are
   * known to be convertible.
   */
-object OrcFilters {
-  def buildTree(filters: Seq[Filter]): Option[Filter] = {
+private[reader] object HiveSearchArgument {
+  private def buildTree(filters: Seq[Filter]): Option[Filter] = {
     filters match {
       case Seq() => None
       case Seq(filter) => Some(filter)
@@ -70,33 +70,12 @@ object OrcFilters {
 
   // Since ORC 1.5.0 (ORC-323), we need to quote for column names with `.` characters
   // in order to distinguish predicate pushdown for nested columns.
-  private def  quoteAttributeNameIfNeeded(name: String) : String = {
+  private def quoteAttributeNameIfNeeded(name: String) : String = {
     if (!name.contains("`") && name.contains(".")) {
       s"`$name`"
     } else {
       name
     }
-  }
-
-  /**
-    * Create ORC filter as a SearchArgument instance.
-    */
-  def createFilter(schema: StructType, filters: Seq[Filter]): Option[SearchArgument] = {
-    val dataTypeMap = schema.map(f => f.name -> f.dataType).toMap
-
-    // First, tries to convert each filter individually to see whether it's convertible, and then
-    // collect all convertible ones to build the final `SearchArgument`.
-    val convertibleFilters = for {
-      filter <- filters
-      _ <- buildSearchArgument(dataTypeMap, filter, newBuilder)
-    } yield filter
-
-    for {
-      // Combines all convertible filters using `And` to produce a single conjunction
-      conjunction <- buildTree(convertibleFilters)
-      // Then tries to build a single ORC `SearchArgument` for the conjunction predicate
-      builder <- buildSearchArgument(dataTypeMap, conjunction, newBuilder)
-    } yield builder.build()
   }
 
   /**
@@ -238,4 +217,26 @@ object OrcFilters {
       case _ => None
     }
   }
+
+  /**
+    * Create filters as a SearchArgument instance.
+    */
+  def build(schema: StructType, filters: Seq[Filter]): Option[SearchArgument] = {
+    val dataTypeMap = schema.map(f => f.name -> f.dataType).toMap
+
+    // First, tries to convert each filter individually to see whether it's convertible, and then
+    // collect all convertible ones to build the final `SearchArgument`.
+    val convertibleFilters = for {
+      filter <- filters
+      _ <- buildSearchArgument(dataTypeMap, filter, newBuilder)
+    } yield filter
+
+    for {
+      // Combines all convertible filters using `And` to produce a single conjunction
+      conjunction <- buildTree(convertibleFilters)
+      // Then tries to build a single ORC `SearchArgument` for the conjunction predicate
+      builder <- buildSearchArgument(dataTypeMap, conjunction, newBuilder)
+    } yield builder.build()
+  }
+
 }

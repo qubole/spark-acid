@@ -21,7 +21,6 @@ import java.util.Locale
 
 import com.qubole.shaded.hadoop.hive.conf.HiveConf
 import com.qubole.shaded.hadoop.hive.metastore.api.FieldSchema
-import com.qubole.spark.datasources.hiveacid.HiveAcidRelation.logDebug
 import org.apache.spark.internal.Logging
 import org.apache.spark.{SparkContext, SparkException}
 import org.apache.spark.sql.catalyst.parser.{CatalystSqlParser, ParseException}
@@ -30,7 +29,7 @@ import org.apache.spark.sql.types._
 
 import scala.collection.JavaConversions._
 
-object HiveSparkConversionUtil extends Logging {
+private[hiveacid] object HiveSparkConversionUtil extends Logging {
   def hiveColumnToSparkColumn(hc: FieldSchema): StructField = {
     val columnType = getSparkSQLDataType(hc.getType)
     val metadata = if (hc.getType != columnType.catalogString) {

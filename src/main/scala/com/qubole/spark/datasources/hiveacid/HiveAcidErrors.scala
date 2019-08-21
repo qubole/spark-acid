@@ -62,6 +62,10 @@ object HiveAcidErrors {
     new RuntimeException(s"Invalid operation type - $operation")
   }
 
+  def unsupportedOperationTypeInsertOnlyTable(operation: String): Throwable = {
+    new RuntimeException(s"Unsupported operation type - $operation for InsertOnly tables")
+  }
+
 }
 
 class AnalysisException (

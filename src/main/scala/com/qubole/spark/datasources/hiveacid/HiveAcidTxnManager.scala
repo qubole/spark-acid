@@ -35,7 +35,7 @@ import scala.language.implicitConversions
 
 class HiveAcidTxnManager(sparkSession: SparkSession,
                          val hiveConf: HiveConf,
-                         val table: HiveAcidTable,
+                         val acidTableMetadata: HiveAcidMetadata,
                          val writerOperationType: HiveAcidOperation.OperationType
                         ) extends Logging {
 
@@ -53,15 +53,15 @@ class HiveAcidTxnManager(sparkSession: SparkSession,
   private var nextSleep: Long = _
   private var MAX_SLEEP: Long = _
 
-  val location: Path = table.rootPath
+  val location: Path = acidTableMetadata.rootPath
 
   def begin(partitionNames: Seq[String]): Unit = {
     if (txnId != -1) {
       throw HiveAcidErrors.txnAlreadyOpen(txnId)
     }
     // 1. Open transaction
-    txnId = client.openTxn(HiveAcidUtils.NAME) // TODO change this to user instead
-    logInfo("Opened txnid: " + txnId + " for table " + table.fullyQualifiedName)
+    txnId = client.openTxn(HiveAcidDataSource.NAME) // TODO change this to user instead
+    logInfo("Opened txnid: " + txnId + " for table " + acidTableMetadata.fullyQualifiedName)
     isTxnClosed = false
     // 2. Start HeartBeater
     if (heartBeater == null) {
@@ -77,7 +77,7 @@ class HiveAcidTxnManager(sparkSession: SparkSession,
       TimeUnit.MILLISECONDS)
 
     // 3. Acquire locks
-    acquireLocks(partitionNames)
+    //acquireLocks(partitionNames)
   }
 
   def end(abort: Boolean = false): Unit = {
@@ -85,8 +85,10 @@ class HiveAcidTxnManager(sparkSession: SparkSession,
       synchronized {
         if (txnId != -1 && !isTxnClosed) {
           try {
-            logInfo(s"Closing txnid: $txnId for table ${table.fullyQualifiedName}. abort = $abort")
+            logInfo(s"Closing txnid: $txnId for table " +
+              s"${acidTableMetadata.fullyQualifiedName}. abort = $abort")
             if (abort) {
+
               client.abortTxns(Seq(txnId).asInstanceOf[java.util.List[java.lang.Long]])
             } else {
               client.commitTxn(txnId)
@@ -135,9 +137,9 @@ class HiveAcidTxnManager(sparkSession: SparkSession,
   lazy val getValidWriteIds: ValidWriteIdList = {
     val validTxns = client.getValidTxns(txnId)
     val txnWriteIds: ValidTxnWriteIdList = TxnUtils.createValidTxnWriteIdList(txnId,
-      client.getValidWriteIds(Seq(table.fullyQualifiedName),
+      client.getValidWriteIds(Seq(acidTableMetadata.fullyQualifiedName),
         validTxns.writeToString()))
-    txnWriteIds.getTableValidWriteIdList(table.fullyQualifiedName)
+    txnWriteIds.getTableValidWriteIdList(acidTableMetadata.fullyQualifiedName)
   }
 
   /* Unused for now.
@@ -146,9 +148,9 @@ class HiveAcidTxnManager(sparkSession: SparkSession,
   lazy val getValidWriteIdsNoTxn: ValidWriteIdList = {
     val validTxns = client.getValidTxns()
     val txnWriteIds: ValidTxnWriteIdList = TxnUtils.createValidTxnWriteIdList(txnId,
-      client.getValidWriteIds(Seq(table.fullyQualifiedName),
+      client.getValidWriteIds(Seq(acidTableMetadata.fullyQualifiedName),
         validTxns.writeToString()))
-    txnWriteIds.getTableValidWriteIdList(table.fullyQualifiedName)
+    txnWriteIds.getTableValidWriteIdList(acidTableMetadata.fullyQualifiedName)
   }
 
   private class HeartbeatRunnable() extends Runnable {
@@ -183,7 +185,7 @@ class HiveAcidTxnManager(sparkSession: SparkSession,
   }
 
   private def createLockRequest(partNames: Seq[String]) = {
-    val requestBuilder = new LockRequestBuilder(HiveAcidUtils.NAME)
+    val requestBuilder = new LockRequestBuilder(HiveAcidDataSource.NAME)
     requestBuilder.setUser(user)
     requestBuilder.setTransactionId(txnId)
     def addLockTypeToLockComponentBuilder(
@@ -205,16 +207,16 @@ class HiveAcidTxnManager(sparkSession: SparkSession,
     }
     if (partNames.isEmpty) {
       val lockCompBuilder = new LockComponentBuilder()
-        .setDbName(table.dbName)
-        .setTableName(table.tableName)
+        .setDbName(acidTableMetadata.dbName)
+        .setTableName(acidTableMetadata.tableName)
 
       requestBuilder.addLockComponent(addLockTypeToLockComponentBuilder(lockCompBuilder).build)
     } else {
       partNames.foreach(partName => {
         val lockCompBuilder = new LockComponentBuilder()
           .setPartitionName(partName)
-          .setDbName(table.dbName)
-          .setTableName(table.tableName)
+          .setDbName(acidTableMetadata.dbName)
+          .setTableName(acidTableMetadata.tableName)
         requestBuilder.addLockComponent(addLockTypeToLockComponentBuilder(lockCompBuilder).build)
       })
     }
@@ -266,12 +268,13 @@ class HiveAcidTxnManager(sparkSession: SparkSession,
 
   def getCurrentWriteIdForTable(): Long = {
     if (txnId == -1) {
-      throw HiveAcidErrors.tableWriteIdRequestedBeforeTxnStart(table.fullyQualifiedName)
+      throw HiveAcidErrors.tableWriteIdRequestedBeforeTxnStart(acidTableMetadata.fullyQualifiedName)
     }
     if (currentWriteIdForTable != -1) {
       return currentWriteIdForTable
     }
-    currentWriteIdForTable = client.allocateTableWriteId(txnId, table.dbName, table.tableName)
+    currentWriteIdForTable = client.allocateTableWriteId(txnId,
+      acidTableMetadata.dbName, acidTableMetadata.tableName)
     return currentWriteIdForTable
   }
 }

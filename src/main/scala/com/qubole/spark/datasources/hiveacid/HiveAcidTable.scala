@@ -17,125 +17,118 @@
 
 package com.qubole.spark.datasources.hiveacid
 
-import java.util.Locale
-
-import com.qubole.shaded.hadoop.hive.conf.HiveConf
-import com.qubole.shaded.hadoop.hive.metastore.api.FieldSchema
-import com.qubole.shaded.hadoop.hive.ql.io.RecordIdentifier
-import com.qubole.shaded.hadoop.hive.ql.metadata
-import com.qubole.shaded.hadoop.hive.ql.metadata.Hive
-import com.qubole.shaded.hadoop.hive.ql.plan.TableDesc
-import com.qubole.spark.datasources.hiveacid.util.{HiveSparkConversionUtil, Util}
-import org.apache.hadoop.fs.Path
-import org.apache.hadoop.io.Writable
-import org.apache.hadoop.mapred.{InputFormat, OutputFormat}
+import com.qubole.spark.datasources.hiveacid.reader.TableReader
+import com.qubole.spark.datasources.hiveacid.writer.TableWriter
 import org.apache.spark.internal.Logging
+import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.{DataFrame, _}
+import org.apache.spark.sql.catalyst.encoders.RowEncoder
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, Expression}
+import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, Project}
 import org.apache.spark.sql.sources.Filter
-import org.apache.spark.sql.types._
 
-import scala.collection.JavaConversions._
-import scala.collection.mutable
+import scala.collection.Map
 
-class HiveAcidTable(val hTable: metadata.Table) extends Logging {
+/**
+ * Represents a hive acid table and give API to perform operations on top of it
+ * @param sparkSession - spark session object
+ * @param parameters - additional parameters
+ * @param fullyQualifiedTableName - the fully qualified hive acid table name
+ */
+class HiveAcidTable(sparkSession: SparkSession,
+                    parameters: Map[String, String],
+                    hiveAcidMetadata: HiveAcidMetadata) extends Logging {
 
-  if (hTable.getParameters.get("transactional") != "true") {
-    throw HiveAcidErrors.tableNotAcidException
+  def getRdd(requiredColumns: Array[String],
+             filters: Array[Filter],
+             acidState: HiveAcidState,
+             includeRowIds: Boolean,
+             predicatePushdownEnabled: Boolean,
+             metastorePartitionPruningEnabled: Boolean): RDD[Row] = {
+    val tableReader = new TableReader(sparkSession, hiveAcidMetadata)
+    tableReader.getRdd(requiredColumns, filters, acidState, includeRowIds,
+      predicatePushdownEnabled, metastorePartitionPruningEnabled)
   }
 
-  val isFullAcidTable: Boolean = hTable.getParameters.containsKey("transactional_properties") &&
-    !hTable.getParameters.get("transactional_properties").equals("insert_only")
-  val isPartitioned: Boolean = hTable.isPartitioned
-  val rootPath: Path = hTable.getDataLocation
-  val dbName: String = hTable.getDbName
-  val tableName: String = hTable.getTableName
-  val fullyQualifiedName: String = hTable.getFullyQualifiedName
-  lazy val inputFormatClass: Class[InputFormat[Writable, Writable]] =
-    Util.classForName(hTable.getInputFormatClass.getName,
-      true).asInstanceOf[java.lang.Class[InputFormat[Writable, Writable]]]
-
-  lazy val outputFormatClass: Class[OutputFormat[Writable, Writable]] =
-    Util.classForName(hTable.getOutputFormatClass.getName,
-      true).asInstanceOf[java.lang.Class[OutputFormat[Writable, Writable]]]
-
-  lazy val tableDesc: TableDesc = new TableDesc(
-    inputFormatClass,
-    outputFormatClass,
-    hTable.getMetadata)
-
-  val dataSchema = StructType(hTable.getSd.getCols.toList.map(
-    HiveSparkConversionUtil.hiveColumnToSparkColumn).toArray)
-  val partitionSchema = StructType(hTable.getPartitionKeys.toList.map(
-    HiveSparkConversionUtil.hiveColumnToSparkColumn).toArray)
-  val rowIdSchema: StructType = {
-    StructType(
-      RecordIdentifier.Field.values().map {
-        x =>
-          StructField(
-            name = x.name(),
-            dataType = HiveSparkConversionUtil.getSparkSQLDataType(x.fieldType.getTypeName),
-            nullable = true)
-      }
-    )
+  /**
+    * Appends a given dataframe df into the hive acid table
+    * @param df - dataframe to insert
+    */
+  def insertInto(df: DataFrame): Unit = {
+    val tableWriter = new TableWriter(sparkSession, hiveAcidMetadata)
+    tableWriter.write(HiveAcidOperation.INSERT_INTO, df)
   }
-  val rowIdColumnSet: Set[String] = rowIdSchema.fields.map(_.name).toSet
 
-  val tableSchema: StructType = {
-    val overlappedPartCols = mutable.Map.empty[String, StructField]
-    partitionSchema.foreach { partitionField =>
-      if (dataSchema.exists(getColName(_) == getColName(partitionField))) {
-        overlappedPartCols += getColName(partitionField) -> partitionField
-      }
+  /**
+    * Overwrites a given dataframe df onto the hive acid table
+    * @param df - dataframe to insert
+    */
+  def insertOverwrite(df: DataFrame): Unit = {
+    val tableWriter = new TableWriter(sparkSession, hiveAcidMetadata)
+    tableWriter.write(HiveAcidOperation.INSERT_OVERWRITE, df)
+  }
+
+  /**
+    * Delete rows from the hive acid table based on given condition
+    * @param condition - condition string to delete rows
+    */
+  def delete(condition: String): Unit = {
+
+    val df = sparkSession.read.format(HiveAcidDataSource.NAME)
+      .options(parameters ++
+        Map("includeRowIds" -> "true", "table" -> hiveAcidMetadata.fullyQualifiedName))
+      .load()
+      .filter(functions.expr(condition))
+
+    val tableWriter = new TableWriter(sparkSession, hiveAcidMetadata)
+    tableWriter.write(HiveAcidOperation.DELETE, df)
+  }
+
+  /**
+    * Update rows in the hive acid table based on condition and newValues
+    * @param condition - condition string to identify rows which needs to be updated
+    * @param newValues - Map of (column, value) to set
+    */
+  def update(condition: String, newValues: Map[String, String]): Unit = {
+
+    val df = sparkSession.read.format(HiveAcidDataSource.NAME)
+      .options(parameters ++
+        Map("includeRowIds" -> "true", "table" -> hiveAcidMetadata.fullyQualifiedName))
+      .load()
+      .filter(functions.expr(condition))
+
+    // FIXME: Handle table.column in newValues
+    def toStrColumnMap(map: Map[String, String]): Map[String, Column] = {
+      map.toSeq.map { case (k, v) => k -> functions.expr(v) }.toMap
     }
-    StructType(dataSchema.map(f => overlappedPartCols.getOrElse(getColName(f), f)) ++
-      partitionSchema.filterNot(f => overlappedPartCols.contains(getColName(f))))
-  }
-
-  val tableSchemaWithRowId: StructType = {
-    StructType(
-      Seq(
-        StructField("rowId", rowIdSchema)
-      ) ++ tableSchema.fields)
-  }
-
-  def getRawPartitions(partitionFilters: String,
-                       metastorePartitionPruningEnabled: Boolean,
-                       hiveConf: HiveConf): Seq[metadata.Partition] = {
-    val prunedPartitions =
-      if (metastorePartitionPruningEnabled &&
-        partitionFilters.size > 0) {
-        val hive: Hive = Hive.get(hiveConf)
-        val hT = hive.getPartitionsByFilter(hTable, partitionFilters)
-        Hive.closeCurrent()
-        hT
-      } else {
-        val hive: Hive = Hive.get(hiveConf)
-        val hT = hive.getPartitions(hTable)
-        Hive.closeCurrent()
-        hT
+    val strColumnMap = toStrColumnMap(newValues)
+    val updateExpressions: Seq[Expression] =
+      df.queryExecution.optimizedPlan.output.map {
+        case attr =>
+          if (strColumnMap.contains(attr.name)) {
+            strColumnMap(attr.name).expr
+          } else {
+            attr
+          }
       }
-    logDebug(s"partition count = ${prunedPartitions.size()}")
-    prunedPartitions.toSeq
-  }
+    val newColumns = updateExpressions.zip(df.queryExecution.optimizedPlan.output).map {
+      case (newExpr, origAttr) =>
+        new Column(Alias(newExpr, origAttr.name)())
+    }
+    val updateDf = df.select(newColumns: _*)
 
-  private def getColName(f: StructField): String = {
-    //    if (sqlContext.sparkSession.sessionState.conf.caseSensitiveAnalysis) {
-    //      f.name
-    //    } else {
-    //      f.name.toLowerCase(Locale.ROOT)
-    //    }
-    f.name.toLowerCase(Locale.ROOT)
-  }
 
+    val tableWriter = new TableWriter(sparkSession, hiveAcidMetadata)
+    tableWriter.write(HiveAcidOperation.UPDATE, updateDf)
+  }
 }
 
 object HiveAcidTable {
-  def fromTableName(fullyQualifiedTableName: String, hiveConf: HiveConf): HiveAcidTable = {
-    // Currently we are creating and closing a connection to the hive metastore every
-    // time we need to do something. This can be optimized.
-    val hive: Hive = Hive.get(hiveConf)
-    val hTable = hive.getTable(fullyQualifiedTableName.split('.')(0),
-      fullyQualifiedTableName.split('.')(1))
-    Hive.closeCurrent()
-    new HiveAcidTable(hTable)
+  def fromSparkSession(sparkSession: SparkSession,
+                       parameters: Map[String, String],
+                       fullyQualifiedTableName: String): HiveAcidTable = {
+
+    val hiveAcidMetadata = HiveAcidMetadata.fromSparkSession(sparkSession, fullyQualifiedTableName)
+    new HiveAcidTable(sparkSession, parameters, hiveAcidMetadata)
   }
 }

@@ -19,7 +19,6 @@
 
 package com.qubole.spark.datasources.hiveacid
 
-import com.qubole.spark.datasources.hiveacid.writer.TableWriter
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql._
 import org.apache.spark.sql.sources._
@@ -30,60 +29,64 @@ class HiveAcidDataSource
     with DataSourceRegister
     with Logging {
 
-  override def createRelation(
-   sqlContext: SQLContext,
-   parameters: Map[String, String]): BaseRelation = {
-    new HiveAcidRelation(
-      sqlContext,
-      parameters
-    )
+  override def createRelation(sqlContext: SQLContext,
+                              parameters: Map[String, String]): BaseRelation = {
+
+    val fullyQualifiedTableName = parameters.getOrElse("table", {
+      throw HiveAcidErrors.tableNotSpecifiedException
+    })
+
+    new HiveAcidRelation(sqlContext, fullyQualifiedTableName, parameters)
   }
 
   override def createRelation(sqlContext: SQLContext,
                               mode: SaveMode,
                               parameters: Map[String, String],
-                              data: DataFrame): BaseRelation = {
-    val relation = createRelation(sqlContext, parameters).asInstanceOf[HiveAcidRelation]
-    val hiveAcidTable = relation.hiveAcidTable
-    val hiveConf = relation.hiveConf
+                              df: DataFrame): BaseRelation = {
 
-    val operationType = if (mode == SaveMode.Overwrite) {
-      HiveAcidOperation.INSERT_OVERWRITE
+    val hiveAcidTable: HiveAcidTable = HiveAcidTable.fromSparkSession(
+      sqlContext.sparkSession,
+      parameters,
+      getFullyQualifiedTableName(parameters)
+    )
+    if (mode == SaveMode.Overwrite) {
+      hiveAcidTable.insertOverwrite(df)
     } else {
-      HiveAcidOperation.INSERT_INTO
+      hiveAcidTable.insertInto(df)
     }
 
-    val tableWriter = new TableWriter(sqlContext.sparkSession, hiveAcidTable,
-      hiveConf, operationType, data, false
-    )
-    tableWriter.writeToTable()
-    relation
+    createRelation(sqlContext, parameters)
   }
 
+  /**
+    * Delete data from the underlying table based on given condition
+    * @param sqlContext - Spark sql context
+    * @param parameters - map containing different configs and parameters including tableName etc
+    * @param condition - condition on which data will be deleted. ex - "col1 = 2 and col2 > 3"
+    * @return a relation representing the data after deletion
+    */
   def deleteRelation(sqlContext: SQLContext,
                      parameters: Map[String, String],
                      condition: String): BaseRelation = {
-    val deleteCondition = functions.expr(condition)
-    val relation = createRelation(sqlContext, parameters ++
-      Map("includeRowIds" -> "true")).asInstanceOf[HiveAcidRelation]
-    val spark = sqlContext.sparkSession
-    val df = spark.read.format("HiveAcid")
-      .options(parameters ++ Map("includeRowIds" -> "true")).load().filter(deleteCondition)
 
-    val hiveAcidTable = relation.hiveAcidTable
-    val hiveConf = relation.hiveConf
-
-    val operationType = HiveAcidOperation.DELETE
-
-    val tableWriter = new TableWriter(sqlContext.sparkSession, hiveAcidTable,
-      hiveConf, operationType, df, true
+    val hiveAcidTable: HiveAcidTable = HiveAcidTable.fromSparkSession(
+      sqlContext.sparkSession,
+      parameters,
+      getFullyQualifiedTableName(parameters)
     )
-    tableWriter.writeToTable()
-    relation
+    hiveAcidTable.delete(condition)
+
+    createRelation(sqlContext, parameters)
   }
 
   override def shortName(): String = {
-    HiveAcidUtils.NAME
+    HiveAcidDataSource.NAME
+  }
+
+  private def getFullyQualifiedTableName(parameters: Map[String, String]): String = {
+    parameters.getOrElse("table", {
+      throw HiveAcidErrors.tableNotSpecifiedException
+    })
   }
 
 //  def updateRelation(sqlContext: SQLContext,
@@ -122,3 +125,8 @@ class HiveAcidDataSource
 //  }
 
 }
+
+object HiveAcidDataSource {
+  val NAME = "HiveAcid"
+}
+
