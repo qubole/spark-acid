@@ -61,12 +61,15 @@ private[hiveacid] class HiveAcidFullTxn(override val acidTableMetadata: HiveAcid
   private val isClosed: AtomicBoolean = new AtomicBoolean(false)
 
   def txnId: Long = id
+  def setTxnId(id: Long): Unit = {
+    this.id = id
+  }
 
   override def begin(): Unit = {
     if (id != -1) {
       throw HiveAcidErrors.txnAlreadyOpen(id)
     }
-    id = txnManager.beginTxn(this)
+    txnManager.beginTxn(this)
   }
 
   override def setAbort: Unit = {

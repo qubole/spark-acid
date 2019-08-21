@@ -56,7 +56,7 @@ private[hiveacid] class HiveAcidMetadata(sparkSession: SparkSession,
   }
 
   if (hTable.getParameters.get("transactional") != "true") {
-    throw HiveAcidErrors.tableNotAcidException(fullyQualifiedName)
+    throw HiveAcidErrors.tableNotAcidException(hTable.getFullyQualifiedName)
   }
 
   val isFullAcidTable: Boolean = hTable.getParameters.containsKey("transactional_properties") &&

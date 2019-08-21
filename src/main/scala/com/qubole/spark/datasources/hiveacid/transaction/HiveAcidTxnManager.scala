@@ -67,16 +67,16 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession,
 
   private var shutdownInitiated = false
 
-  def beginTxn(txn: HiveAcidFullTxn): Long = synchronized {
+  def beginTxn(txn: HiveAcidFullTxn): HiveAcidFullTxn = synchronized {
     // 1. Open transaction
     val txnId = client.openTxn(HiveAcidDataSource.NAME)
     if (activeTxns.contains(txnId)) {
       throw HiveAcidErrors.repeatedTxnId(txnId, activeTxns.keySet.toSeq)
     }
+    txn.setTxnId(txnId)
     activeTxns.put(txnId, txn)
     logInfo("Opened txnid: " + txnId + " for table " + txn.acidTableMetadata.fullyQualifiedName)
-
-    txnId
+    txn
   }
 
   def endTxn(txnId: Long, abort: Boolean = false): Unit = synchronized {
