@@ -17,26 +17,25 @@
  * limitations under the License.
  */
 
-package com.qubole.spark.datasources.hiveacid.reader
+package com.qubole.spark.datasources.hiveacid
 
-import com.qubole.spark.datasources.hiveacid.HiveAcidOperation
-import com.qubole.spark.datasources.hiveacid.transaction.HiveAcidTxn
-import org.apache.spark._
-import org.apache.spark.rdd.{RDD, UnionRDD}
+import org.apache.spark.sql.SparkSession
 
-import scala.reflect.ClassTag
+case class ReadOptions(predicatePushdownEnabled: Boolean = true,
+                                         metastorePartitionPruningEnabled: Boolean = true,
+                                         includeRowIds: Boolean = false)
 
-private[reader] class AcidLockUnionRDD[T: ClassTag](
-   sc: SparkContext,
-   rddSeq: Seq[RDD[T]],
-   partitionList: Seq[String],
-   @transient val txn: HiveAcidTxn) extends UnionRDD[T](sc, rddSeq) {
-
-  override def getPartitions: Array[Partition] = {
-    // Initialize the ACID state here to get the write-ids to read
-    // Start transaction
-    txn.begin
-    txn.acquireLocks(HiveAcidOperation.READ, partitionList)
-    super.getPartitions
+object ReadOptions {
+  def build(sparkSession: SparkSession, parameters: Map[String, String]): ReadOptions = {
+    val isPredicatePushdownEnabled: Boolean = {
+      val sqlConf = sparkSession.sessionState.conf
+      sqlConf.getConfString("spark.sql.acidDs.enablePredicatePushdown", "true") == "true"
+    }
+    new ReadOptions(
+      isPredicatePushdownEnabled,
+      sparkSession.sessionState.conf.metastorePartitionPruning,
+      parameters.getOrElse("includeRowIds", "false").toBoolean
+    )
   }
 }
+

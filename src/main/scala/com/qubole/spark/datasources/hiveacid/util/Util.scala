@@ -20,6 +20,7 @@
 package com.qubole.spark.datasources.hiveacid.util
 
 import java.io.IOException
+import java.util.concurrent.{ScheduledExecutorService, ScheduledThreadPoolExecutor}
 
 import org.apache.spark.internal.Logging
 
@@ -71,6 +72,4 @@ private[hiveacid] object Util extends Logging {
         throw new IOException(e)
     }
   }
-
-
 }

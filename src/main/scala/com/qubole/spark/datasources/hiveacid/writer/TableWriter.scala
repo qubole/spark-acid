@@ -21,9 +21,9 @@ package com.qubole.spark.datasources.hiveacid.writer
 
 import com.qubole.shaded.hadoop.hive.ql.plan.FileSinkDesc
 import com.qubole.spark.datasources.hiveacid._
+import com.qubole.spark.datasources.hiveacid.transaction.{HiveAcidFullTxn, HiveAcidTxnManager}
 import com.qubole.spark.datasources.hiveacid.util.{HiveSparkConversionUtil, SerializableConfiguration}
-import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute
-import org.apache.spark.sql.catalyst.expressions.AttributeSet
+import org.apache.spark.internal.Logging
 import org.apache.spark.sql.{DataFrame, SparkSession}
 
 import scala.language.implicitConversions
@@ -33,10 +33,9 @@ import scala.language.implicitConversions
  * @param sparkSession  - Spark session
  * @param hiveAcidMetadata - hive acid table where we want to write dataframe
  */
-class TableWriter(sparkSession: SparkSession,
-                  hiveAcidMetadata: HiveAcidMetadata) {
-
-  private val hiveConf = HiveSparkConversionUtil.createHiveConf(sparkSession.sparkContext)
+private[hiveacid] class TableWriter(sparkSession: SparkSession,
+                                    txnManager: HiveAcidTxnManager,
+                                    hiveAcidMetadata: HiveAcidMetadata) extends Logging {
 
   private def assertOperation(operationType: HiveAcidOperation.OperationType): Unit = {
     if (hiveAcidMetadata.isInsertOnlyTable) {
@@ -56,45 +55,47 @@ class TableWriter(sparkSession: SparkSession,
       case HiveAcidOperation.UPDATE | HiveAcidOperation.DELETE => true
       case _ => throw HiveAcidErrors.invalidOperationType(operationType.toString)
     }
-    val txnManager = new HiveAcidTxnManager(sparkSession, hiveConf, hiveAcidMetadata,
-      operationType)
-    def startTransaction(): Unit = txnManager.begin(Seq())
-    def getCurrentWriteIdForTable: Long = txnManager.getCurrentWriteIdForTable()
-    def endTransaction(abort: Boolean = false): Unit = txnManager.end(abort)
 
     val hadoopConf = sparkSession.sessionState.newHadoopConf()
 
-    val tableColumnNames = if (expectRowIdsInDataFrame) {
+    val columnNames = if (expectRowIdsInDataFrame) {
       hiveAcidMetadata.tableSchemaWithRowId.fields.map(_.name)
     } else {
       hiveAcidMetadata.tableSchema.fields.map(_.name)
     }
 
-    val allColumns = df.queryExecution.logical.output.zip(tableColumnNames).map {
-      case (attr, tableColumnName) =>
-        attr.withName(tableColumnName)
+    val allColumns = df.queryExecution.optimizedPlan.output.zip(columnNames).map {
+      case (attr, columnName) =>
+        attr.withName(columnName)
     }
 
+    val allColumnNameToAttrMap = allColumns.map(attr => attr.name -> attr).toMap
     val partitionColumns = hiveAcidMetadata.partitionSchema.fields.map(
-      field => UnresolvedAttribute.quoted(field.name))
-    val partitionSet = AttributeSet(partitionColumns)
-    val dataColumns = allColumns.filterNot(partitionSet.contains)
-    lazy val fileSinkDescriptor: FileSinkDesc = {
-      val fileSinkDesc = new FileSinkDesc()
-      fileSinkDesc.setDirName(hiveAcidMetadata.rootPath)
-      fileSinkDesc.setTableInfo(hiveAcidMetadata.tableDesc)
-      fileSinkDesc.setTableWriteId(getCurrentWriteIdForTable)
-      if (operationType == HiveAcidOperation.INSERT_OVERWRITE) {
-        fileSinkDesc.setInsertOverwrite(true)
-      }
-      fileSinkDesc
-    }
+      field => allColumnNameToAttrMap(field.name))
+
+    val dataColumns = allColumns.filterNot(partitionColumns.contains)
+
     val isFullAcidTable = hiveAcidMetadata.isFullAcidTable
 
+    // Start full transaction
+    val txn = new HiveAcidFullTxn(hiveAcidMetadata, txnManager)
     try {
-      startTransaction()
+      txn.begin()
+      txn.acquireLocks(operationType, Seq())
+
+      lazy val fileSinkDescriptor: FileSinkDesc = {
+        val fileSinkDesc = new FileSinkDesc()
+        fileSinkDesc.setDirName(hiveAcidMetadata.rootPath)
+        fileSinkDesc.setTableInfo(hiveAcidMetadata.tableDesc)
+        fileSinkDesc.setTableWriteId(txn.currentWriteId)
+        if (operationType == HiveAcidOperation.INSERT_OVERWRITE) {
+          fileSinkDesc.setInsertOverwrite(true)
+        }
+        fileSinkDesc
+      }
+
       val writerOptions = new RowWriterOptions(
-        currentWriteId = getCurrentWriteIdForTable,
+        currentWriteId = txn.currentWriteId,
         operationType = operationType,
         fileSinkConf = fileSinkDescriptor,
         serializableHadoopConf = new SerializableConfiguration(hadoopConf),
@@ -111,11 +112,11 @@ class TableWriter(sparkSession: SparkSession,
           iterator.foreach { row => writer.process(row) }
           writer.close()
       }
-      endTransaction()
+      txn.end()
     } catch {
       case e: Exception =>
-        println(e)
-        endTransaction(true)
+        logError("Exception", e)
+        txn.end(true)
         throw e
     }
   }

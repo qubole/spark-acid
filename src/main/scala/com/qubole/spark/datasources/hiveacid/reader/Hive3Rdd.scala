@@ -25,9 +25,9 @@ import java.util.{Date, Locale}
 
 import com.qubole.shaded.hadoop.hive.common.ValidWriteIdList
 import com.qubole.shaded.hadoop.hive.ql.io.{AcidInputFormat, AcidUtils, HiveInputFormat, RecordIdentifier}
-import com.qubole.spark.datasources.hiveacid.HiveAcidState
 import com.qubole.spark.datasources.hiveacid.util.{SerializableConfiguration, Util}
 import com.qubole.spark.datasources.hiveacid.reader.Hive3RDD.Hive3PartitionsWithSplitRDD
+import com.qubole.spark.datasources.hiveacid.transaction.HiveAcidTxn
 import com.qubole.spark.datasources.hiveacid.util.{SerializableWritable => _, _}
 import org.apache.hadoop.conf.{Configurable, Configuration}
 import org.apache.hadoop.fs.Path
@@ -48,12 +48,12 @@ import scala.collection.JavaConversions._
 import scala.collection.mutable.ListBuffer
 import scala.reflect.ClassTag
 
-object Cache {
+private object Cache {
   import com.google.common.collect.MapMaker
   val jobConf = new MapMaker().softValues().makeMap[String, Any]()
 }
 
-class Hive3Partition(rddId: Int, override val index: Int, s: InputSplit)
+private class Hive3Partition(rddId: Int, override val index: Int, s: InputSplit)
   extends Partition {
 
   val inputSplit = new SerializableWritable[InputSplit](s)
@@ -64,39 +64,36 @@ class Hive3Partition(rddId: Int, override val index: Int, s: InputSplit)
 }
 
 /**
-  * :: DeveloperApi ::
-  * An RDD that provides core functionality for reading data stored in Hadoop (e.g., files in HDFS,
-  * sources in HBase, or S3), using the older MapReduce API (`org.apache.hadoop.mapred`).
-  *
-  * @param sc The SparkContext to associate the RDD with.
-  * @param broadcastedConf A general Hadoop Configuration, or a subclass of it. If the enclosed
-  *   variable references an instance of JobConf, then that JobConf will be used for the Hadoop job.
-  *   Otherwise, a new JobConf will be created on each slave using the enclosed Configuration.
-  * @param initLocalJobConfFuncOpt Optional closure used to initialize any JobConf that Hive3RDD
-  *     creates.
-  * @param inputFormatClass Storage format of the data to be read.
-  * @param keyClass Class of the key associated with the inputFormatClass.
-  * @param valueClass Class of the value associated with the inputFormatClass.
-  * @param minPartitions Minimum number of Hive3RDD partitions (Hadoop Splits) to generate.
-  *
-  * @note Instantiating this class directly is not recommended, please use
-  * `org.apache.spark.SparkContext.Hive3RDD()`
-  */
-@DeveloperApi
-private[reader] class Hive3RDD[K, V](
-                      sc: SparkContext,
-                      @transient val acidState: HiveAcidState,
-                      broadcastedConf: Broadcast[SerializableConfiguration],
-                      initLocalJobConfFuncOpt: Option[JobConf => Unit],
-                      inputFormatClass: Class[_ <: InputFormat[K, V]],
-                      keyClass: Class[K],
-                      valueClass: Class[V],
-                      minPartitions: Int)
+ * An RDD that provides core functionality for reading data stored in Hadoop (e.g., files in HDFS,
+ * sources in HBase, or S3), using the older MapReduce API (`org.apache.hadoop.mapred`).
+ *
+ * @param sc The SparkContext to associate the RDD with.
+ * @param broadcastedConf A general Hadoop Configuration, or a subclass of it. If the enclosed
+ *   variable references an instance of JobConf, then that JobConf will be used for the Hadoop job.
+ *   Otherwise, a new JobConf will be created on each slave using the enclosed Configuration.
+ * @param initLocalJobConfFuncOpt Optional closure used to initialize any JobConf that Hive3RDD
+ *     creates.
+ * @param inputFormatClass Storage format of the data to be read.
+ * @param keyClass Class of the key associated with the inputFormatClass.
+ * @param valueClass Class of the value associated with the inputFormatClass.
+ * @param minPartitions Minimum number of Hive3RDD partitions (Hadoop Splits) to generate.
+ *
+ * @note Instantiating this class directly is not recommended, please use
+ * `org.apache.spark.SparkContext.Hive3RDD()`
+ */
+private[reader] class Hive3RDD[K, V](sc: SparkContext,
+                                     @transient val txn: HiveAcidTxn,
+                                     broadcastedConf: Broadcast[SerializableConfiguration],
+                                     initLocalJobConfFuncOpt: Option[JobConf => Unit],
+                                     inputFormatClass: Class[_ <: InputFormat[K, V]],
+                                     keyClass: Class[K],
+                                     valueClass: Class[V],
+                                     minPartitions: Int)
   extends RDD[(RecordIdentifier, V)](sc, Nil) with Logging {
 
   def this(
             sc: SparkContext,
-            @transient acidState: HiveAcidState,
+            @transient txn: HiveAcidTxn,
             conf: JobConf,
             inputFormatClass: Class[_ <: InputFormat[K, V]],
             keyClass: Class[K],
@@ -104,7 +101,7 @@ private[reader] class Hive3RDD[K, V](
             minPartitions: Int) = {
     this(
       sc,
-      acidState,
+      txn,
       sc.broadcast(new SerializableConfiguration(conf))
         .asInstanceOf[Broadcast[SerializableConfiguration]],
       initLocalJobConfFuncOpt = None,
@@ -191,12 +188,12 @@ private[reader] class Hive3RDD[K, V](
   }
 
   override def getPartitions: Array[Partition] = {
-    val validWriteIds: ValidWriteIdList = acidState.getValidWriteIds
-    //val ValidWriteIdList = acidState.getValidWriteIdsNoTxn
+    val validWriteIds: ValidWriteIdList = txn.validWriteIds
     var jobConf = getJobConf()
 
-    if (acidState.acidTableMetadata.isFullAcidTable) {
-      // If full ACID table, just set the right writeIds, the OrcInputFormat.getSplits() will take care of the rest
+    if (txn.acidTableMetadata.isFullAcidTable) {
+      // If full ACID table, just set the right writeIds, the
+      // OrcInputFormat.getSplits() will take care of the rest
       AcidUtils.setValidWriteIdList(jobConf, validWriteIds)
     } else {
       val finalPaths = new ListBuffer[Path]()
@@ -242,7 +239,8 @@ private[reader] class Hive3RDD[K, V](
       array
     } catch {
       case e: InvalidInputException if ignoreMissingFiles =>
-        logWarning(s"${jobConf.get(org.apache.hadoop.mapreduce.lib.input.FileInputFormat.INPUT_DIR)} doesn't exist and no" +
+        val inputDir = jobConf.get(org.apache.hadoop.mapreduce.lib.input.FileInputFormat.INPUT_DIR)
+        logWarning(s"$inputDir doesn't exist and no" +
           s" partitions returned from this path.", e)
         Array.empty[Partition]
     }

@@ -19,8 +19,6 @@
 
 package com.qubole.spark.datasources.hiveacid
 
-import com.qubole.shaded.hadoop.hive.conf.HiveConf
-import com.qubole.spark.datasources.hiveacid.util.HiveSparkConversionUtil
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.sources.{BaseRelation, Filter, PrunedFilteredScan}
@@ -34,8 +32,6 @@ class HiveAcidRelation(val sqlContext: SQLContext,
     with PrunedFilteredScan
     with Logging {
 
-  // TODO: Can this be moved to buildScan? concurrency issue?
-  val hiveConf: HiveConf = HiveSparkConversionUtil.createHiveConf(sqlContext.sparkContext)
   val acidTableMetadata: HiveAcidMetadata = HiveAcidMetadata.fromSparkSession(
     sqlContext.sparkSession,
     fullyQualifiedTableName
@@ -43,8 +39,9 @@ class HiveAcidRelation(val sqlContext: SQLContext,
   val hiveAcidTable: HiveAcidTable = new HiveAcidTable(sqlContext.sparkSession,
     parameters, acidTableMetadata)
 
-  private val includeRowIds: Boolean = parameters.getOrElse("includeRowIds", "false").toBoolean
-  override val schema: StructType = if (includeRowIds) {
+  private val readOptions = ReadOptions.build(sqlContext.sparkSession, parameters)
+
+  override val schema: StructType = if (readOptions.includeRowIds) {
     acidTableMetadata.tableSchemaWithRowId
   } else {
     acidTableMetadata.tableSchema
@@ -58,19 +55,7 @@ class HiveAcidRelation(val sqlContext: SQLContext,
   override val needConversion: Boolean = false
 
   override def buildScan(requiredColumns: Array[String], filters: Array[Filter]): RDD[Row] = {
-    val acidState = new HiveAcidState(sqlContext.sparkSession, hiveConf, acidTableMetadata,
-      sqlContext.sparkSession.sessionState.conf.defaultSizeInBytes)
-
-    val isPredicatePushdownEnabled: Boolean = {
-      val sqlConf = sqlContext.sparkSession.sessionState.conf
-      sqlConf.getConfString("spark.sql.acidDs.enablePredicatePushdown", "true") == "true"
-    }
-
-    hiveAcidTable.getRdd(requiredColumns,
-      filters,
-      acidState,
-      includeRowIds,
-      isPredicatePushdownEnabled,
-      sqlContext.sparkSession.sessionState.conf.metastorePartitionPruning)
+    val readOptions = ReadOptions.build(sqlContext.sparkSession, parameters)
+    hiveAcidTable.getRdd(requiredColumns, filters, readOptions)
   }
 }

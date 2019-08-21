@@ -35,8 +35,9 @@ import com.qubole.shaded.hadoop.hive.ql.plan.TableDesc
 import com.qubole.shaded.hadoop.hive.serde2.Deserializer
 import com.qubole.shaded.hadoop.hive.serde2.objectinspector.primitive._
 import com.qubole.shaded.hadoop.hive.serde2.objectinspector.{ObjectInspectorConverters, StructObjectInspector}
+import com.qubole.spark.datasources.hiveacid.{HiveAcidMetadata, ReadOptions}
+import com.qubole.spark.datasources.hiveacid.transaction.{HiveAcidReadTxn, HiveAcidTxn, HiveAcidTxnManager}
 import com.qubole.spark.datasources.hiveacid.util._
-import com.qubole.spark.datasources.hiveacid.{HiveAcidMetadata, HiveAcidState}
 import org.apache.commons.codec.binary.Base64
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{Path, PathFilter}
@@ -59,17 +60,13 @@ import org.apache.spark.unsafe.types.UTF8String
 
 import scala.collection.JavaConverters._
 
-
-
-class TableReader(sparkSession: SparkSession,
-                  acidTableMetadata: HiveAcidMetadata) extends Logging {
+private[hiveacid] class TableReader(sparkSession: SparkSession,
+                                    acidTableMetadata: HiveAcidMetadata) extends Logging {
 
   def getRdd(requiredColumns: Array[String],
              filters: Array[Filter],
-             acidState: HiveAcidState,
-             includeRowIds: Boolean = false,
-             predicatePushdownEnabled: Boolean = false,
-             metastorePartitionPruningEnabled: Boolean = false): RDD[Row] = {
+             txnManager: HiveAcidTxnManager,
+             options: ReadOptions): RDD[Row] = {
 
     val rowIdColumnSet = acidTableMetadata.rowIdSchema.fields.map(_.name).toSet
     val requiredColumnsWithoutRowId = requiredColumns.filterNot(rowIdColumnSet.contains)
@@ -99,7 +96,7 @@ class TableReader(sparkSession: SparkSession,
       s"partitionFilters: ${partitionFilters.size}")
 
     val hadoopConf = sparkSession.sessionState.newHadoopConf()
-    if (predicatePushdownEnabled) {
+    if (options.predicatePushdownEnabled) {
       setPushDownFiltersInHadoopConf(hadoopConf, dataFilters)
     }
     setRequiredColumnsInHadoopConf(hadoopConf, requiredNonPartitionedColumns)
@@ -108,16 +105,17 @@ class TableReader(sparkSession: SparkSession,
       s"hive.io.file.readcolumn.names: ${hadoopConf.get("hive.io.file.readcolumn.names")}, " +
       s"hive.io.file.readcolumn.ids: ${hadoopConf.get("hive.io.file.readcolumn.ids")}")
 
-    val rowIdSchemaNeeded = if (includeRowIds) {
+    val rowIdSchemaNeeded = if (options.includeRowIds) {
       Option(acidTableMetadata.rowIdSchema)
     } else {
       None
     }
 
+    val txn = new HiveAcidReadTxn(acidTableMetadata, txnManager)
     val hiveReader = new HiveTableReader(
       sparkSession,
       hadoopConf,
-      acidState,
+      txn,
       acidTableMetadata.tableDesc,
       requiredAttributes,
       partitionAttributes,
@@ -126,7 +124,7 @@ class TableReader(sparkSession: SparkSession,
     if (acidTableMetadata.isPartitioned) {
       val requiredPartitions = acidTableMetadata.getRawPartitions(
         HiveSparkConversionUtil.sparkToHiveFilters(partitionFilters),
-        metastorePartitionPruningEnabled)
+        options.metastorePartitionPruningEnabled)
       hiveReader.makeRDDForPartitionedTable(requiredPartitions).asInstanceOf[RDD[Row]]
     } else {
       hiveReader.makeRDDForTable(acidTableMetadata.hTable).asInstanceOf[RDD[Row]]
@@ -166,12 +164,12 @@ class TableReader(sparkSession: SparkSession,
  * data warehouse directory.
  */
 private class HiveTableReader(@transient private val sparkSession: SparkSession,
-                      @transient private val hadoopConf: Configuration,
-                      @transient private val acidState: HiveAcidState,
-                      @transient private val tableDesc: TableDesc,
-                      @transient private val requiredAttributes: Seq[Attribute],
-                      @transient private val partitionKeys: Seq[Attribute],
-                      @transient private val rowIdSchema: Option[StructType])
+                              @transient private val hadoopConf: Configuration,
+                              @transient private val txn: HiveAcidTxn,
+                              @transient private val tableDesc: TableDesc,
+                              @transient private val requiredAttributes: Seq[Attribute],
+                              @transient private val partitionKeys: Seq[Attribute],
+                              @transient private val rowIdSchema: Option[StructType])
   extends CastSupport with Logging {
 
 
@@ -246,11 +244,11 @@ private class HiveTableReader(@transient private val sparkSession: SparkSession,
       deserializer.initialize(hconf, localTableDesc.getProperties)
       HiveTableReader.fillObject(iter, deserializer, attrsWithIndex, mutableRow,
         mutableRowRecordIds,
-        deserializer)//, includeRowIds)
+        deserializer)
     }
 
     new AcidLockUnionRDD[InternalRow](sparkSession.sparkContext, Seq(deserializedHiveRDD),
-      Seq(), acidState)
+      Seq(), txn)
   }
 
   def makeRDDForPartitionedTable(partitions: Seq[HiveJarPartition]): RDD[InternalRow] = {
@@ -368,7 +366,7 @@ private class HiveTableReader(@transient private val sparkSession: SparkSession,
         HiveTableReader.fillObject(iter, deserializer, nonPartitionKeyAttrs,
           mutableRow,
           mutableRowRecordIds,
-          tableSerDe)//, includeRowIds)
+          tableSerDe)
       }
     }.toSeq
 
@@ -377,7 +375,7 @@ private class HiveTableReader(@transient private val sparkSession: SparkSession,
       new EmptyRDD[InternalRow](sparkSession.sparkContext)
     } else {
       new AcidLockUnionRDD[InternalRow](hivePartitionRDDs(0).context, hivePartitionRDDs,
-        partitionStrings, acidState)
+        partitionStrings, txn)
     }
   }
 
@@ -414,7 +412,7 @@ private class HiveTableReader(@transient private val sparkSession: SparkSession,
       colNames, colTypes) _
     val rdd = new Hive3RDD(
       sparkSession.sparkContext,
-      acidState,
+      txn,
       _broadcastedHadoopConf.asInstanceOf[Broadcast[SerializableConfiguration]],
       Some(initializeJobConfFunc),
       inputFormatClass,

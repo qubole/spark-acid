@@ -27,12 +27,12 @@ import org.apache.spark.sql.catalyst.expressions.Attribute
 /**
  * Writer options which will be serialized and sent to each executor
  */
-class RowWriterOptions(val currentWriteId: Long,
-                               val operationType: HiveAcidOperation.OperationType,
-                               val fileSinkConf: FileSinkDesc,
-                               val serializableHadoopConf: SerializableConfiguration,
-                               val dataColumns: Seq[Attribute],
-                               val partitionColumns: Seq[Attribute],
-                               val allColumns: Seq[Attribute],
-                               val rootPath: String,
-                               val timeZoneId: String) extends Serializable
+private[writer] class RowWriterOptions(val currentWriteId: Long,
+                       val operationType: HiveAcidOperation.OperationType,
+                       val fileSinkConf: FileSinkDesc,
+                       val serializableHadoopConf: SerializableConfiguration,
+                       val dataColumns: Seq[Attribute],
+                       val partitionColumns: Seq[Attribute],
+                       val allColumns: Seq[Attribute],
+                       val rootPath: String,
+                       val timeZoneId: String) extends Serializable

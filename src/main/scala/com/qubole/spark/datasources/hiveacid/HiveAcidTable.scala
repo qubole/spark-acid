@@ -18,14 +18,14 @@
 package com.qubole.spark.datasources.hiveacid
 
 import com.qubole.spark.datasources.hiveacid.reader.TableReader
+import com.qubole.spark.datasources.hiveacid.transaction.HiveAcidTxnManager
+import com.qubole.spark.datasources.hiveacid.util.HiveSparkConversionUtil
 import com.qubole.spark.datasources.hiveacid.writer.TableWriter
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.{DataFrame, _}
-import org.apache.spark.sql.catalyst.encoders.RowEncoder
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, Expression}
-import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, Project}
+import org.apache.spark.sql.catalyst.expressions.{Alias, Expression}
 import org.apache.spark.sql.sources.Filter
+import org.apache.spark.sql.{DataFrame, _}
 
 import scala.collection.Map
 
@@ -39,15 +39,14 @@ class HiveAcidTable(sparkSession: SparkSession,
                     parameters: Map[String, String],
                     hiveAcidMetadata: HiveAcidMetadata) extends Logging {
 
+  private val hiveConf = HiveSparkConversionUtil.createHiveConf(sparkSession.sparkContext)
+  private val txnManager = new HiveAcidTxnManager(sparkSession, hiveConf)
+
   def getRdd(requiredColumns: Array[String],
              filters: Array[Filter],
-             acidState: HiveAcidState,
-             includeRowIds: Boolean,
-             predicatePushdownEnabled: Boolean,
-             metastorePartitionPruningEnabled: Boolean): RDD[Row] = {
+             options: ReadOptions): RDD[Row] = {
     val tableReader = new TableReader(sparkSession, hiveAcidMetadata)
-    tableReader.getRdd(requiredColumns, filters, acidState, includeRowIds,
-      predicatePushdownEnabled, metastorePartitionPruningEnabled)
+    tableReader.getRdd(requiredColumns, filters, txnManager, options)
   }
 
   /**
@@ -55,7 +54,7 @@ class HiveAcidTable(sparkSession: SparkSession,
     * @param df - dataframe to insert
     */
   def insertInto(df: DataFrame): Unit = {
-    val tableWriter = new TableWriter(sparkSession, hiveAcidMetadata)
+    val tableWriter = new TableWriter(sparkSession, txnManager, hiveAcidMetadata)
     tableWriter.write(HiveAcidOperation.INSERT_INTO, df)
   }
 
@@ -64,7 +63,7 @@ class HiveAcidTable(sparkSession: SparkSession,
     * @param df - dataframe to insert
     */
   def insertOverwrite(df: DataFrame): Unit = {
-    val tableWriter = new TableWriter(sparkSession, hiveAcidMetadata)
+    val tableWriter = new TableWriter(sparkSession, txnManager, hiveAcidMetadata)
     tableWriter.write(HiveAcidOperation.INSERT_OVERWRITE, df)
   }
 
@@ -80,7 +79,7 @@ class HiveAcidTable(sparkSession: SparkSession,
       .load()
       .filter(functions.expr(condition))
 
-    val tableWriter = new TableWriter(sparkSession, hiveAcidMetadata)
+    val tableWriter = new TableWriter(sparkSession, txnManager, hiveAcidMetadata)
     tableWriter.write(HiveAcidOperation.DELETE, df)
   }
 
@@ -118,7 +117,7 @@ class HiveAcidTable(sparkSession: SparkSession,
     val updateDf = df.select(newColumns: _*)
 
 
-    val tableWriter = new TableWriter(sparkSession, hiveAcidMetadata)
+    val tableWriter = new TableWriter(sparkSession, txnManager, hiveAcidMetadata)
     tableWriter.write(HiveAcidOperation.UPDATE, updateDf)
   }
 }

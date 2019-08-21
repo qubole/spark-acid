@@ -40,13 +40,13 @@ import org.apache.spark.sql.types.StringType
 import scala.collection.JavaConverters._
 import scala.collection.mutable
 
-trait RowWriter {
+private[writer] trait RowWriter {
   def writerOptions: RowWriterOptions
   def process(row: InternalRow): Unit
   def close(): Unit
 }
 
-object RowWriter {
+private[writer] object RowWriter {
   def getRowWriter(writerOptions: RowWriterOptions,
                    isFullAcidTable: Boolean): RowWriter = {
     if (isFullAcidTable) {

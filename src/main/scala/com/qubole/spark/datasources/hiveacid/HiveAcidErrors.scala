@@ -21,7 +21,7 @@ package com.qubole.spark.datasources.hiveacid
 
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 
-object HiveAcidErrors {
+private[hiveacid] object HiveAcidErrors {
   def tableNotSpecifiedException: Throwable = {
     new IllegalArgumentException("'table' is not specified")
   }
@@ -42,12 +42,20 @@ object HiveAcidErrors {
     new RuntimeException(s"Could not acquire lock. Lock State: $state")
   }
 
-  def txnClosedException: Throwable = {
-    new RuntimeException("The transaction has been closed")
+  def txnAlreadyClosed(txnId: Long): Throwable = {
+    new RuntimeException(s"Transaction $txnId is already closed")
   }
 
   def txnAlreadyOpen(txnId: Long): Throwable = {
-    new RuntimeException("A transaction with id " + txnId + " is already open")
+    new RuntimeException(s"Transaction already opened. Existing txnId: $txnId")
+  }
+
+  def txnNotStarted(table: String): Throwable = {
+    new RuntimeException(s"Transaction on $table not started")
+  }
+
+  def operationNotSupported(): Throwable = {
+    new RuntimeException(s"Operation not supported")
   }
 
   def tableWriteIdRequestedBeforeTxnStart(table: String): Throwable = {
@@ -66,9 +74,14 @@ object HiveAcidErrors {
     new RuntimeException(s"Unsupported operation type - $operation for InsertOnly tables")
   }
 
+  def repeatedTxnId(txnId: Long, activeTxns: Seq[Long]): Throwable = {
+    new RuntimeException(s"Repeated transaction id $txnId," +
+      s"active transactions are [${activeTxns.mkString(",")}]")
+  }
+
 }
 
-class AnalysisException (
+private[hiveacid] class AnalysisException(
      val message: String,
      val line: Option[Int] = None,
      val startPosition: Option[Int] = None,

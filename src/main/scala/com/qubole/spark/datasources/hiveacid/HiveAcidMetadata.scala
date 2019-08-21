@@ -36,12 +36,12 @@ import scala.collection.JavaConversions._
 import scala.collection.mutable
 
 /**
-  * Represents a hive acid table and give API to perform operations on top of it
-  * @param sparkSession - spark session object
-  * @param fullyQualifiedTableName - the fully qualified hive acid table name
-  */
-class HiveAcidMetadata(sparkSession: SparkSession,
-                       fullyQualifiedTableName: String) extends Logging {
+ * Represents a hive acid table and give API to perform operations on top of it
+ * @param sparkSession - spark session object
+ * @param fullyQualifiedTableName - the fully qualified hive acid table name
+ */
+private[hiveacid] class HiveAcidMetadata(sparkSession: SparkSession,
+                                         fullyQualifiedTableName: String) extends Logging {
 
   // hive conf
   val hiveConf: HiveConf = HiveSparkConversionUtil.createHiveConf(sparkSession.sparkContext)
