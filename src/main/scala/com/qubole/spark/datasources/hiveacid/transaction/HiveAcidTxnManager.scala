@@ -128,7 +128,7 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession,
   }
 
   def getValidWriteIds(txnId: Long,
-                               fullyQualifiedTableName: String): ValidWriteIdList = synchronized {
+                       fullyQualifiedTableName: String): ValidWriteIdList = synchronized {
     getValidWriteIds(Option(txnId), fullyQualifiedTableName)
   }
 

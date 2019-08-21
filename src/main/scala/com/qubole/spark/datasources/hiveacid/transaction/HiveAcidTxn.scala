@@ -98,6 +98,10 @@ private[hiveacid] class HiveAcidFullTxn(override val acidTableMetadata: HiveAcid
 
   override lazy val currentWriteId: Long = txnManager.getCurrentWriteId(txnId, acidTableMetadata)
 
-  override lazy val validWriteIds: ValidWriteIdList = txnManager.getValidWriteIds(txnId,
-    acidTableMetadata.fullyQualifiedName)
+  override lazy val validWriteIds: ValidWriteIdList = {
+    if (id == -1) {
+      throw HiveAcidErrors.tableWriteIdRequestedBeforeTxnStart(acidTableMetadata.fullyQualifiedName)
+    }
+    txnManager.getValidWriteIds(txnId, acidTableMetadata.fullyQualifiedName)
+  }
 }

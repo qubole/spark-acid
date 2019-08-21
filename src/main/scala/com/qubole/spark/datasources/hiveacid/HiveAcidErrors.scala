@@ -23,15 +23,11 @@ import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 
 private[hiveacid] object HiveAcidErrors {
   def tableNotSpecifiedException: Throwable = {
-    new IllegalArgumentException("'table' is not specified")
+    new IllegalArgumentException("'table' is not specified in parameters")
   }
 
-  def tableNotAcidException: Throwable = {
-    new IllegalArgumentException("The specified table is not an acid table")
-  }
-
-  def validWriteIdsNotInitialized: Throwable = {
-    new RuntimeException("Valid WriteIds not initialized")
+  def tableNotAcidException(tableName: String): Throwable = {
+    new IllegalArgumentException(s"table $tableName is not an acid table")
   }
 
   def couldNotAcquireLockException(exception: Exception = null): Throwable = {
@@ -62,10 +58,6 @@ private[hiveacid] object HiveAcidErrors {
     new RuntimeException(s"Write id requested for table $table before txn was started")
   }
 
-  def heartBeaterAlreadyExists: Throwable = {
-    new RuntimeException("A heartBeater already exists")
-  }
-
   def invalidOperationType(operation: String): Throwable = {
     new RuntimeException(s"Invalid operation type - $operation")
   }
@@ -78,7 +70,6 @@ private[hiveacid] object HiveAcidErrors {
     new RuntimeException(s"Repeated transaction id $txnId," +
       s"active transactions are [${activeTxns.mkString(",")}]")
   }
-
 }
 
 private[hiveacid] class AnalysisException(
