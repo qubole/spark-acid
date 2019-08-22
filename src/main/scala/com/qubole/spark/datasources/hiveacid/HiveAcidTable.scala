@@ -17,17 +17,19 @@
 
 package com.qubole.spark.datasources.hiveacid
 
+import scala.collection.Map
+
 import com.qubole.spark.datasources.hiveacid.reader.TableReader
 import com.qubole.spark.datasources.hiveacid.transaction.HiveAcidTxnManager
 import com.qubole.spark.datasources.hiveacid.util.HiveSparkConversionUtil
 import com.qubole.spark.datasources.hiveacid.writer.TableWriter
+
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.{DataFrame, _}
 import org.apache.spark.sql.catalyst.expressions.{Alias, Expression}
 import org.apache.spark.sql.sources.Filter
-import org.apache.spark.sql.{DataFrame, _}
 
-import scala.collection.Map
 
 /**
  * Represents a hive acid table and give API to perform operations on top of it
@@ -44,9 +46,9 @@ class HiveAcidTable(sparkSession: SparkSession,
 
   def getRdd(requiredColumns: Array[String],
              filters: Array[Filter],
-             options: ReadOptions): RDD[Row] = {
-    val tableReader = new TableReader(sparkSession, hiveAcidMetadata)
-    tableReader.getRdd(requiredColumns, filters, txnManager, options)
+             readConf: ReadConf): RDD[Row] = {
+    val tableReader = new TableReader(sparkSession, txnManager, hiveAcidMetadata)
+    tableReader.getRdd(requiredColumns, filters, readConf)
   }
 
   /**

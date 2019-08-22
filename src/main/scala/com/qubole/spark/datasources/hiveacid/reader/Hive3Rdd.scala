@@ -23,18 +23,23 @@ import java.io.{FileNotFoundException, IOException}
 import java.text.SimpleDateFormat
 import java.util.{Date, Locale}
 
+import scala.collection.JavaConversions._
+import scala.collection.mutable.ListBuffer
+import scala.reflect.ClassTag
+
 import com.qubole.shaded.hadoop.hive.common.ValidWriteIdList
 import com.qubole.shaded.hadoop.hive.ql.io.{AcidInputFormat, AcidUtils, HiveInputFormat, RecordIdentifier}
-import com.qubole.spark.datasources.hiveacid.util.{SerializableConfiguration, Util}
 import com.qubole.spark.datasources.hiveacid.reader.Hive3RDD.Hive3PartitionsWithSplitRDD
 import com.qubole.spark.datasources.hiveacid.transaction.HiveAcidTxn
+import com.qubole.spark.datasources.hiveacid.util.{SerializableConfiguration, Util}
 import com.qubole.spark.datasources.hiveacid.util.{SerializableWritable => _, _}
 import org.apache.hadoop.conf.{Configurable, Configuration}
 import org.apache.hadoop.fs.Path
-import org.apache.hadoop.mapred.lib.CombineFileSplit
 import org.apache.hadoop.mapred.{FileInputFormat, _}
+import org.apache.hadoop.mapred.lib.CombineFileSplit
 import org.apache.hadoop.mapreduce.TaskType
 import org.apache.hadoop.util.ReflectionUtils
+
 import org.apache.spark._
 import org.apache.spark.annotation.DeveloperApi
 import org.apache.spark.broadcast.Broadcast
@@ -44,9 +49,6 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.storage.StorageLevel
 
-import scala.collection.JavaConversions._
-import scala.collection.mutable.ListBuffer
-import scala.reflect.ClassTag
 
 private object Cache {
   import com.google.common.collect.MapMaker
@@ -191,7 +193,7 @@ private[reader] class Hive3RDD[K, V](sc: SparkContext,
     val validWriteIds: ValidWriteIdList = txn.validWriteIds
     var jobConf = getJobConf()
 
-    if (txn.acidTableMetadata.isFullAcidTable) {
+    if (txn.hiveAcidMetadata.isFullAcidTable) {
       // If full ACID table, just set the right writeIds, the
       // OrcInputFormat.getSplits() will take care of the rest
       AcidUtils.setValidWriteIdList(jobConf, validWriteIds)
@@ -333,7 +335,8 @@ private[reader] class Hive3RDD[K, V](sc: SparkContext,
 //          inputMetrics.incRecordsRead(1)
 //          blobStoreInputMetrics.foreach(_.incRecordsRead(1))
         }
-//        if (inputMetrics.recordsRead % SparkHadoopUtil.UPDATE_INPUT_METRICS_INTERVAL_RECORDS == 0) {
+//        if (inputMetrics.recordsRead %
+        //        SparkHadoopUtil.UPDATE_INPUT_METRICS_INTERVAL_RECORDS == 0) {
 //          updateBytesRead()
 //        }
         (recordIdentifier, value)

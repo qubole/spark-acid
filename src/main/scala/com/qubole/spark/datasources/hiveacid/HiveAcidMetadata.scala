@@ -19,6 +19,9 @@ package com.qubole.spark.datasources.hiveacid
 
 import java.util.Locale
 
+import scala.collection.JavaConversions._
+import scala.collection.mutable
+
 import com.qubole.shaded.hadoop.hive.conf.HiveConf
 import com.qubole.shaded.hadoop.hive.ql.io.RecordIdentifier
 import com.qubole.shaded.hadoop.hive.ql.metadata
@@ -28,12 +31,11 @@ import com.qubole.spark.datasources.hiveacid.util.{HiveSparkConversionUtil, Util
 import org.apache.hadoop.fs.Path
 import org.apache.hadoop.io.Writable
 import org.apache.hadoop.mapred.{InputFormat, OutputFormat}
+
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql._
 import org.apache.spark.sql.types._
 
-import scala.collection.JavaConversions._
-import scala.collection.mutable
 
 /**
  * Represents a hive acid table and give API to perform operations on top of it

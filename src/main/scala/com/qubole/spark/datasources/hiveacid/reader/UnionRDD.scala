@@ -19,14 +19,15 @@
 
 package com.qubole.spark.datasources.hiveacid.reader
 
+import scala.reflect.ClassTag
+
 import com.qubole.spark.datasources.hiveacid.HiveAcidOperation
 import com.qubole.spark.datasources.hiveacid.transaction.HiveAcidTxn
+
 import org.apache.spark._
 import org.apache.spark.rdd.{RDD, UnionRDD}
 
-import scala.reflect.ClassTag
-
-private[reader] class AcidLockUnionRDD[T: ClassTag](
+private[reader] class Hive3UnionRDD[T: ClassTag](
    sc: SparkContext,
    rddSeq: Seq[RDD[T]],
    partitionList: Seq[String],

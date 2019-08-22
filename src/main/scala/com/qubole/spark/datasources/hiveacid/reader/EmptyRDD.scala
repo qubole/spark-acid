@@ -19,10 +19,10 @@
 
 package com.qubole.spark.datasources.hiveacid.reader
 
-import org.apache.spark.rdd.RDD
-import org.apache.spark.{Partition, SparkContext, TaskContext}
-
 import scala.reflect.ClassTag
+
+import org.apache.spark.{Partition, SparkContext, TaskContext}
+import org.apache.spark.rdd.RDD
 
 private[reader] class EmptyRDD[T: ClassTag](sc: SparkContext) extends RDD[T](sc, Nil) {
 

@@ -19,14 +19,14 @@
 
 package com.qubole.spark.datasources.hiveacid.writer
 
-import com.qubole.shaded.hadoop.hive.ql.plan.FileSinkDesc
+import scala.language.implicitConversions
+
 import com.qubole.spark.datasources.hiveacid._
 import com.qubole.spark.datasources.hiveacid.transaction.{HiveAcidFullTxn, HiveAcidTxnManager}
-import com.qubole.spark.datasources.hiveacid.util.{HiveSparkConversionUtil, SerializableConfiguration}
+import com.qubole.spark.datasources.hiveacid.util.SerializableConfiguration
+
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.{DataFrame, SparkSession}
-
-import scala.language.implicitConversions
 
 /**
  * Performs eager write of a dataframe df to a hive acid table based on operationType
@@ -70,12 +70,11 @@ private[hiveacid] class TableWriter(sparkSession: SparkSession,
     }
 
     val allColumnNameToAttrMap = allColumns.map(attr => attr.name -> attr).toMap
+
     val partitionColumns = hiveAcidMetadata.partitionSchema.fields.map(
       field => allColumnNameToAttrMap(field.name))
 
     val dataColumns = allColumns.filterNot(partitionColumns.contains)
-
-    val isFullAcidTable = hiveAcidMetadata.isFullAcidTable
 
     // Start full transaction
     val txn = new HiveAcidFullTxn(hiveAcidMetadata, txnManager)
@@ -83,32 +82,18 @@ private[hiveacid] class TableWriter(sparkSession: SparkSession,
       txn.begin()
       txn.acquireLocks(operationType, Seq())
 
-      lazy val fileSinkDescriptor: FileSinkDesc = {
-        val fileSinkDesc = new FileSinkDesc()
-        fileSinkDesc.setDirName(hiveAcidMetadata.rootPath)
-        fileSinkDesc.setTableInfo(hiveAcidMetadata.tableDesc)
-        fileSinkDesc.setTableWriteId(txn.currentWriteId)
-        if (operationType == HiveAcidOperation.INSERT_OVERWRITE) {
-          fileSinkDesc.setInsertOverwrite(true)
-        }
-        fileSinkDesc
-      }
-
-      val writerOptions = new RowWriterOptions(
-        currentWriteId = txn.currentWriteId,
-        operationType = operationType,
-        fileSinkConf = fileSinkDescriptor,
-        serializableHadoopConf = new SerializableConfiguration(hadoopConf),
-        dataColumns = dataColumns,
-        partitionColumns = partitionColumns,
-        allColumns = allColumns,
-        rootPath = hiveAcidMetadata.rootPath.toUri.toString,
-        timeZoneId = sparkSession.sessionState.conf.sessionLocalTimeZone
+      val writerOptions = new WriterOptions(txn.currentWriteId,
+        operationType,
+        new SerializableConfiguration(hadoopConf),
+        dataColumns,
+        partitionColumns,
+        allColumns,
+        sparkSession.sessionState.conf.sessionLocalTimeZone
       )
 
       df.queryExecution.executedPlan.execute().foreachPartition {
         iterator =>
-          val writer = RowWriter.getRowWriter(writerOptions, isFullAcidTable)
+          val writer = Writer.getHive3Writer(hiveAcidMetadata, writerOptions)
           iterator.foreach { row => writer.process(row) }
           writer.close()
       }

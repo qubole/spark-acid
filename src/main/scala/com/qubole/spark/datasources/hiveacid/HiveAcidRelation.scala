@@ -21,9 +21,9 @@ package com.qubole.spark.datasources.hiveacid
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.{Row, SQLContext}
 import org.apache.spark.sql.sources.{BaseRelation, Filter, PrunedFilteredScan}
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.{Row, SQLContext}
 
 class HiveAcidRelation(val sqlContext: SQLContext,
                        fullyQualifiedTableName: String,
@@ -32,19 +32,19 @@ class HiveAcidRelation(val sqlContext: SQLContext,
     with PrunedFilteredScan
     with Logging {
 
-  val acidTableMetadata: HiveAcidMetadata = HiveAcidMetadata.fromSparkSession(
+  val hiveAcidMetadata: HiveAcidMetadata = HiveAcidMetadata.fromSparkSession(
     sqlContext.sparkSession,
     fullyQualifiedTableName
   )
   val hiveAcidTable: HiveAcidTable = new HiveAcidTable(sqlContext.sparkSession,
-    parameters, acidTableMetadata)
+    parameters, hiveAcidMetadata)
 
-  private val readOptions = ReadOptions.build(sqlContext.sparkSession, parameters)
+  private val readOptions = ReadConf.build(sqlContext.sparkSession, parameters)
 
   override val schema: StructType = if (readOptions.includeRowIds) {
-    acidTableMetadata.tableSchemaWithRowId
+    hiveAcidMetadata.tableSchemaWithRowId
   } else {
-    acidTableMetadata.tableSchema
+    hiveAcidMetadata.tableSchema
   }
 
   override def sizeInBytes: Long = {
@@ -55,7 +55,7 @@ class HiveAcidRelation(val sqlContext: SQLContext,
   override val needConversion: Boolean = false
 
   override def buildScan(requiredColumns: Array[String], filters: Array[Filter]): RDD[Row] = {
-    val readOptions = ReadOptions.build(sqlContext.sparkSession, parameters)
+    val readOptions = ReadConf.build(sqlContext.sparkSession, parameters)
     hiveAcidTable.getRdd(requiredColumns, filters, readOptions)
   }
 }

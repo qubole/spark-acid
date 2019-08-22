@@ -17,25 +17,15 @@
  * limitations under the License.
  */
 
-package com.qubole.spark.datasources.hiveacid
+package com.qubole.spark.datasources.hiveacid.reader
 
-import org.apache.spark.sql.SparkSession
+import com.qubole.spark.datasources.hiveacid.HiveAcidMetadata
 
-case class ReadOptions(predicatePushdownEnabled: Boolean = true,
-                                         metastorePartitionPruningEnabled: Boolean = true,
-                                         includeRowIds: Boolean = false)
+import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.sources.Filter
 
-object ReadOptions {
-  def build(sparkSession: SparkSession, parameters: Map[String, String]): ReadOptions = {
-    val isPredicatePushdownEnabled: Boolean = {
-      val sqlConf = sparkSession.sessionState.conf
-      sqlConf.getConfString("spark.sql.acidDs.enablePredicatePushdown", "true") == "true"
-    }
-    new ReadOptions(
-      isPredicatePushdownEnabled,
-      sparkSession.sessionState.conf.metastorePartitionPruning,
-      parameters.getOrElse("includeRowIds", "false").toBoolean
-    )
-  }
+private[reader] trait Reader {
+  def makeRDDForTable(hiveAcidMetadata: HiveAcidMetadata): RDD[InternalRow]
+  def makeRDDForPartitionedTable(partitions: Seq[Filter]): RDD[InternalRow]
 }
-

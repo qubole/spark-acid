@@ -22,17 +22,19 @@ package com.qubole.spark.datasources.hiveacid.writer
 import com.qubole.shaded.hadoop.hive.ql.plan.FileSinkDesc
 import com.qubole.spark.datasources.hiveacid.HiveAcidOperation
 import com.qubole.spark.datasources.hiveacid.util.SerializableConfiguration
+
 import org.apache.spark.sql.catalyst.expressions.Attribute
 
 /**
  * Writer options which will be serialized and sent to each executor
  */
-private[writer] class RowWriterOptions(val currentWriteId: Long,
-                       val operationType: HiveAcidOperation.OperationType,
-                       val fileSinkConf: FileSinkDesc,
-                       val serializableHadoopConf: SerializableConfiguration,
-                       val dataColumns: Seq[Attribute],
-                       val partitionColumns: Seq[Attribute],
-                       val allColumns: Seq[Attribute],
-                       val rootPath: String,
-                       val timeZoneId: String) extends Serializable
+private[writer] class WriterOptions(val currentWriteId: Long,
+                                    val operationType: HiveAcidOperation.OperationType,
+                                    val serializableHadoopConf: SerializableConfiguration,
+                                    val dataColumns: Seq[Attribute],
+                                    val partitionColumns: Seq[Attribute],
+                                    val allColumns: Seq[Attribute],
+                                    val timeZoneId: String) extends Serializable
+
+private[writer] class Hive3WriterOptions(val rootPath: String,
+                                         val fileSinkConf: FileSinkDesc)

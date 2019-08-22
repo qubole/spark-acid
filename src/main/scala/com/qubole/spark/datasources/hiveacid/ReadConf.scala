@@ -17,24 +17,25 @@
  * limitations under the License.
  */
 
-package com.qubole.spark.datasources.hiveacid.util
+package com.qubole.spark.datasources.hiveacid
 
-import java.io.{ObjectInputStream, ObjectOutputStream}
+import org.apache.spark.sql.SparkSession
 
-import org.apache.hadoop.conf.Configuration
+case class ReadConf(predicatePushdownEnabled: Boolean = true,
+                    metastorePartitionPruningEnabled: Boolean = true,
+                    includeRowIds: Boolean = false)
 
-/**
- * Utility class to make configuration object serializable
- */
-private[hiveacid] class SerializableConfiguration(@transient var value: Configuration)
-  extends Serializable {
-  private def writeObject(out: ObjectOutputStream): Unit = Util.tryOrIOException {
-    out.defaultWriteObject()
-    value.write(out)
-  }
-
-  private def readObject(in: ObjectInputStream): Unit = Util.tryOrIOException {
-    value = new Configuration(false)
-    value.readFields(in)
+object ReadConf {
+  def build(sparkSession: SparkSession, parameters: Map[String, String]): ReadConf = {
+    val isPredicatePushdownEnabled: Boolean = {
+      val sqlConf = sparkSession.sessionState.conf
+      sqlConf.getConfString("spark.sql.acidDs.enablePredicatePushdown", "true") == "true"
+    }
+    new ReadConf(
+      isPredicatePushdownEnabled,
+      sparkSession.sessionState.conf.metastorePartitionPruning,
+      parameters.getOrElse("includeRowIds", "false").toBoolean
+    )
   }
 }
+

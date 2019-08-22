@@ -75,7 +75,7 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession,
     }
     txn.setTxnId(txnId)
     activeTxns.put(txnId, txn)
-    logInfo("Opened txnid: " + txnId + " for table " + txn.acidTableMetadata.fullyQualifiedName)
+    logInfo("Opened txnid: " + txnId + " for table " + txn.hiveAcidMetadata.fullyQualifiedName)
     txn
   }
 
@@ -119,8 +119,8 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession,
     }
   }
 
-  def getCurrentWriteId(txnId: Long, acidTableMetadata: HiveAcidMetadata): Long = synchronized {
-    client.allocateTableWriteId(txnId, acidTableMetadata.dbName, acidTableMetadata.tableName)
+  def getCurrentWriteId(txnId: Long, hiveAcidMetadata: HiveAcidMetadata): Long = synchronized {
+    client.allocateTableWriteId(txnId, hiveAcidMetadata.dbName, hiveAcidMetadata.tableName)
   }
 
   def getValidWriteIds(fullyQualifiedTableName: String): ValidWriteIdList = synchronized {
@@ -148,7 +148,7 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession,
 
   def acquireLocks(txnId: Long,
                            operationType: HiveAcidOperation.OperationType,
-                           acidTableMetadata: HiveAcidMetadata,
+                           hiveAcidMetadata: HiveAcidMetadata,
                            partitionNames: Seq[String]): Unit = synchronized {
 
     def createLockRequest() = {
@@ -174,16 +174,16 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession,
       }
       if (partitionNames.isEmpty) {
         val lockCompBuilder = new LockComponentBuilder()
-          .setDbName(acidTableMetadata.dbName)
-          .setTableName(acidTableMetadata.tableName)
+          .setDbName(hiveAcidMetadata.dbName)
+          .setTableName(hiveAcidMetadata.tableName)
 
         requestBuilder.addLockComponent(addLockTypeToLockComponentBuilder(lockCompBuilder).build)
       } else {
         partitionNames.foreach(partName => {
           val lockCompBuilder = new LockComponentBuilder()
             .setPartitionName(partName)
-            .setDbName(acidTableMetadata.dbName)
-            .setTableName(acidTableMetadata.tableName)
+            .setDbName(hiveAcidMetadata.dbName)
+            .setTableName(hiveAcidMetadata.tableName)
           requestBuilder.addLockComponent(addLockTypeToLockComponentBuilder(lockCompBuilder).build)
         })
       }

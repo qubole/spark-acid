@@ -24,7 +24,7 @@ import com.qubole.spark.datasources.hiveacid.{HiveAcidErrors, HiveAcidMetadata, 
 import org.apache.spark.internal.Logging
 
 private[hiveacid] abstract class HiveAcidTxn(
-    val acidTableMetadata: HiveAcidMetadata,
+    val hiveAcidMetadata: HiveAcidMetadata,
     hiveAcidTxnManager: HiveAcidTxnManager) extends Logging {
 
   def begin(): Unit = {}
@@ -44,17 +44,17 @@ private[hiveacid] abstract class HiveAcidTxn(
 }
 
 // Special Txn for transaction less operations
-private[hiveacid] class HiveAcidReadTxn(override val acidTableMetadata: HiveAcidMetadata,
+private[hiveacid] class HiveAcidReadTxn(override val hiveAcidMetadata: HiveAcidMetadata,
                                         txnManager: HiveAcidTxnManager)
-  extends HiveAcidTxn(acidTableMetadata, txnManager) {
+  extends HiveAcidTxn(hiveAcidMetadata, txnManager) {
   override lazy val currentWriteId: Long = throw HiveAcidErrors.operationNotSupported
   override lazy val validWriteIds: ValidWriteIdList = txnManager.getValidWriteIds(
-    acidTableMetadata.fullyQualifiedName)
+    hiveAcidMetadata.fullyQualifiedName)
 }
 
-private[hiveacid] class HiveAcidFullTxn(override val acidTableMetadata: HiveAcidMetadata,
+private[hiveacid] class HiveAcidFullTxn(override val hiveAcidMetadata: HiveAcidMetadata,
                                         txnManager: HiveAcidTxnManager)
-  extends HiveAcidTxn(acidTableMetadata, txnManager) {
+  extends HiveAcidTxn(hiveAcidMetadata, txnManager) {
 
   private var id: Long = -1
   private var shouldAbort = false
@@ -82,7 +82,7 @@ private[hiveacid] class HiveAcidFullTxn(override val acidTableMetadata: HiveAcid
     if (isClosed.compareAndSet(false, true)) {
       val doAbort = abort || shouldAbort
       logInfo(s"Closing transaction $txnId on table " +
-        s"${acidTableMetadata.fullyQualifiedName}. abort = $doAbort")
+        s"${hiveAcidMetadata.fullyQualifiedName}. abort = $doAbort")
       txnManager.endTxn(txnId, doAbort)
     } else {
       throw HiveAcidErrors.txnAlreadyClosed(txnId)
@@ -96,15 +96,15 @@ private[hiveacid] class HiveAcidFullTxn(override val acidTableMetadata: HiveAcid
       throw HiveAcidErrors.txnAlreadyClosed(txnId)
     }
     txnManager.acquireLocks(txnId, operationType,
-      acidTableMetadata, partitionNames)
+      hiveAcidMetadata, partitionNames)
   }
 
-  override lazy val currentWriteId: Long = txnManager.getCurrentWriteId(txnId, acidTableMetadata)
+  override lazy val currentWriteId: Long = txnManager.getCurrentWriteId(txnId, hiveAcidMetadata)
 
   override lazy val validWriteIds: ValidWriteIdList = {
     if (id == -1) {
-      throw HiveAcidErrors.tableWriteIdRequestedBeforeTxnStart(acidTableMetadata.fullyQualifiedName)
+      throw HiveAcidErrors.tableWriteIdRequestedBeforeTxnStart(hiveAcidMetadata.fullyQualifiedName)
     }
-    txnManager.getValidWriteIds(txnId, acidTableMetadata.fullyQualifiedName)
+    txnManager.getValidWriteIds(txnId, hiveAcidMetadata.fullyQualifiedName)
   }
 }
