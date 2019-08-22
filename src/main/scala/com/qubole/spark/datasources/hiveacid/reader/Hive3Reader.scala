@@ -91,7 +91,7 @@ private[reader] class Hive3Reader(@transient private val sparkSession: SparkSess
     val hiveTable = hiveAcidMetadata.hTable
 
     // Push Down Predicate
-    if (readerOptions.readOptions.predicatePushdownEnabled) {
+    if (readerOptions.readConf.predicatePushdownEnabled) {
       setPushDownFiltersInHadoopConf(readerOptions.hadoopConf,
         hiveAcidMetadata,
         readerOptions.dataFilters)
@@ -176,7 +176,7 @@ private[reader] class Hive3Reader(@transient private val sparkSession: SparkSess
                                  partitionFilters: Seq[Filter]): RDD[InternalRow] = {
     val partitions = hiveAcidMetadata.getRawPartitions(
                         HiveSparkConversionUtil.sparkToHiveFilters(partitionFilters),
-                        readerOptions.readOptions.metastorePartitionPruningEnabled)
+                        readerOptions.readConf.metastorePartitionPruningEnabled)
 
     val partitionToDeserializer = partitions.map{
       part =>
