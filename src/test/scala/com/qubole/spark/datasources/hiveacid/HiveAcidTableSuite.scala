@@ -88,8 +88,6 @@ class HiveAcidTableSuite extends FunSuite with BeforeAndAfterEach with BeforeAnd
         def code() = {
           helper.recreate(tableHive)
           helper.recreate(tableSpark)
-          helper.hiveExecute(tableHive.insertIntoHiveTableKeyRange(1, 10))
-          helper.sparkSQL(tableSpark.insertIntoSparkTableKeyRange(1, 10))
           helper.verifyWrites(tableHive, tableSpark)
         }
         helper.myRun(testName, code)

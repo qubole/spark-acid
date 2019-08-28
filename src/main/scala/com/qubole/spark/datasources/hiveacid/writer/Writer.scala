@@ -29,21 +29,3 @@ private[writer] trait Writer {
   def close(): Unit
   def partitionsTouched(): Seq[TablePartitionSpec]
 }
-
-private[writer] object Writer {
-  def getHive3WriterOptions(hiveAcidMetadata: HiveAcidMetadata,
-                            options: WriterOptions): Hive3WriterOptions = {
-    lazy val fileSinkDescriptor: FileSinkDesc = {
-      val fileSinkDesc = new FileSinkDesc()
-      fileSinkDesc.setTableInfo(hiveAcidMetadata.tableDesc)
-      fileSinkDesc.setTableWriteId(options.currentWriteId)
-      if (options.operationType == HiveAcidOperation.INSERT_OVERWRITE) {
-        fileSinkDesc.setInsertOverwrite(true)
-      }
-      fileSinkDesc
-    }
-    return new Hive3WriterOptions(rootPath = hiveAcidMetadata.rootPath.toUri.toString,
-      fileSinkDesc = fileSinkDescriptor)
-  }
-
-}

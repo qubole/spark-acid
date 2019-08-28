@@ -68,21 +68,13 @@ class TestHelper {
   // 3. Read entire table using spark dataframe API
   // Verify: Both spark reads are same as hive read
 
-  // Simple
+  // Check the data present in this table via hive as well as spark sql and df
   private def compare(table: Table, msg: String): Unit = {
     log.info(s"Verify simple ${msg}")
     val hiveResStr = hiveExecuteQuery(table.hiveSelect)
     val (dfFromSql, dfFromScala) = sparkGetDF(table)
     compareResult(hiveResStr, dfFromSql.collect())
     compareResult(hiveResStr, dfFromScala.collect())
-  }
-
-  // Compare result of hive and spark table
-  private def compareTwoTables(table1: Table, table2: Table, msg: String): Unit = {
-    log.info(s"Verify output of 2 tables: ${msg}")
-    val hiveResStr1 = hiveExecuteQuery(table1.hiveSelect)
-    val hiveResStr2 = hiveExecuteQuery(table2.hiveSelect)
-    assert(hiveResStr1 == hiveResStr2, s"out1: \n${hiveResStr1}\nout2: \n${hiveResStr2}\n")
   }
 
   // With Predicate
@@ -100,6 +92,30 @@ class TestHelper {
     val (dfFromSql, dfFromScala) = sparkGetDFWithProj(table)
     compareResult(hiveResStr, dfFromSql.collect())
     compareResult(hiveResStr, dfFromScala.collect())
+  }
+
+  // Compare result of 2 tables via hive
+  private def compareTwoTablesViaHive(table1: Table, table2: Table, msg: String,
+                                      expectedRows: Option[Int] = None): Unit = {
+    log.info(s"Verify output of 2 tables: ${msg}")
+    val hiveResStr1 = hiveExecuteQuery(table1.hiveSelect)
+    val hiveResStr2 = hiveExecuteQuery(table2.hiveSelect)
+    assert(hiveResStr1 == hiveResStr2, s"out1: \n${hiveResStr1}\nout2: \n${hiveResStr2}\n")
+    expectedRows match {
+      case Some(rowCount) =>
+        val resultRows = hiveResStr1.split("\n").length
+        assert(resultRows == rowCount, s"Expected $rowCount rows, got $resultRows rows " +
+          s"in output:\n$hiveResStr1")
+      case None =>
+    }
+  }
+
+  // Compare result of 2 tables via spark
+  private def compareTwoTablesViaSpark(table1: Table, table2: Table, msg: String): Unit = {
+    log.info(s"Verify output of 2 tables: ${msg}")
+    val sparkResStr1 = sparkCollect(table1.hiveSelect)
+    val sparkResStr2 = sparkCollect(table2.hiveSelect)
+    compareResult(sparkResStr1, sparkResStr2)
   }
 
   // 1. Insert some more rows into the table using hive client.
@@ -180,18 +196,24 @@ class TestHelper {
     // Insert more rows in the table from Hive and compare result from Hive and Spark
     hiveExecute(tableHive.insertIntoHiveTableKeyRange(10, 20))
     sparkSQL(tableSpark.insertIntoSparkTableKeyRange(10, 20))
+    var expectedRows = Option(11)
+    compareTwoTablesViaHive(tableHive, tableSpark, "After Insert Into", expectedRows)
 
-    compareTwoTables(tableHive, tableSpark, "After Insert")
-//
-//    // Update some rows in the table from Hive and compare result from Hive and Spark
-//    hiveExecute(table.updateInHiveTableKey(13))
-//    hiveExecute(table.updateInHiveTableKey(19))
-//    compare(table, "After Update")
-//
-//    // delete some rows in the table from Hive and compare result from Hive and Spark
-//    hiveExecute(table.deleteFromHiveTableKey(12))
-//    hiveExecute(table.deleteFromHiveTableKey(18))
-//    compare(table, "After Delete")
+    hiveExecute(tableHive.insertOverwriteHiveTableKeyRange(15, 25))
+    sparkSQL(tableSpark.insertOverwriteSparkTableKeyRange(15, 25))
+    expectedRows = if (tableHive.isPartitioned) Some(16) else Some(11)
+    compareTwoTablesViaHive(tableHive, tableSpark, "After Insert Overwrite", expectedRows)
+    compareTwoTablesViaSpark(tableHive, tableSpark, "After Insert Overwrite")
+
+    // Update some rows in both the tables from Hive and Spark
+    // hiveExecute(tableHive.updateInHiveTableKey(17))
+    //tableSpark.updateInSparkTableKey(17).apply(spark)
+    // compareTwoTablesViaHive(tableHive, tableSpark, "After Update", expectedRows)
+
+    //    // delete some rows in the table from Hive and compare result from Hive and Spark
+    //    hiveExecute(table.deleteFromHiveTableKey(12))
+    //    hiveExecute(table.deleteFromHiveTableKey(18))
+    //    compare(table, "After Delete")
   }
 
   def sparkGetDFWithProj(table: Table): (DataFrame, DataFrame) = {
@@ -259,6 +281,14 @@ class TestHelper {
     val sparkResStr = sparkRowsToStr(sparkRes)
     log.debug(s"Comparing \n hive: $hiveResStr \n Spark: $sparkResStr")
     assert(hiveResStr == sparkResStr)
+  }
+
+  // Compare the results
+  def compareResult(sparkRes1: Array[Row], sparkRes2: Array[Row]): Unit = {
+    val sparkResStr1 = sparkRowsToStr(sparkRes1)
+    val sparkResStr2 = sparkRowsToStr(sparkRes2)
+    log.debug(s"Comparing \n hive: $sparkResStr1 \n Spark: $sparkResStr2")
+    assert(sparkResStr1 == sparkResStr2)
   }
 
   // Convert Array of Spark Rows into a String

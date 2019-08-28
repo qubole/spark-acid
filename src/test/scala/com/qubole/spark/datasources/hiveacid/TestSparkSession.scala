@@ -18,9 +18,12 @@
  */
 package com.qubole.spark.datasources.hiveacid
 
-import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.{SparkSession, SparkSessionExtensions}
 
 private[hiveacid] object TestSparkSession {
+
+  type ExtensionsBuilder = SparkSessionExtensions => Unit
+  val extensionBuilder: ExtensionsBuilder = { e => e.injectResolutionRule(HiveAcidAnalyzer)}
 
   val spark = SparkSession.builder().appName("Hive-acid-test")
     .master("local[*]")
@@ -29,6 +32,7 @@ private[hiveacid] object TestSparkSession {
     //.config("spark.ui.enabled", "true")
     //.config("spark.ui.port", "4041")
     .enableHiveSupport()
+    .withExtensions(extensionBuilder)
     .getOrCreate()
 
   def getSession(): SparkSession = {

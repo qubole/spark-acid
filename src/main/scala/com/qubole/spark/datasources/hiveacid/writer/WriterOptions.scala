@@ -20,7 +20,7 @@
 package com.qubole.spark.datasources.hiveacid.writer
 
 import com.qubole.shaded.hadoop.hive.ql.plan.FileSinkDesc
-import com.qubole.spark.datasources.hiveacid.HiveAcidOperation
+import com.qubole.spark.datasources.hiveacid.{HiveAcidMetadata, HiveAcidOperation}
 import com.qubole.spark.datasources.hiveacid.util.SerializableConfiguration
 import org.apache.hadoop.fs.Path
 import org.apache.spark.sql.catalyst.expressions.Attribute
@@ -37,9 +37,27 @@ private[writer] class WriterOptions(val currentWriteId: Long,
                                     val timeZoneId: String) extends Serializable
 
 private[writer] class Hive3WriterOptions(val rootPath: String,
-                                         val fileSinkDesc: FileSinkDesc) extends Serializable {
+                                         fileSinkDesc: FileSinkDesc) extends Serializable {
   lazy val getFileSinkDesc: FileSinkDesc = {
     fileSinkDesc.setDirName(new Path(rootPath))
     fileSinkDesc
   }
+}
+
+private[writer] object WriterOptions {
+  def getHive3WriterOptions(hiveAcidMetadata: HiveAcidMetadata,
+                            options: WriterOptions): Hive3WriterOptions = {
+    lazy val fileSinkDescriptor: FileSinkDesc = {
+      val fileSinkDesc = new FileSinkDesc()
+      fileSinkDesc.setTableInfo(hiveAcidMetadata.tableDesc)
+      fileSinkDesc.setTableWriteId(options.currentWriteId)
+      if (options.operationType == HiveAcidOperation.INSERT_OVERWRITE) {
+        fileSinkDesc.setInsertOverwrite(true)
+      }
+      fileSinkDesc
+    }
+    return new Hive3WriterOptions(rootPath = hiveAcidMetadata.rootPath.toUri.toString,
+      fileSinkDesc = fileSinkDescriptor)
+  }
+
 }

@@ -94,7 +94,7 @@ private[hiveacid] class TableWriter(sparkSession: SparkSession,
         sparkSession.sessionState.conf.sessionLocalTimeZone
       )
       val isFullAcidTable = hiveAcidMetadata.isFullAcidTable
-      val hive3Options = Writer.getHive3WriterOptions(hiveAcidMetadata, writerOptions)
+      val hive3Options = WriterOptions.getHive3WriterOptions(hiveAcidMetadata, writerOptions)
       val processRddPartition = new (Iterator[InternalRow] => Seq[TablePartitionSpec]) with
         Serializable {
         override def apply(iterator: Iterator[InternalRow]): Seq[TablePartitionSpec] = {

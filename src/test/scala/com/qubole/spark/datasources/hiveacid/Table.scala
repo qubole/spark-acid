@@ -19,6 +19,7 @@
 
 package com.qubole.spark.datasources.hiveacid
 
+import org.apache.spark.sql.SparkSession
 import org.joda.time.DateTime
 
 import scala.collection.mutable
@@ -32,7 +33,7 @@ class Table (
   private val tName: String,
   private val extraColMap: Map[String, String],
   private val tblProp: String,
-  private val isPartitioned: Boolean = false) {
+  val isPartitioned: Boolean = false) {
 
     private var colMap: mutable.LinkedHashMap[String, String] = {
       val columnMap = new mutable.LinkedHashMap[String, String]()
@@ -95,17 +96,31 @@ class Table (
     def sparkDrop = s"DROP TABLE IF EXISTS ${sparkTname}"
 
 
+    private def insertHiveTableKeyRange(startKey: Int, endKey: Int, operation: String): String =
+      s"INSERT ${operation} TABLE ${hiveTname} " + (startKey to endKey).map { key => s" select ${getRow(key)} " }.mkString(" UNION ALL ")
+    private def insertSparkTableKeyRange(startKey: Int, endKey: Int, operation: String): String =
+      s"INSERT ${operation} TABLE ${sparkTname} " + (startKey to endKey).map { key => s" select ${getRow(key)} " }.mkString(" UNION ALL ")
 
     def insertIntoHiveTableKeyRange(startKey: Int, endKey: Int): String =
-      s"INSERT INTO TABLE ${hiveTname} (${getCols}) " + (startKey to endKey).map { key => s" select ${getRow(key)} " }.mkString(" UNION ALL ")
+      insertHiveTableKeyRange(startKey, endKey, "INTO")
     def insertIntoSparkTableKeyRange(startKey: Int, endKey: Int): String =
-      s"INSERT INTO TABLE ${sparkTname} " + (startKey to endKey).map { key => s" select ${getRow(key)} " }.mkString(" UNION ALL ")
+      insertSparkTableKeyRange(startKey, endKey, "INTO")
+    def insertOverwriteHiveTableKeyRange(startKey: Int, endKey: Int): String =
+      insertHiveTableKeyRange(startKey, endKey, "OVERWRITE")
+    def insertOverwriteSparkTableKeyRange(startKey: Int, endKey: Int): String =
+      insertSparkTableKeyRange(startKey, endKey, "OVERWRITE")
+
     def insertIntoHiveTableKey(key: Int): String =
       s"INSERT INTO ${hiveTname} (${getCols}) VALUES (${getRow(key)})"
     def deleteFromHiveTableKey(key: Int): String =
       s"DELETE FROM ${hiveTname} where key = ${key}"
     def updateInHiveTableKey(key: Int): String =
       s"UPDATE ${hiveTname} set intCol = intCol * 10 where key = ${key}"
+    def updateInSparkTableKey(key: Int): SparkSession => Unit = {
+      spark: SparkSession =>
+        HiveAcidTable.fromSparkSession(spark, Map("table" -> hiveTname), hiveTname)
+          .update(s"key = ${key}", Map("intCol" -> "intCol * 10"))
+    }
 
     def updateByMergeHiveTable =
       s" merge into ${hiveTname} t using (select distinct ${getCols} from ${hiveTname}) s on s.key=t.key " +
