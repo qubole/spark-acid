@@ -22,7 +22,7 @@ package com.qubole.spark.datasources.hiveacid.writer
 import com.qubole.shaded.hadoop.hive.ql.plan.FileSinkDesc
 import com.qubole.spark.datasources.hiveacid.HiveAcidOperation
 import com.qubole.spark.datasources.hiveacid.util.SerializableConfiguration
-
+import org.apache.hadoop.fs.Path
 import org.apache.spark.sql.catalyst.expressions.Attribute
 
 /**
@@ -37,4 +37,9 @@ private[writer] class WriterOptions(val currentWriteId: Long,
                                     val timeZoneId: String) extends Serializable
 
 private[writer] class Hive3WriterOptions(val rootPath: String,
-                                         val fileSinkConf: FileSinkDesc)
+                                         val fileSinkDesc: FileSinkDesc) extends Serializable {
+  lazy val getFileSinkDesc: FileSinkDesc = {
+    fileSinkDesc.setDirName(new Path(rootPath))
+    fileSinkDesc
+  }
+}

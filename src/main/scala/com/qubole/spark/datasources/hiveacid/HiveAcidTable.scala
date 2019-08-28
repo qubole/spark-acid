@@ -56,6 +56,10 @@ class HiveAcidTable(sparkSession: SparkSession,
     * @param df - dataframe to insert
     */
   def insertInto(df: DataFrame): Unit = {
+//    if (df.schema != hiveAcidMetadata.tableSchema) {
+//      throw new RuntimeException(s"Invalid schema: df.schema: ${df.schema} \n" +
+//        s"hiveAcidMetadata.tableSchema: ${hiveAcidMetadata.tableSchema}")
+//    }
     val tableWriter = new TableWriter(sparkSession, txnManager, hiveAcidMetadata)
     tableWriter.write(HiveAcidOperation.INSERT_INTO, df)
   }

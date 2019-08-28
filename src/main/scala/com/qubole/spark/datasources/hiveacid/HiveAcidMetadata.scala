@@ -125,7 +125,7 @@ private[hiveacid] class HiveAcidMetadata(sparkSession: SparkSession,
                        metastorePartitionPruningEnabled: Boolean): Seq[metadata.Partition] = {
     val prunedPartitions =
       if (metastorePartitionPruningEnabled &&
-        partitionFilters.size > 0) {
+        partitionFilters.nonEmpty) {
         val hive: Hive = Hive.get(hiveConf)
         val hT = hive.getPartitionsByFilter(hTable, partitionFilters)
         Hive.closeCurrent()

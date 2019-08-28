@@ -21,23 +21,25 @@ package com.qubole.spark.datasources.hiveacid.writer
 
 import java.util.Properties
 
-import scala.collection.JavaConverters._
-
 import com.qubole.shaded.hadoop.hive.ql.exec.Utilities
-import com.qubole.shaded.hadoop.hive.ql.io.{HiveFileFormatUtils, RecordIdentifier, RecordUpdater}
-import com.qubole.shaded.hadoop.hive.serde2.{Deserializer, SerDeUtils}
-import com.qubole.shaded.hadoop.hive.serde2.objectinspector.{ObjectInspectorFactory, ObjectInspectorUtils, StructObjectInspector}
+import com.qubole.shaded.hadoop.hive.ql.io.{HiveFileFormatUtils, RecordIdentifier, RecordUpdater, _}
 import com.qubole.shaded.hadoop.hive.serde2.objectinspector.ObjectInspectorUtils.ObjectInspectorCopyOption
-import com.qubole.spark.datasources.hiveacid.HiveAcidOperation
+import com.qubole.shaded.hadoop.hive.serde2.objectinspector.{ObjectInspectorFactory, ObjectInspectorUtils, StructObjectInspector}
+import com.qubole.shaded.hadoop.hive.serde2.{Deserializer, SerDeUtils}
 import com.qubole.spark.datasources.hiveacid.util.{Hive3Inspectors, Util}
+import com.qubole.spark.datasources.hiveacid.{HiveAcidErrors, HiveAcidOperation}
 import org.apache.hadoop.fs.Path
 import org.apache.hadoop.mapred.{JobConf, Reporter}
-
 import org.apache.spark.TaskContext
+import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.catalog.CatalogTypes.TablePartitionSpec
 import org.apache.spark.sql.catalyst.catalog.ExternalCatalogUtils
 import org.apache.spark.sql.catalyst.expressions.{Cast, Concat, Expression, Literal, ScalaUDF, UnsafeProjection, UnsafeRow}
+import org.apache.spark.sql.execution.datasources.PartitioningUtils
 import org.apache.spark.sql.types.StringType
+
+import scala.collection.JavaConverters._
 
 /**
  * This class is responsible for writing a InternalRow into a Full-ACID table
@@ -56,7 +58,7 @@ import org.apache.spark.sql.types.StringType
  */
 private[writer] class Hive3FullAcidWriter(val options: WriterOptions,
                                           val hive3Options: Hive3WriterOptions)
-  extends Writer {
+  extends Writer with Logging {
 
   private val partitionPathExpression: Expression = Concat(
     options.partitionColumns.zipWithIndex.flatMap { case (c, i) =>
@@ -90,8 +92,10 @@ private[writer] class Hive3FullAcidWriter(val options: WriterOptions,
     new JobConf(hConf)
   }
 
+  private val partitionsTouchedSet = scala.collection.mutable.HashSet[TablePartitionSpec]()
+
   def initializeNewRecordUpdater(path: Path, acidBucketId: Int): RecordUpdater = {
-    val tableDesc = hive3Options.fileSinkConf.getTableInfo
+    val tableDesc = hive3Options.getFileSinkDesc.getTableInfo
 
     val rowIdColNum = options.operationType match {
       case HiveAcidOperation.DELETE | HiveAcidOperation.UPDATE =>
@@ -102,15 +106,57 @@ private[writer] class Hive3FullAcidWriter(val options: WriterOptions,
         throw new RuntimeException(s"Invalid write operation $x")
     }
 
-    HiveFileFormatUtils.getAcidRecordUpdater(
+    val fileSinkConf = hive3Options.getFileSinkDesc
+    fileSinkConf.setDirName(new Path(hive3Options.rootPath))
+
+    val recordUpdater = HiveFileFormatUtils.getAcidRecordUpdater(
       jobConf,
       tableDesc,
       acidBucketId,
-      hive3Options.fileSinkConf,
+      hive3Options.getFileSinkDesc,
       path,
       sparkHiveRowConverter.getObjectInspector,
       Reporter.NULL,
       rowIdColNum)
+
+    val acidOutputFormatOptions = new AcidOutputFormat.Options(jobConf)
+      .writingBase(options.operationType == HiveAcidOperation.INSERT_OVERWRITE)
+      .bucket(acidBucketId)
+      .minimumWriteId(fileSinkConf.getTableWriteId)
+      .maximumWriteId(fileSinkConf.getTableWriteId)
+      .statementId(fileSinkConf.getStatementId)
+
+    val (createDelta, createDeleteDelta) = options.operationType match {
+      case HiveAcidOperation.INSERT_INTO | HiveAcidOperation.INSERT_OVERWRITE => (true, false)
+      case HiveAcidOperation.DELETE => (false, true)
+      case HiveAcidOperation.UPDATE => (true, true)
+      case unknownOperation => throw HiveAcidErrors.invalidOperationType(unknownOperation.toString)
+    }
+
+    val fs = path.getFileSystem(jobConf)
+
+    def createVersionFile(acidOptions: AcidOutputFormat.Options): Unit = {
+      try {
+        AcidUtils.OrcAcidVersion.writeVersionFile(
+          AcidUtils.createFilename(path, acidOptions).getParent, fs)
+      } catch {
+        case e: Exception =>
+          logError("Version file already found")
+        case scala.util.control.NonFatal(_) =>
+          logError("Version file already found - non fatal")
+        case _: Throwable =>
+          logError("Version file already found - shouldn't be caught")
+      }
+    }
+
+    if (createDelta) {
+      createVersionFile(acidOutputFormatOptions)
+    }
+
+    if (createDeleteDelta) {
+      createVersionFile(acidOutputFormatOptions.writingDeleteDelta(true))
+    }
+    recordUpdater
   }
 
   private val recordUpdaters = scala.collection.mutable.Map[(String, Int), RecordUpdater]()
@@ -118,7 +164,9 @@ private[writer] class Hive3FullAcidWriter(val options: WriterOptions,
     val path = if (options.partitionColumns.isEmpty) {
       new Path(hive3Options.rootPath)
     } else {
-      new Path(hive3Options.rootPath, getPartitionPath(partitionRow))
+      val partitionPath = getPartitionPath(partitionRow)
+      partitionsTouchedSet.add(PartitioningUtils.parsePathFragment(partitionPath))
+      new Path(hive3Options.rootPath, partitionPath)
     }
     val acidBucketId = Utilities.getTaskIdFromFilename(TaskContext.get.taskAttemptId().toString)
       .toInt
@@ -179,6 +227,8 @@ private[writer] class Hive3FullAcidWriter(val options: WriterOptions,
     // hiveWriter.close(false)
     recordUpdaters.foreach(_._2.close(false))
   }
+
+  override def partitionsTouched(): Seq[TablePartitionSpec] = partitionsTouchedSet.toSeq
 }
 
 private class Hive3InsertOnlyWriter(options: WriterOptions,
@@ -187,6 +237,8 @@ private class Hive3InsertOnlyWriter(options: WriterOptions,
   override def process(row: InternalRow): Unit = {}
 
   override def close(): Unit = {}
+
+  override def partitionsTouched(): Seq[TablePartitionSpec] = Seq()
 }
 
 /**
@@ -198,7 +250,7 @@ private class SparkHiveRowConverter(options: WriterOptions,
                                     hive3Options: Hive3WriterOptions,
                                     jobConf: JobConf) extends Hive3Inspectors {
 
-  private val tableDesc = hive3Options.fileSinkConf.getTableInfo
+  private val tableDesc = hive3Options.getFileSinkDesc.getTableInfo
   private lazy val deserializerClass = Util.classForName(tableDesc.getSerdeClassName,
     true).asInstanceOf[Class[Deserializer]]
 

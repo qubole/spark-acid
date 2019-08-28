@@ -76,6 +76,15 @@ class TestHelper {
     compareResult(hiveResStr, dfFromSql.collect())
     compareResult(hiveResStr, dfFromScala.collect())
   }
+
+  // Compare result of hive and spark table
+  private def compareTwoTables(table1: Table, table2: Table, msg: String): Unit = {
+    log.info(s"Verify output of 2 tables: ${msg}")
+    val hiveResStr1 = hiveExecuteQuery(table1.hiveSelect)
+    val hiveResStr2 = hiveExecuteQuery(table2.hiveSelect)
+    assert(hiveResStr1 == hiveResStr2, s"out1: \n${hiveResStr1}\nout2: \n${hiveResStr2}\n")
+  }
+
   // With Predicate
   private def compareWithPred(table: Table, msg: String, pred: String): Unit = {
     log.info(s"Verify with predicate ${msg}")
@@ -162,6 +171,27 @@ class TestHelper {
     compare(table, "After Delete")
     compareWithPred(table, "After Delete", pred)
     compareWithProj(table, "After Delete")
+  }
+
+  def verifyWrites(tableHive: Table, tableSpark: Table): Unit = {
+    // Check results from Spark
+    compare(tableHive, "")
+
+    // Insert more rows in the table from Hive and compare result from Hive and Spark
+    hiveExecute(tableHive.insertIntoHiveTableKeyRange(10, 20))
+    sparkSQL(tableSpark.insertIntoSparkTableKeyRange(10, 20))
+
+    compareTwoTables(tableHive, tableSpark, "After Insert")
+//
+//    // Update some rows in the table from Hive and compare result from Hive and Spark
+//    hiveExecute(table.updateInHiveTableKey(13))
+//    hiveExecute(table.updateInHiveTableKey(19))
+//    compare(table, "After Update")
+//
+//    // delete some rows in the table from Hive and compare result from Hive and Spark
+//    hiveExecute(table.deleteFromHiveTableKey(12))
+//    hiveExecute(table.deleteFromHiveTableKey(18))
+//    compare(table, "After Delete")
   }
 
   def sparkGetDFWithProj(table: Table): (DataFrame, DataFrame) = {

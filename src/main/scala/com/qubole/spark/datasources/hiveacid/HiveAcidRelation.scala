@@ -21,14 +21,15 @@ package com.qubole.spark.datasources.hiveacid
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.{Row, SQLContext}
-import org.apache.spark.sql.sources.{BaseRelation, Filter, PrunedFilteredScan}
+import org.apache.spark.sql.{DataFrame, Row, SQLContext}
+import org.apache.spark.sql.sources.{BaseRelation, Filter, InsertableRelation, PrunedFilteredScan}
 import org.apache.spark.sql.types._
 
 class HiveAcidRelation(val sqlContext: SQLContext,
                        fullyQualifiedTableName: String,
                        parameters: Map[String, String])
     extends BaseRelation
+    with InsertableRelation
     with PrunedFilteredScan
     with Logging {
 
@@ -45,6 +46,14 @@ class HiveAcidRelation(val sqlContext: SQLContext,
     hiveAcidMetadata.tableSchemaWithRowId
   } else {
     hiveAcidMetadata.tableSchema
+  }
+
+  override def insert(data: DataFrame, overwrite: Boolean): Unit = {
+    if (overwrite) {
+      hiveAcidTable.insertOverwrite(data)
+    } else {
+      hiveAcidTable.insertInto(data)
+    }
   }
 
   override def sizeInBytes: Long = {

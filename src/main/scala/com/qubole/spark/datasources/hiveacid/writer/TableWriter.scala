@@ -19,14 +19,17 @@
 
 package com.qubole.spark.datasources.hiveacid.writer
 
-import scala.language.implicitConversions
-
 import com.qubole.spark.datasources.hiveacid._
 import com.qubole.spark.datasources.hiveacid.transaction.{HiveAcidFullTxn, HiveAcidTxnManager}
 import com.qubole.spark.datasources.hiveacid.util.SerializableConfiguration
-
 import org.apache.spark.internal.Logging
+import org.apache.spark.sql.catalyst.{InternalRow, TableIdentifier}
+import org.apache.spark.sql.catalyst.catalog.CatalogTypes.TablePartitionSpec
+import org.apache.spark.sql.execution.command.AlterTableAddPartitionCommand
 import org.apache.spark.sql.{DataFrame, SparkSession}
+
+import scala.collection.JavaConverters._
+import scala.language.implicitConversions
 
 /**
  * Performs eager write of a dataframe df to a hive acid table based on operationType
@@ -80,7 +83,7 @@ private[hiveacid] class TableWriter(sparkSession: SparkSession,
     val txn = new HiveAcidFullTxn(hiveAcidMetadata, txnManager)
     try {
       txn.begin()
-      txn.acquireLocks(operationType, Seq())
+      // txn.acquireLocks(operationType, Seq())
 
       val writerOptions = new WriterOptions(txn.currentWriteId,
         operationType,
@@ -90,13 +93,40 @@ private[hiveacid] class TableWriter(sparkSession: SparkSession,
         allColumns,
         sparkSession.sessionState.conf.sessionLocalTimeZone
       )
-
-      df.queryExecution.executedPlan.execute().foreachPartition {
-        iterator =>
-          val writer = Writer.getHive3Writer(hiveAcidMetadata, writerOptions)
+      val isFullAcidTable = hiveAcidMetadata.isFullAcidTable
+      val hive3Options = Writer.getHive3WriterOptions(hiveAcidMetadata, writerOptions)
+      val processRddPartition = new (Iterator[InternalRow] => Seq[TablePartitionSpec]) with
+        Serializable {
+        override def apply(iterator: Iterator[InternalRow]): Seq[TablePartitionSpec] = {
+          val writer = if (isFullAcidTable) {
+            new Hive3FullAcidWriter(writerOptions, hive3Options)
+          } else {
+            new Hive3InsertOnlyWriter(writerOptions, hive3Options)
+          }
           iterator.foreach { row => writer.process(row) }
           writer.close()
+          writer.partitionsTouched()
+        }
       }
+
+      val touchedPartitions = sparkSession.sparkContext.runJob(
+        df.queryExecution.executedPlan.execute(), processRddPartition
+      ).flatten.toSet
+      val existingPartitions = hiveAcidMetadata.getRawPartitions("", false)
+        .map(_.getSpec)
+        .map(_.asScala.toMap)
+      val newPartitions = touchedPartitions -- existingPartitions
+
+      logInfo(s"existing partitions: ${touchedPartitions.size}, " +
+        s"partitions touched: ${touchedPartitions.size}, " +
+        s"new partitions to add to metastore: ${newPartitions.size}")
+      if (newPartitions.nonEmpty) {
+        AlterTableAddPartitionCommand(
+          new TableIdentifier(hiveAcidMetadata.tableName, Option(hiveAcidMetadata.dbName)),
+          newPartitions.toSeq.map(p => (p, None)),
+          ifNotExists = true).run(sparkSession)
+      }
+      logDebug("new partitions added successfully")
       txn.end()
     } catch {
       case e: Exception =>

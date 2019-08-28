@@ -21,21 +21,20 @@ package com.qubole.spark.datasources.hiveacid.writer
 
 import com.qubole.shaded.hadoop.hive.ql.plan.FileSinkDesc
 import com.qubole.spark.datasources.hiveacid.{HiveAcidMetadata, HiveAcidOperation}
-
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.catalog.CatalogTypes.TablePartitionSpec
 
 private[writer] trait Writer {
   def process(row: InternalRow): Unit
   def close(): Unit
+  def partitionsTouched(): Seq[TablePartitionSpec]
 }
 
 private[writer] object Writer {
-  def getHive3Writer(hiveAcidMetadata: HiveAcidMetadata,
-                     options: WriterOptions): Writer = {
-
+  def getHive3WriterOptions(hiveAcidMetadata: HiveAcidMetadata,
+                            options: WriterOptions): Hive3WriterOptions = {
     lazy val fileSinkDescriptor: FileSinkDesc = {
       val fileSinkDesc = new FileSinkDesc()
-      fileSinkDesc.setDirName(hiveAcidMetadata.rootPath)
       fileSinkDesc.setTableInfo(hiveAcidMetadata.tableDesc)
       fileSinkDesc.setTableWriteId(options.currentWriteId)
       if (options.operationType == HiveAcidOperation.INSERT_OVERWRITE) {
@@ -43,14 +42,8 @@ private[writer] object Writer {
       }
       fileSinkDesc
     }
-
-    val hive3Options = new Hive3WriterOptions(rootPath = hiveAcidMetadata.rootPath.toUri.toString,
-                                              fileSinkConf = fileSinkDescriptor)
-
-    if (hiveAcidMetadata.isFullAcidTable) {
-      new Hive3FullAcidWriter(options, hive3Options)
-    } else {
-      new Hive3InsertOnlyWriter(options, hive3Options)
-    }
+    return new Hive3WriterOptions(rootPath = hiveAcidMetadata.rootPath.toUri.toString,
+      fileSinkDesc = fileSinkDescriptor)
   }
+
 }

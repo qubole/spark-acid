@@ -20,7 +20,9 @@
 package com.qubole.spark.datasources.hiveacid
 
 import org.joda.time.DateTime
-import scala.collection.mutable.{ListBuffer, HashMap}
+
+import scala.collection.mutable
+import scala.collection.mutable.{HashMap, ListBuffer}
 /*
  *
  *
@@ -32,10 +34,22 @@ class Table (
   private val tblProp: String,
   private val isPartitioned: Boolean = false) {
 
-    private var colMap = Map("key" -> "int") ++ extraColMap
+    private var colMap: mutable.LinkedHashMap[String, String] = {
+      val columnMap = new mutable.LinkedHashMap[String, String]()
+      columnMap.put("key", "int")
+      extraColMap.foreach{
+        case (k, v) => columnMap.put(k, v)
+      }
+      columnMap
+    }
     private var colMapWithPartitionedCols = {
       if (isPartitioned) {
-        Map("load_date" -> "int") ++ colMap
+        val columnMap = new mutable.LinkedHashMap[String, String]()
+        colMap.foreach{
+          case (k, v) => columnMap.put(k, v)
+        }
+        columnMap.put("load_date", "int")
+        columnMap
       } else {
         colMap
       }
@@ -46,7 +60,7 @@ class Table (
       x._2 match {
         case "date" => s"'${(new DateTime(((key * 1000L) + 151502791900L))).toString}'"
         case _ => key.toString
-      }}).mkString(", ") + {if (isPartitioned) s", '${(new DateTime(((key * 1000L) + 151502791900L))).toString}'" else ""}
+      }}).mkString(", ") + {if (isPartitioned) s", '${key.toString}'" else ""}
 
     private def getColDefString = colMap.map(x => x._1 + " " + x._2).mkString(",")
 
@@ -84,6 +98,8 @@ class Table (
 
     def insertIntoHiveTableKeyRange(startKey: Int, endKey: Int): String =
       s"INSERT INTO TABLE ${hiveTname} (${getCols}) " + (startKey to endKey).map { key => s" select ${getRow(key)} " }.mkString(" UNION ALL ")
+    def insertIntoSparkTableKeyRange(startKey: Int, endKey: Int): String =
+      s"INSERT INTO TABLE ${sparkTname} " + (startKey to endKey).map { key => s" select ${getRow(key)} " }.mkString(" UNION ALL ")
     def insertIntoHiveTableKey(key: Int): String =
       s"INSERT INTO ${hiveTname} (${getCols}) VALUES (${getRow(key)})"
     def deleteFromHiveTableKey(key: Int): String =
