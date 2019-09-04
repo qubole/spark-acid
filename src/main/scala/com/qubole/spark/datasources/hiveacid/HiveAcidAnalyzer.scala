@@ -21,12 +21,14 @@ package com.qubole.spark.datasources.hiveacid
 
 import java.util.Locale
 
+import com.qubole.spark.datasources.hiveacid.sql.HiveAnalysisException
+import com.qubole.spark.datasources.hiveacid.sql.catalyst.plans.logical.{Delete, Update}
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.catalog.HiveTableRelation
-import org.apache.spark.sql.catalyst.plans.logical.{InsertIntoTable, LogicalPlan}
+import org.apache.spark.sql.catalyst.plans.logical.{Filter, InsertIntoTable, LogicalPlan, SubqueryAlias}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.command.DDLUtils
-import org.apache.spark.sql.execution.datasources.LogicalRelation
+import org.apache.spark.sql.execution.datasources.{FindDataSourceTable, LogicalRelation}
 import org.apache.spark.sql.internal.SQLConf
 
 
@@ -36,6 +38,10 @@ import org.apache.spark.sql.internal.SQLConf
  * @param spark - spark session
  */
 case class HiveAcidAnalyzer(spark: SparkSession) extends Rule[LogicalPlan] {
+
+  private lazy val analyzer = spark.sessionState.analyzer
+  private lazy val resolveRelations = analyzer.ResolveRelations
+  private lazy val findDataSourceTable = analyzer.extendedResolutionRules.find(_.isInstanceOf[FindDataSourceTable]).get
 
   private def isConvertible(relation: HiveTableRelation): Boolean = {
     val serde = relation.tableMeta.storage.serde.getOrElse("").toLowerCase(Locale.ROOT)
@@ -55,6 +61,19 @@ case class HiveAcidAnalyzer(spark: SparkSession) extends Rule[LogicalPlan] {
     LogicalRelation(newRelation, false)
   }
 
+  private def convertTable(r1: LogicalPlan): LogicalRelation = {
+    val r2 = resolveRelations.resolveRelation(r1)
+    val r3 = findDataSourceTable(r2)
+    val r4 = r3 match {
+      case alias: SubqueryAlias => alias.child.asInstanceOf[HiveTableRelation]
+      case _ => r3.asInstanceOf[HiveTableRelation]
+    }
+    if (!DDLUtils.isHiveTable(r4.tableMeta) || !isConvertible(r4)) {
+      throw new HiveAnalysisException(s"Can't convert $r4 to HiveAcidRelation")
+    }
+    convert(r4)
+  }
+
   override def apply(plan: LogicalPlan): LogicalPlan = {
     plan resolveOperators {
       // Write path
@@ -62,6 +81,18 @@ case class HiveAcidAnalyzer(spark: SparkSession) extends Rule[LogicalPlan] {
         // Inserting into partitioned table is not supported in Parquet/Orc data source (yet).
         if query.resolved && DDLUtils.isHiveTable(r.tableMeta) && isConvertible(r) =>
         InsertIntoTable(convert(r), partition, query, overwrite, ifPartitionNotExists)
+
+      case Delete(table, filter, false) =>
+        val relation = convertTable(table)
+        val newFilter = filter.map(_.asInstanceOf[Filter].copy(child = relation))
+        // TODO write a DataWritingCommand
+        Delete(relation, newFilter, tableConverted = true)
+
+      case Update(table, fieldValues, filter, false) =>
+        val relation = convertTable(table)
+        val newFilter = filter.map(_.asInstanceOf[Filter].copy(child = relation))
+        // TODO write a DataWritingCommand
+        Update(relation, fieldValues, newFilter, tableConverted = true)
 
       // Read path
       case relation: HiveTableRelation
