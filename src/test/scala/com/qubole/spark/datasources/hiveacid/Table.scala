@@ -98,17 +98,9 @@ class Table (
 
   private def insertHiveTableKeyRange(startKey: Int, endKey: Int, operation: String): String =
     s"INSERT ${operation} TABLE ${hiveTname} " + (startKey to endKey).map { key => s" select ${getRow(key)} " }.mkString(" UNION ALL ")
-  private def insertSparkTableKeyRange(startKey: Int, endKey: Int, operation: String): String =
-    s"INSERT ${operation} TABLE ${sparkTname} " + (startKey to endKey).map { key => s" select ${getRow(key)} " }.mkString(" UNION ALL ")
 
   def insertIntoHiveTableKeyRange(startKey: Int, endKey: Int): String =
     insertHiveTableKeyRange(startKey, endKey, "INTO")
-  def insertIntoSparkTableKeyRange(startKey: Int, endKey: Int): String =
-    insertSparkTableKeyRange(startKey, endKey, "INTO")
-  def insertOverwriteHiveTableKeyRange(startKey: Int, endKey: Int): String =
-    insertHiveTableKeyRange(startKey, endKey, "OVERWRITE")
-  def insertOverwriteSparkTableKeyRange(startKey: Int, endKey: Int): String =
-    insertSparkTableKeyRange(startKey, endKey, "OVERWRITE")
 
   def insertIntoHiveTableKey(key: Int): String =
     s"INSERT INTO ${hiveTname} (${getCols}) VALUES (${getRow(key)})"

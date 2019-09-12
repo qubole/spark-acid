@@ -39,17 +39,11 @@ case class HiveAcidAutoConvert(spark: SparkSession) extends Rule[LogicalPlan] {
 
   private def isConvertible(relation: HiveTableRelation): Boolean = {
     val serde = relation.tableMeta.storage.serde.getOrElse("").toLowerCase(Locale.ROOT)
-    serde.contains("orc") &&
-      SQLConf.get.getConfString("spark.sql.hiveAcid.autoConvertHiveAcidTables", "true").toBoolean &&
-      relation.tableMeta.properties.getOrElse("transactional", "false").toBoolean
+    relation.tableMeta.properties.getOrElse("transactional", "false").toBoolean
   }
 
-  private def isOrcOrHiveAcidProperty(key: String) =
-    key.startsWith("orc.") || key.contains(".orc.") ||
-      key.startsWith("hiveAcid.") || key.contains(".hiveAcid.")
-
   private def convert(relation: HiveTableRelation): LogicalRelation = {
-    val options = relation.tableMeta.properties.filterKeys(isOrcOrHiveAcidProperty) ++
+    val options = relation.tableMeta.properties ++
       relation.tableMeta.storage.properties ++ Map("table" -> relation.tableMeta.qualifiedName)
 
     val newRelation = new HiveAcidDataSource().createRelation(spark.sqlContext, options)
@@ -60,7 +54,6 @@ case class HiveAcidAutoConvert(spark: SparkSession) extends Rule[LogicalPlan] {
     plan resolveOperators {
       // Write path
       case InsertIntoTable(r: HiveTableRelation, partition, query, overwrite, ifPartitionNotExists)
-        // Inserting into partitioned table is not supported in Parquet/Orc data source (yet).
         if query.resolved && DDLUtils.isHiveTable(r.tableMeta) && isConvertible(r) =>
         InsertIntoTable(convert(r), partition, query, overwrite, ifPartitionNotExists)
 
