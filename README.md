@@ -49,24 +49,35 @@ Note the short name of this datasource is `HiveAcid`
     scala> df.collect()
 
 #### SQL
-To read an existing Hive acid table through pure SQL, you need to create a dummy table that acts as a symlink to the
-original acid table. This symlink is required to instruct Spark to use this datasource against an existing table.
+To read an existing Hive acid table through pure SQL, there are two ways: 
 
-To create the symlink table
+1. Create a dummy table that acts as a symlink to the original acid table. This symlink is required to instruct Spark to use this datasource against an existing table.
+  To create the symlink table:
 
-    scala> spark.sql("create table symlinkacidtable using HiveAcid options ('table' 'default.acidtbl')")
+       scala> spark.sql("create table symlinkacidtable using HiveAcid options ('table' 'default.acidtbl')")
 
-_NB: This will produce a warning indicating that Hive does not understand this format_
+    _NB: This will produce a warning indicating that Hive does not understand this format_
 
-    WARN hive.HiveExternalCatalog: Couldn’t find corresponding Hive SerDe for data source provider com.qubole.spark.datasources.hiveacid.HiveAcidDataSource. Persisting data source table `default`.`sparkacidtbl` into Hive metastore in Spark SQL specific format, which is NOT compatible with Hive.
+     WARN hive.HiveExternalCatalog: Couldn’t find corresponding Hive SerDe for data source provider com.qubole.spark.datasources.hiveacid.HiveAcidDataSource. Persisting data source table `default`.`sparkacidtbl` into Hive metastore in Spark SQL specific format, which is NOT compatible with Hive.
 
-_Please ignore it, as this is a sym table for Spark to operate with and no underlying storage._
+    _Please ignore it, as this is a sym table for Spark to operate with and no underlying storage._
 
-To read the table data:
+    To read the table data:
 
-    scala> var df = spark.sql("select * from symlinkacidtable")
-    scala> df.collect()
-
+        scala> var df = spark.sql("select * from symlinkacidtable")
+        scala> df.collect()
+    
+2. Use SparkSession extensions framework to add a new Analyzer rule (HiveAcidAutoConvert) to Spark Analyser. This analyzer rule automatically converts an _HiveTableRelation_ representing acid table to _LogicalRelation_ backed by HiveAcidRelation.
+    To use this, initialize SparkSession with the extension builder as mentioned below:
+    
+         val spark = SparkSession.builder()
+           .appName("Hive-acid-test")
+           .withExtensions(HiveAcidAutoConvert.hiveAcidExtensionBuilder)
+           .enableHiveSupport()
+           .<OTHER OPTIONS>
+           .getOrCreate()
+           
+         spark.sql("select * from default.acidtbl")         
 
 ## Latest Binaries
 

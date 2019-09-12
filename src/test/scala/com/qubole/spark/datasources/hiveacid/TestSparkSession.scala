@@ -25,6 +25,7 @@ private[hiveacid] object TestSparkSession {
   val spark = SparkSession.builder().appName("Hive-acid-test")
     .master("local[*]")
     .config("spark.hadoop.hive.metastore.uris", "thrift://0.0.0.0:10000")
+    .withExtensions(HiveAcidAutoConvert.hiveAcidExtensionBuilder)
     .config("spark.sql.warehouse.dir", "/tmp")
     //.config("spark.ui.enabled", "true")
     //.config("spark.ui.port", "4041")

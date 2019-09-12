@@ -70,34 +70,36 @@ class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfter
 
 
   // Test Run
-  readTest(Table.allFullAcidTypes, false)
-  readTest(Table.allInsertOnlyTypes, true)
+//  readTest(Table.allFullAcidTypes, false)
+//  readTest(Table.allInsertOnlyTypes, true)
+//
+//  // NB: Cannot create merged table for insert only table
+//  mergeTest(Table.allFullAcidTypes, false)
+//
+//  joinTest(Table.allFullAcidTypes(), Table.allFullAcidTypes())
+//  joinTest(Table.allInsertOnlyTypes(), Table.allFullAcidTypes())
+//  joinTest(Table.allInsertOnlyTypes(), Table.allInsertOnlyTypes())
+//
+//  compactionTest(Table.allFullAcidTypes(), false)
+//  compactionTest(Table.allInsertOnlyTypes(), true)
+//
+//  // NB: No run for the insert only table.
+//  nonAcidToAcidConversionTest(Table.allNonAcidTypes(), false)
+//
+//  // Run predicatePushdown test for InsertOnly/FullAcid, Partitioned/NonPartitioned tables
+//  // It should work in file formats which supports predicate pushdown - orc/parquet
+//  predicatePushdownTest(List(
+//    (Table.orcPartitionedInsertOnlyTable, true, true),
+//    (Table.parquetPartitionedInsertOnlyTable, true, true),
+//    (Table.textPartitionedInsertOnlyTable, true, false),
+//    (Table.orcInsertOnlyTable, false, true),
+//    (Table.parquetInsertOnlyTable, false, true),
+//    (Table.textInsertOnlyTable, false, false),
+//     (Table.orcFullACIDTable, false, true),
+//    (Table.orcPartitionedFullACIDTable, true, true)
+//  ))
 
-  // NB: Cannot create merged table for insert only table
-  mergeTest(Table.allFullAcidTypes, false)
-
-  joinTest(Table.allFullAcidTypes(), Table.allFullAcidTypes())
-  joinTest(Table.allInsertOnlyTypes(), Table.allFullAcidTypes())
-  joinTest(Table.allInsertOnlyTypes(), Table.allInsertOnlyTypes())
-
-  compactionTest(Table.allFullAcidTypes(), false)
-  compactionTest(Table.allInsertOnlyTypes(), true)
-
-  // NB: No run for the insert only table.
-  nonAcidToAcidConversionTest(Table.allNonAcidTypes(), false)
-
-  // Run predicatePushdown test for InsertOnly/FullAcid, Partitioned/NonPartitioned tables
-  // It should work in file formats which supports predicate pushdown - orc/parquet
-  predicatePushdownTest(List(
-    (Table.orcPartitionedInsertOnlyTable, true, true),
-    (Table.parquetPartitionedInsertOnlyTable, true, true),
-    (Table.textPartitionedInsertOnlyTable, true, false),
-    (Table.orcInsertOnlyTable, false, true),
-    (Table.parquetInsertOnlyTable, false, true),
-    (Table.textInsertOnlyTable, false, false),
-     (Table.orcFullACIDTable, false, true),
-    (Table.orcPartitionedFullACIDTable, true, true)
-  ))
+  hiveAcidAnalyzerTest(List((Table.orcPartitionedFullACIDTable, true)))
 
 
   // Read test
@@ -346,6 +348,25 @@ class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfter
 
           helper.myRun(testName, code)
         }
+      }
+    }
+  }
+
+  def hiveAcidAnalyzerTest(tTypes: List[(String,Boolean)]): Unit = {
+    tTypes.foreach { case (tType, isPartitioned) =>
+      val tableNameHive = "tAcid"
+      val testName = s"Hive acid analyzer test  for $tableNameHive type $tType"
+      test(testName) {
+        val table = new Table(DEFAULT_DBNAME, tableNameHive, cols, tType, isPartitioned)
+
+        def code() = {
+          helper.recreate(table)
+          helper.hiveExecute(table.insertIntoHiveTableKeyRange(1, 10))
+          val resHive = helper.hiveExecuteQuery(table.hiveSelect)
+          val resSpark = helper.sparkCollect(table.hiveSelect)
+          helper.compareResult(resHive, resSpark)
+        }
+        helper.myRun(testName, code)
       }
     }
   }

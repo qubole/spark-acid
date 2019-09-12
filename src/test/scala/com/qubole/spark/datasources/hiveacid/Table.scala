@@ -19,92 +19,118 @@
 
 package com.qubole.spark.datasources.hiveacid
 
+import org.apache.spark.sql.SparkSession
 import org.joda.time.DateTime
-import scala.collection.mutable.{ListBuffer, HashMap}
+
+import scala.collection.mutable
+import scala.collection.mutable.{HashMap, ListBuffer}
 /*
  *
  *
  */
 class Table (
-  private val dbName: String,
-  private val tName: String,
-  private val extraColMap: Map[String, String],
-  private val tblProp: String,
-  private val isPartitioned: Boolean = false) {
+              private val dbName: String,
+              private val tName: String,
+              private val extraColMap: Map[String, String],
+              private val tblProp: String,
+              val isPartitioned: Boolean = false) {
 
-    private var colMap = Map("key" -> "int") ++ extraColMap
-    private var colMapWithPartitionedCols = {
-      if (isPartitioned) {
-        Map("load_date" -> "int") ++ colMap
-      } else {
-        colMap
-      }
+  private var colMap: mutable.LinkedHashMap[String, String] = {
+    val columnMap = new mutable.LinkedHashMap[String, String]()
+    columnMap.put("key", "int")
+    extraColMap.foreach{
+      case (k, v) => columnMap.put(k, v)
     }
+    columnMap
+  }
+  private var colMapWithPartitionedCols = {
+    if (isPartitioned) {
+      val columnMap = new mutable.LinkedHashMap[String, String]()
+      colMap.foreach{
+        case (k, v) => columnMap.put(k, v)
+      }
+      columnMap.put("load_date", "int")
+      columnMap
+    } else {
+      colMap
+    }
+  }
 
-    // NB Add date column as well apparently always in the end
-    private def getRow(key: Int): String = colMap.map( x => {
-      x._2 match {
-        case "date" => s"'${(new DateTime(((key * 1000L) + 151502791900L))).toString}'"
-        case _ => key.toString
-      }}).mkString(", ") + {if (isPartitioned) s", '${(new DateTime(((key * 1000L) + 151502791900L))).toString}'" else ""}
+  // NB Add date column as well apparently always in the end
+  private def getRow(key: Int): String = colMap.map( x => {
+    x._2 match {
+      case "date" => s"'${(new DateTime(((key * 1000L) + 151502791900L))).toString}'"
+      case _ => key.toString
+    }}).mkString(", ") + {if (isPartitioned) s", '${key.toString}'" else ""}
 
-    private def getColDefString = colMap.map(x => x._1 + " " + x._2).mkString(",")
+  private def getColDefString = colMap.map(x => x._1 + " " + x._2).mkString(",")
 
-    // FIXME: Add load_date column of partitioned table in order by clause
-    private def sparkOrderBy: String = sparkOrderBy(sparkTname)
-    private def hiveOrderBy: String = hiveOrderBy(tName)
-    private def sparkOrderBy(aliasedTable: String): String =
-      colMapWithPartitionedCols.map(x => s"${aliasedTable}.${x._1}").mkString(", ")
-    private def hiveOrderBy(aliasedTable: String): String =
-      colMapWithPartitionedCols.map(x => s"$aliasedTable.${x._1}").mkString(", ")
-    private def getCols = colMapWithPartitionedCols.map(x => x._1).mkString(", ")
+  // FIXME: Add load_date column of partitioned table in order by clause
+  private def sparkOrderBy: String = sparkOrderBy(sparkTname)
+  private def hiveOrderBy: String = hiveOrderBy(tName)
+  private def sparkOrderBy(aliasedTable: String): String =
+    colMapWithPartitionedCols.map(x => s"${aliasedTable}.${x._1}").mkString(", ")
+  private def hiveOrderBy(aliasedTable: String): String =
+    colMapWithPartitionedCols.map(x => s"$aliasedTable.${x._1}").mkString(", ")
+  private def getCols = colMapWithPartitionedCols.map(x => x._1).mkString(", ")
 
-    def getColMap = colMapWithPartitionedCols
+  def getColMap = colMapWithPartitionedCols
 
-    def hiveTname = s"$dbName.$tName"
-    def hiveTname1 = s"$tName"
-    def sparkTname = s"${dbName}.spark_${tName}"
+  def hiveTname = s"$dbName.$tName"
+  def hiveTname1 = s"$tName"
+  def sparkTname = s"${dbName}.spark_${tName}"
 
-    def hiveCreate = s"CREATE TABLE ${hiveTname} (${getColDefString}) ${tblProp}"
-    def hiveSelect = s"SELECT * FROM ${hiveTname} t1 ORDER BY ${hiveOrderBy("t1")}"
-    def hiveSelectWithPred(pred: String) =
-      s"SELECT * FROM ${hiveTname} t1 where ${pred} ORDER BY ${hiveOrderBy("t1")}"
-    def hiveSelectWithProj = s"SELECT intCol FROM ${hiveTname} ORDER BY intCol"
-    def hiveDrop = s"DROP TABLE IF EXISTS ${hiveTname}"
+  def hiveCreate = s"CREATE TABLE ${hiveTname} (${getColDefString}) ${tblProp}"
+  def hiveSelect = s"SELECT * FROM ${hiveTname} t1 ORDER BY ${hiveOrderBy("t1")}"
+  def hiveSelectWithPred(pred: String) =
+    s"SELECT * FROM ${hiveTname} t1 where ${pred} ORDER BY ${hiveOrderBy("t1")}"
+  def hiveSelectWithProj = s"SELECT intCol FROM ${hiveTname} ORDER BY intCol"
+  def hiveDrop = s"DROP TABLE IF EXISTS ${hiveTname}"
 
-    def sparkCreate = s"CREATE TABLE ${sparkTname} USING HiveAcid OPTIONS('table' '${hiveTname}')"
-    def sparkSelect = s"SELECT * FROM ${sparkTname} t1 ORDER BY ${sparkOrderBy("t1")}"
-    def sparkSelectWithPred(pred: String) =
-      s"SELECT * FROM ${sparkTname} t1 where ${pred} ORDER BY ${sparkOrderBy("t1")}"
-    def sparkSelectWithProj = s"SELECT intCol FROM ${sparkTname} ORDER BY intCol"
-    def sparkDFProj = "intCol"
-    def sparkDrop = s"DROP TABLE IF EXISTS ${sparkTname}"
+  def sparkCreate = s"CREATE TABLE ${sparkTname} USING HiveAcid OPTIONS('table' '${hiveTname}')"
+  def sparkSelect = s"SELECT * FROM ${sparkTname} t1 ORDER BY ${sparkOrderBy("t1")}"
+  def sparkSelectWithPred(pred: String) =
+    s"SELECT * FROM ${sparkTname} t1 where ${pred} ORDER BY ${sparkOrderBy("t1")}"
+  def sparkSelectWithProj = s"SELECT intCol FROM ${sparkTname} ORDER BY intCol"
+  def sparkDFProj = "intCol"
+  def sparkDrop = s"DROP TABLE IF EXISTS ${sparkTname}"
 
 
+  private def insertHiveTableKeyRange(startKey: Int, endKey: Int, operation: String): String =
+    s"INSERT ${operation} TABLE ${hiveTname} " + (startKey to endKey).map { key => s" select ${getRow(key)} " }.mkString(" UNION ALL ")
+  private def insertSparkTableKeyRange(startKey: Int, endKey: Int, operation: String): String =
+    s"INSERT ${operation} TABLE ${sparkTname} " + (startKey to endKey).map { key => s" select ${getRow(key)} " }.mkString(" UNION ALL ")
 
-    def insertIntoHiveTableKeyRange(startKey: Int, endKey: Int): String =
-      s"INSERT INTO TABLE ${hiveTname} (${getCols}) " + (startKey to endKey).map { key => s" select ${getRow(key)} " }.mkString(" UNION ALL ")
-    def insertIntoHiveTableKey(key: Int): String =
-      s"INSERT INTO ${hiveTname} (${getCols}) VALUES (${getRow(key)})"
-    def deleteFromHiveTableKey(key: Int): String =
-      s"DELETE FROM ${hiveTname} where key = ${key}"
-    def updateInHiveTableKey(key: Int): String =
-      s"UPDATE ${hiveTname} set intCol = intCol * 10 where key = ${key}"
+  def insertIntoHiveTableKeyRange(startKey: Int, endKey: Int): String =
+    insertHiveTableKeyRange(startKey, endKey, "INTO")
+  def insertIntoSparkTableKeyRange(startKey: Int, endKey: Int): String =
+    insertSparkTableKeyRange(startKey, endKey, "INTO")
+  def insertOverwriteHiveTableKeyRange(startKey: Int, endKey: Int): String =
+    insertHiveTableKeyRange(startKey, endKey, "OVERWRITE")
+  def insertOverwriteSparkTableKeyRange(startKey: Int, endKey: Int): String =
+    insertSparkTableKeyRange(startKey, endKey, "OVERWRITE")
 
-    def updateByMergeHiveTable =
-      s" merge into ${hiveTname} t using (select distinct ${getCols} from ${hiveTname}) s on s.key=t.key " +
+  def insertIntoHiveTableKey(key: Int): String =
+    s"INSERT INTO ${hiveTname} (${getCols}) VALUES (${getRow(key)})"
+  def deleteFromHiveTableKey(key: Int): String =
+    s"DELETE FROM ${hiveTname} where key = ${key}"
+  def updateInHiveTableKey(key: Int): String =
+    s"UPDATE ${hiveTname} set intCol = intCol * 10 where key = ${key}"
+
+  def updateByMergeHiveTable =
+    s" merge into ${hiveTname} t using (select distinct ${getCols} from ${hiveTname}) s on s.key=t.key " +
       s" when matched and s.key%2=0 then update set intCol=s.intCol * 10 " +
       s" when matched and s.key%2=1 then delete " +
       s" when not matched then insert values(${getRow(1000)})"
 
-    def disableCompaction = s"ALTER TABLE ${hiveTname} SET TBLPROPERTIES ('NO_AUTO_COMPACTION' = 'true')"
-    def minorCompaction = s"ALTER TABLE ${hiveTname} COMPACT 'minor'"
-    def majorCompaction = s"ALTER TABLE ${hiveTname} COMPACT 'major'"
+  def disableCompaction = s"ALTER TABLE ${hiveTname} SET TBLPROPERTIES ('NO_AUTO_COMPACTION' = 'true')"
+  def minorCompaction = s"ALTER TABLE ${hiveTname} COMPACT 'minor'"
+  def majorCompaction = s"ALTER TABLE ${hiveTname} COMPACT 'major'"
 
-    def alterToTransactionalInsertOnlyTable =
-      s"ALTER TABLE ${hiveTname} SET TBLPROPERTIES ('transactional'='true', 'transactional_properties'='insert_only')"
-    def alterToTransactionalFullAcidTable =
-      s"ALTER TABLE ${hiveTname} SET TBLPROPERTIES ('transactional'='true', 'transactional_properties'='default')"
+  def alterToTransactionalInsertOnlyTable =
+    s"ALTER TABLE ${hiveTname} SET TBLPROPERTIES ('transactional'='true', 'transactional_properties'='insert_only')"
+  def alterToTransactionalFullAcidTable =
+    s"ALTER TABLE ${hiveTname} SET TBLPROPERTIES ('transactional'='true', 'transactional_properties'='default')"
 }
 
 object Table {
