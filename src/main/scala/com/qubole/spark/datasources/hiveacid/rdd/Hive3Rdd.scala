@@ -292,7 +292,11 @@ class Hive3RDD[K, V](
 
       reader =
         try {
-          inputFormat.getRecordReader(split.inputSplit.value, jobConf, Reporter.NULL)
+          // Underlying code is not MT safe. Synchronize
+          // while creating record reader
+          Hive3RDD.RECORD_READER_INIT_LOCK.synchronized {
+            inputFormat.getRecordReader(split.inputSplit.value, jobConf, Reporter.NULL)
+          }
         } catch {
           case e: FileNotFoundException if ignoreMissingFiles =>
             logWarning(s"Skipped missing file: ${split.inputSplit}", e)
@@ -409,6 +413,14 @@ class Hive3RDD[K, V](
 }
 
 object Hive3RDD extends Logging {
+
+  /*
+   * Use of utf8Decoder inside OrcRecordUpdater is not MT safe when peforming
+   * getRecordReader. This leads to illlegal state exeception when called in
+   * parallel by multiple tasks in single executor (JVM). Synchronize !!
+   */
+  val RECORD_READER_INIT_LOCK = new Object();
+
   /**
     * Configuration's constructor is not threadsafe (see SPARK-1097 and HADOOP-10456).
     * Therefore, we synchronize on this lock before calling new JobConf() or new Configuration().
