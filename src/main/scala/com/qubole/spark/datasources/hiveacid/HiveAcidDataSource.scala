@@ -23,21 +23,57 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.sql._
 import org.apache.spark.sql.sources._
 
+/**
+  * HiveAcid Data source implementation.
+  */
 class HiveAcidDataSource
-  extends RelationProvider
-    with DataSourceRegister
+  extends RelationProvider          // USING HiveAcid
+    with CreatableRelationProvider  // Insert into/overwrite
+    with DataSourceRegister         // FORMAT("HiveAcid")
     with Logging {
 
-  override def createRelation(
-   sqlContext: SQLContext,
-   parameters: Map[String, String]): BaseRelation = {
-    new HiveAcidRelation(
-      sqlContext,
-      parameters
+  // returns relation for passed in table name
+  override def createRelation(sqlContext: SQLContext,
+                              parameters: Map[String, String]): BaseRelation = {
+    HiveAcidRelation(sqlContext.sparkSession, getFullyQualifiedTableName(parameters), parameters)
+  }
+
+  // returns relation after writing passed in data frame. Table name is part of parameter
+  override def createRelation(sqlContext: SQLContext,
+                              mode: SaveMode,
+                              parameters: Map[String, String],
+                              df: DataFrame): BaseRelation = {
+
+    val hiveAcidTable: HiveAcidTable = HiveAcidTable.fromSparkSession(
+      sqlContext.sparkSession,
+      parameters,
+      getFullyQualifiedTableName(parameters)
     )
+
+    mode match {
+      case SaveMode.Overwrite =>
+        hiveAcidTable.insertOverwrite(df)
+      case SaveMode.Append =>
+        hiveAcidTable.insertInto(df)
+      // TODO: Add support for these
+      case SaveMode.ErrorIfExists | SaveMode.Ignore =>
+        HiveAcidErrors.unsupportedSaveMode(mode)
+    }
+    createRelation(sqlContext, parameters)
   }
 
   override def shortName(): String = {
-    HiveAcidUtils.NAME
+    HiveAcidDataSource.NAME
+  }
+
+  private def getFullyQualifiedTableName(parameters: Map[String, String]): String = {
+    parameters.getOrElse("table", {
+      throw HiveAcidErrors.tableNotSpecifiedException()
+    })
   }
 }
+
+object HiveAcidDataSource {
+  val NAME = "HiveAcid"
+}
+

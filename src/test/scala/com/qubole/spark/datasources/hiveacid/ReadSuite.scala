@@ -29,13 +29,13 @@ import org.scalatest._
 
 import scala.util.control.NonFatal
 
-class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll {
+class ReadSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll {
 
   val log = LogManager.getLogger(this.getClass)
   log.setLevel(Level.INFO)
 
   var helper: TestHelper = _;
-  val isDebug = false
+  val isDebug = true
 
   val DEFAULT_DBNAME =  "HiveTestDB"
   val defaultPred = " intCol < 5 "
@@ -68,13 +68,12 @@ class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfter
     helper.destroy()
   }
 
-
   // Test Run
   readTest(Table.allFullAcidTypes, false)
   readTest(Table.allInsertOnlyTypes, true)
 
   // NB: Cannot create merged table for insert only table
-  mergeTest(Table.allFullAcidTypes, false)
+ // mergeTest(Table.allFullAcidTypes, false)
 
   joinTest(Table.allFullAcidTypes(), Table.allFullAcidTypes())
   joinTest(Table.allInsertOnlyTypes(), Table.allFullAcidTypes())
@@ -84,7 +83,12 @@ class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfter
   compactionTest(Table.allInsertOnlyTypes(), true)
 
   // NB: No run for the insert only table.
-  nonAcidToAcidConversionTest(Table.allNonAcidTypes(), false)
+  nonAcidToFullAcidConversionTest(List(
+    (Table.orcTable, false),
+    (Table.orcPartitionedTable, true),
+    (Table.orcBucketedTable, false),
+    (Table.orcBucketedPartitionedTable, true)
+  ))
 
   // Run predicatePushdown test for InsertOnly/FullAcid, Partitioned/NonPartitioned tables
   // It should work in file formats which supports predicate pushdown - orc/parquet
@@ -95,7 +99,7 @@ class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfter
     (Table.orcInsertOnlyTable, false, true),
     (Table.parquetInsertOnlyTable, false, true),
     (Table.textInsertOnlyTable, false, false),
-     (Table.orcFullACIDTable, false, true),
+    (Table.orcFullACIDTable, false, true),
     (Table.orcPartitionedFullACIDTable, true, true)
   ))
 
@@ -137,7 +141,7 @@ class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfter
         }
 
         def code() = {
-          helper.withSQLConf("spark.sql.acidDs.enablePredicatePushdown" -> "true") {
+          helper.withSQLConf("spark.sql.hiveAcid.enablePredicatePushdown" -> "true") {
             helper.recreate(table, true)
             // Inserting 5 rows in different hive queries so that we will have 5 files - one for each row
             (3 to 7).toSeq.foreach(k => helper.hiveExecute(table.insertIntoHiveTableKey(k)))
@@ -155,7 +159,7 @@ class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfter
             // sparkSQL("select count(*) FROM HiveTestDB.spark_t1 t1 where intCol < 5").collect()
 
             // Disable the pushdown
-            helper.sparkSQL("set spark.sql.acidDs.enablePredicatePushdown=false")
+            helper.sparkSQL("set spark.sql.hiveAcid.enablePredicatePushdown=false")
             val dfFromSql1 = helper.sparkSQL(table.sparkSelectWithPred(defaultPred))
             helper.compareResult(hiveResStr, dfFromSql1.collect())
             assert(checkOutputRowsInLeafNode(dfFromSql1) == 2L * 5)
@@ -202,7 +206,7 @@ class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfter
   // 4. Alter table and convert the table into ACID table.
   // 5. Create spark sym link table over the hive table.
   // VERIFY: Both spark reads are same as hive read
-  def nonAcidToAcidConversionTest(tTypes: List[(String,Boolean)], insertOnly: Boolean): Unit = {
+  def nonAcidToFullAcidConversionTest(tTypes: List[(String,Boolean)]): Unit = {
     tTypes.foreach { case (tType, isPartitioned) =>
       val tName = "t1"
       val testName = "NonAcid to Acid conversion test for " + tName + " type " + tType
@@ -224,7 +228,7 @@ class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfter
           helper.compareResult(hiveResStr, dfFromSql.collect())
           helper.compareResult(hiveResStr, dfFromScala.collect())
 
-          helper.verify(table, insertOnly)
+          helper.verify(table, false)
         }
         helper.myRun(testName, code)
       }
@@ -266,7 +270,7 @@ class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfter
           helper.recreate(table)
 
           helper.hiveExecute(table.disableCompaction)
-          helper.hiveExecute(table.insertIntoHiveTableKeyRange(1, 3))
+          helper.hiveExecute(table.insertIntoHiveTableKeyRange(1, 10))
 
           val hiveResStr = helper.hiveExecuteQuery(table.hiveSelect)
 
@@ -281,7 +285,11 @@ class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfter
           helper.hiveExecute(table.insertIntoHiveTableKey(13))
           helper.hiveExecute(table.insertIntoHiveTableKey(14))
           helper.hiveExecute(table.insertIntoHiveTableKey(15))
-          compactAndTest(hiveResStr, df1, df2)
+          if (isPartitioned) {
+            compactPartitionedAndTest(hiveResStr, df1, df2, Seq(11,12,13,14,15))
+          } else {
+            compactAndTest(hiveResStr, df1, df2)
+          }
 
           // Shortcut for insert Only
           if (! insertOnly) {
@@ -289,13 +297,21 @@ class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfter
             helper.hiveExecute(table.deleteFromHiveTableKey(4))
             helper.hiveExecute(table.deleteFromHiveTableKey(5))
             helper.hiveExecute(table.deleteFromHiveTableKey(6))
-            compactAndTest(hiveResStr, df1, df2)
+            if (isPartitioned) {
+              compactPartitionedAndTest(hiveResStr, df1, df2, Seq(3,4,5,6))
+            } else {
+              compactAndTest(hiveResStr, df1, df2)
+            }
 
             helper.hiveExecute(table.updateInHiveTableKey(7))
             helper.hiveExecute(table.updateInHiveTableKey(8))
             helper.hiveExecute(table.updateInHiveTableKey(9))
             helper.hiveExecute(table.updateInHiveTableKey(10))
-            compactAndTest(hiveResStr, df1, df2)
+            if (isPartitioned) {
+              compactPartitionedAndTest(hiveResStr, df1, df2, Seq(7,8,9,10))
+            } else {
+              compactAndTest(hiveResStr, df1, df2)
+            }
           }
         }
 
@@ -306,6 +322,17 @@ class HiveACIDSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfter
           helper.compareResult(hiveResStr, df1.collect())
           helper.compareResult(hiveResStr, df2.collect())
           helper.hiveExecute(table.majorCompaction)
+          helper.compareResult(hiveResStr, df1.collect())
+          helper.compareResult(hiveResStr, df2.collect())
+        }
+
+        def compactPartitionedAndTest(hiveResStr: String, df1: DataFrame, df2: DataFrame, keys: Seq[Int]) = {
+          helper.compareResult(hiveResStr, df1.collect())
+          helper.compareResult(hiveResStr, df2.collect())
+          keys.foreach {case k => helper.hiveExecute(table.minorPartitionCompaction(k))}
+          helper.compareResult(hiveResStr, df1.collect())
+          helper.compareResult(hiveResStr, df2.collect())
+          keys.foreach {case k => helper.hiveExecute(table.majorPartitionCompaction(k))}
           helper.compareResult(hiveResStr, df1.collect())
           helper.compareResult(hiveResStr, df2.collect())
         }

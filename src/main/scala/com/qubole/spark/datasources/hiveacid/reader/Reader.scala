@@ -17,8 +17,15 @@
  * limitations under the License.
  */
 
-package com.qubole.spark.datasources.hiveacid
+package com.qubole.spark.datasources.hiveacid.reader
 
-object HiveAcidUtils {
-  val NAME = "HiveAcid"
+import com.qubole.spark.datasources.hiveacid.HiveAcidMetadata
+
+import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.sources.Filter
+
+private[reader] trait Reader {
+  def makeRDDForTable(hiveAcidMetadata: HiveAcidMetadata): RDD[InternalRow]
+  def makeRDDForPartitionedTable(partitions: Seq[Filter]): RDD[InternalRow]
 }

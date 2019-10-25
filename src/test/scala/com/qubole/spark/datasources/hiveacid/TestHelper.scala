@@ -68,7 +68,7 @@ class TestHelper {
   // 3. Read entire table using spark dataframe API
   // Verify: Both spark reads are same as hive read
 
-  // Simple
+  // Check the data present in this table via hive as well as spark sql and df
   private def compare(table: Table, msg: String): Unit = {
     log.info(s"Verify simple ${msg}")
     val hiveResStr = hiveExecuteQuery(table.hiveSelect)
@@ -76,6 +76,7 @@ class TestHelper {
     compareResult(hiveResStr, dfFromSql.collect())
     compareResult(hiveResStr, dfFromScala.collect())
   }
+
   // With Predicate
   private def compareWithPred(table: Table, msg: String, pred: String): Unit = {
     log.info(s"Verify with predicate ${msg}")
@@ -91,6 +92,35 @@ class TestHelper {
     val (dfFromSql, dfFromScala) = sparkGetDFWithProj(table)
     compareResult(hiveResStr, dfFromSql.collect())
     compareResult(hiveResStr, dfFromScala.collect())
+  }
+
+  // Compare result of 2 tables via hive
+  def compareTwoTablesViaHive(table1: Table, table2: Table, msg: String,
+                                      expectedRows: Int = -1): Unit = {
+    log.info(s"Verify output of 2 tables via Hive: ${msg}")
+    val hiveResStr1 = hiveExecuteQuery(table1.hiveSelect)
+    val hiveResStr2 = hiveExecuteQuery(table2.hiveSelect)
+    assert(hiveResStr1 == hiveResStr2, s"out1: \n${hiveResStr1}\nout2: \n${hiveResStr2}\n")
+    if (expectedRows != -1) {
+      val resultRows = hiveResStr1.split("\n").length
+      assert(resultRows == expectedRows, s"Expected $expectedRows rows, got $resultRows rows " +
+        s"in output:\n$hiveResStr1")
+    }
+  }
+
+  // Compare result of 2 tables via spark
+  def compareTwoTablesViaSpark(table1: Table, table2: Table, msg: String,
+                               expectedRows: Int = -1): Unit = {
+    log.info(s"Verify output of 2 tables via Spark: ${msg}")
+    val sparkResRows1 = sparkCollect(table1.hiveSelect)
+    val sparkResRows2 = sparkCollect(table2.hiveSelect)
+    compareResult(sparkResRows1, sparkResRows2)
+    if (expectedRows != -1) {
+      val result = sparkRowsToStr(sparkResRows1)
+      val resultRows = result.split("\n").length
+      assert(resultRows == expectedRows, s"Expected $expectedRows rows, got $resultRows rows " +
+        s"in output:\n$result")
+    }
   }
 
   // 1. Insert some more rows into the table using hive client.
@@ -229,6 +259,14 @@ class TestHelper {
     val sparkResStr = sparkRowsToStr(sparkRes)
     log.debug(s"Comparing \n hive: $hiveResStr \n Spark: $sparkResStr")
     assert(hiveResStr == sparkResStr)
+  }
+
+  // Compare the results
+  def compareResult(sparkRes1: Array[Row], sparkRes2: Array[Row]): Unit = {
+    val sparkResStr1 = sparkRowsToStr(sparkRes1)
+    val sparkResStr2 = sparkRowsToStr(sparkRes2)
+    log.debug(s"Comparing \n hive: $sparkResStr1 \n Spark: $sparkResStr2")
+    assert(sparkResStr1 == sparkResStr2)
   }
 
   // Convert Array of Spark Rows into a String

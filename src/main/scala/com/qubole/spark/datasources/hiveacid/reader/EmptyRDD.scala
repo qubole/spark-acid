@@ -17,34 +17,18 @@
  * limitations under the License.
  */
 
-package com.qubole.spark.datasources.hiveacid.util
+package com.qubole.spark.datasources.hiveacid.reader
 
-import java.io._
+import scala.reflect.ClassTag
 
-import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.io.ObjectWritable
-import org.apache.hadoop.io.Writable
+import org.apache.spark.{Partition, SparkContext, TaskContext}
+import org.apache.spark.rdd.RDD
 
-/**
- * Utility class to make a Writable serializable
- */
-private[hiveacid] class SerializableWritable[T <: Writable](@transient var t: T)
-  extends Serializable {
+private[reader] class EmptyRDD[T: ClassTag](sc: SparkContext) extends RDD[T](sc, Nil) {
 
-  def value: T = t
+  override def getPartitions: Array[Partition] = Array.empty
 
-  override def toString: String = t.toString
-
-  private def writeObject(out: ObjectOutputStream): Unit = Util.tryOrIOException {
-    out.defaultWriteObject()
-    new ObjectWritable(t).write(out)
-  }
-
-  private def readObject(in: ObjectInputStream): Unit = Util.tryOrIOException {
-    in.defaultReadObject()
-    val ow = new ObjectWritable()
-    ow.setConf(new Configuration(false))
-    ow.readFields(in)
-    t = ow.get().asInstanceOf[T]
+  override def compute(split: Partition, context: TaskContext): Iterator[T] = {
+    throw new UnsupportedOperationException("empty RDD")
   }
 }

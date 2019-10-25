@@ -56,6 +56,12 @@ assemblyShadeRules in assembly := Seq(
 	ShadeRule.rename("org.apache.hadoop.hive.**" -> "com.qubole.shaded.hadoop.hive.@1").inAll,
 	ShadeRule.rename("org.apache.hive.**" -> "com.qubole.shaded.hive.@1").inAll,
 	ShadeRule.rename("org.apache.orc.**" -> "com.qubole.shaded.orc.@1").inAll,
+	ShadeRule.rename("org.apache.commons.**" -> "com.qubole.shaded.commons.@1").inAll,
+	ShadeRule.rename("org.apache.avro.**" -> "com.qubole.shaded.avro.@1").inAll,
+	ShadeRule.rename("org.apache.parquet.**" -> "com.qubole.shaded.parquet.@1").inAll,
+	ShadeRule.rename("org.apache.http.**" -> "com.qubole.shaded.http.@1").inAll,
+	ShadeRule.rename("org.apache.tez.**" -> "com.qubole.shaded.tez.@1").inAll,
+
 	ShadeRule.rename("com.google.**" -> "com.qubole.shaded.@1").inAll,
 	ShadeRule.rename("com.facebook.fb303.**" -> "com.qubole.shaded.facebook.fb303.@1").inAll,
 	ShadeRule.rename("org.apache.thrift.**" -> "com.qubole.shaded.thrift.@1").inAll

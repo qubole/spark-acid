@@ -17,47 +17,53 @@
  * limitations under the License.
  */
 
-package com.qubole.spark.datasources.hiveacid.orc
+package com.qubole.spark.datasources.hiveacid.reader
 
 import com.qubole.shaded.hadoop.hive.ql.io.sarg.{PredicateLeaf, SearchArgument}
 import com.qubole.shaded.hadoop.hive.ql.io.sarg.SearchArgument.Builder
 import com.qubole.shaded.hadoop.hive.ql.io.sarg.SearchArgumentFactory.newBuilder
 import com.qubole.shaded.hadoop.hive.serde2.io.HiveDecimalWritable
+
 import org.apache.spark.sql.sources.{And, Filter}
 import org.apache.spark.sql.types._
 
+
+
+
 /**
-  * Helper object for building ORC `SearchArgument`s, which are used for ORC predicate push-down.
-  *
-  * Due to limitation of ORC `SearchArgument` builder, we had to end up with a pretty weird double-
-  * checking pattern when converting `And`/`Or`/`Not` filters.
-  *
-  * An ORC `SearchArgument` must be built in one pass using a single builder.  For example, you can't
-  * build `a = 1` and `b = 2` first, and then combine them into `a = 1 AND b = 2`.  This is quite
-  * different from the cases in Spark SQL or Parquet, where complex filters can be easily built using
-  * existing simpler ones.
-  *
-  * The annoying part is that, `SearchArgument` builder methods like `startAnd()`, `startOr()`, and
-  * `startNot()` mutate internal state of the builder instance.  This forces us to translate all
-  * convertible filters with a single builder instance. However, before actually converting a filter,
-  * we've no idea whether it can be recognized by ORC or not. Thus, when an inconvertible filter is
-  * found, we may already end up with a builder whose internal state is inconsistent.
-  *
-  * For example, to convert an `And` filter with builder `b`, we call `b.startAnd()` first, and then
-  * try to convert its children.  Say we convert `left` child successfully, but find that `right`
-  * child is inconvertible.  Alas, `b.startAnd()` call can't be rolled back, and `b` is inconsistent
-  * now.
-  *
-  * The workaround employed here is that, for `And`/`Or`/`Not`, we first try to convert their
-  * children with brand new builders, and only do the actual conversion with the right builder
-  * instance when the children are proven to be convertible.
-  *
-  * P.S.: Hive seems to use `SearchArgument` together with `ExprNodeGenericFuncDesc` only.  Usage of
-  * builder methods mentioned above can only be found in test code, where all tested filters are
-  * known to be convertible.
-  */
-object OrcFilters {
-  def buildTree(filters: Seq[Filter]): Option[Filter] = {
+ * Copied from org.apache.spark.sql.execution.datasources.orc.OrcFilters
+ *
+ * Helper object for building ORC `SearchArgument`s, which are used for ORC predicate push-down.
+ *
+ * Due to limitation of ORC `SearchArgument` builder, we had to end up with a pretty weird double-
+ * checking pattern when converting `And`/`Or`/`Not` filters.
+ *
+ * An ORC `SearchArgument` must be built in one pass using a single builder.  For example, you can't
+ * build `a = 1` and `b = 2` first, and then combine them into `a = 1 AND b = 2`.  This is quite
+ * different from the cases in Spark SQL or Parquet, where complex filters can be easily built using
+ * existing simpler ones.
+ *
+ * The annoying part is that, `SearchArgument` builder methods like `startAnd()`, `startOr()`, and
+ * `startNot()` mutate internal state of the builder instance.  This forces us to translate all
+ * convertible filters with a single builder instance. However, before actually converting a filter,
+ * we've no idea whether it can be recognized by ORC or not. Thus, when an inconvertible filter is
+ * found, we may already end up with a builder whose internal state is inconsistent.
+ *
+ * For example, to convert an `And` filter with builder `b`, we call `b.startAnd()` first, and then
+ * try to convert its children.  Say we convert `left` child successfully, but find that `right`
+ * child is inconvertible.  Alas, `b.startAnd()` call can't be rolled back, and `b` is inconsistent
+ * now.
+ *
+ * The workaround employed here is that, for `And`/`Or`/`Not`, we first try to convert their
+ * children with brand new builders, and only do the actual conversion with the right builder
+ * instance when the children are proven to be convertible.
+ *
+ * P.S.: Hive seems to use `SearchArgument` together with `ExprNodeGenericFuncDesc` only.  Usage of
+ * builder methods mentioned above can only be found in test code, where all tested filters are
+ * known to be convertible.
+ */
+private[reader] object HiveAcidSearchArgument {
+  private def buildTree(filters: Seq[Filter]): Option[Filter] = {
     filters match {
       case Seq() => None
       case Seq(filter) => Some(filter)
@@ -70,33 +76,12 @@ object OrcFilters {
 
   // Since ORC 1.5.0 (ORC-323), we need to quote for column names with `.` characters
   // in order to distinguish predicate pushdown for nested columns.
-  private def  quoteAttributeNameIfNeeded(name: String) : String = {
+  private def quoteAttributeNameIfNeeded(name: String) : String = {
     if (!name.contains("`") && name.contains(".")) {
       s"`$name`"
     } else {
       name
     }
-  }
-
-  /**
-    * Create ORC filter as a SearchArgument instance.
-    */
-  def createFilter(schema: StructType, filters: Seq[Filter]): Option[SearchArgument] = {
-    val dataTypeMap = schema.map(f => f.name -> f.dataType).toMap
-
-    // First, tries to convert each filter individually to see whether it's convertible, and then
-    // collect all convertible ones to build the final `SearchArgument`.
-    val convertibleFilters = for {
-      filter <- filters
-      _ <- buildSearchArgument(dataTypeMap, filter, newBuilder)
-    } yield filter
-
-    for {
-      // Combines all convertible filters using `And` to produce a single conjunction
-      conjunction <- buildTree(convertibleFilters)
-      // Then tries to build a single ORC `SearchArgument` for the conjunction predicate
-      builder <- buildSearchArgument(dataTypeMap, conjunction, newBuilder)
-    } yield builder.build()
   }
 
   /**
@@ -238,4 +223,26 @@ object OrcFilters {
       case _ => None
     }
   }
+
+  /**
+    * Create filters as a SearchArgument instance.
+    */
+  def build(schema: StructType, filters: Seq[Filter]): Option[SearchArgument] = {
+    val dataTypeMap = schema.map(f => f.name -> f.dataType).toMap
+
+    // First, tries to convert each filter individually to see whether it's convertible, and then
+    // collect all convertible ones to build the final `SearchArgument`.
+    val convertibleFilters = for {
+      filter <- filters
+      _ <- buildSearchArgument(dataTypeMap, filter, newBuilder)
+    } yield filter
+
+    for {
+      // Combines all convertible filters using `And` to produce a single conjunction
+      conjunction <- buildTree(convertibleFilters)
+      // Then tries to build a single ORC `SearchArgument` for the conjunction predicate
+      builder <- buildSearchArgument(dataTypeMap, conjunction, newBuilder)
+    } yield builder.build()
+  }
+
 }

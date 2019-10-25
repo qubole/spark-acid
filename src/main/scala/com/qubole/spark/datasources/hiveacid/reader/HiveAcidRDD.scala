@@ -17,43 +17,42 @@
  * limitations under the License.
  */
 
-package com.qubole.spark.datasources.hiveacid.rdd
+package com.qubole.spark.datasources.hiveacid.reader
 
 import java.io.{FileNotFoundException, IOException}
 import java.text.SimpleDateFormat
 import java.util.{Date, Locale}
 
-import com.qubole.shaded.hadoop.hive.common.ValidWriteIdList
-import com.qubole.shaded.hadoop.hive.ql.io.{AcidUtils, HiveInputFormat}
-import com.qubole.spark.datasources.hiveacid.HiveAcidState
-import com.qubole.spark.datasources.hiveacid.util.{InputFileBlockHolder, NextIterator, SerializableConfiguration, Util}
-import com.qubole.spark.datasources.hiveacid.rdd.Hive3RDD.Hive3PartitionsWithSplitRDD
-import com.qubole.spark.datasources.hiveacid.util.{SerializableWritable => _, _}
-import org.apache.hadoop.conf.{Configurable, Configuration}
-import org.apache.hadoop.fs.Path
-import org.apache.hadoop.mapred.lib.CombineFileSplit
-import org.apache.hadoop.mapred.{FileInputFormat, _}
-import org.apache.hadoop.mapreduce.TaskType
-import org.apache.hadoop.util.ReflectionUtils
-import org.apache.spark._
-import org.apache.spark.annotation.DeveloperApi
-import org.apache.spark.broadcast.Broadcast
-import org.apache.spark.deploy.SparkHadoopUtil
-import org.apache.spark.executor.InputMetrics
-import org.apache.spark.internal.Logging
-import org.apache.spark.rdd.RDD
-import org.apache.spark.storage.StorageLevel
-
 import scala.collection.JavaConversions._
 import scala.collection.mutable.ListBuffer
 import scala.reflect.ClassTag
+import com.qubole.shaded.hadoop.hive.common.ValidWriteIdList
+import com.qubole.shaded.hadoop.hive.ql.io.{AcidInputFormat, AcidUtils, HiveInputFormat, RecordIdentifier}
+import com.qubole.spark.datasources.hiveacid.reader.HiveAcidRDD.HiveAcidPartitionsWithSplitRDD
+import com.qubole.spark.datasources.hiveacid.transaction.HiveAcidTxn
+import com.qubole.spark.datasources.hiveacid.util.{SerializableConfiguration, Util}
+import com.qubole.spark.datasources.hiveacid.util.{SerializableWritable => _, _}
+import org.apache.hadoop.conf.{Configurable, Configuration}
+import org.apache.hadoop.fs.Path
+import org.apache.hadoop.mapred.{FileInputFormat, _}
+import org.apache.hadoop.mapreduce.TaskType
+import org.apache.hadoop.util.ReflectionUtils
+import org.apache.spark.{Partitioner, _}
+import org.apache.spark.annotation.DeveloperApi
+import org.apache.spark.broadcast.Broadcast
+import org.apache.spark.deploy.SparkHadoopUtil
+import org.apache.spark.internal.Logging
+import org.apache.spark.rdd.RDD
+import org.apache.spark.storage.StorageLevel
+import com.google.common.collect.MapMaker
 
-object Cache {
-  import com.google.common.collect.MapMaker
+// This file has lot of borrowed code from org.apache.spark.rdd.HadoopRdd
+
+private object Cache {
   val jobConf = new MapMaker().softValues().makeMap[String, Any]()
 }
 
-class Hive3Partition(rddId: Int, override val index: Int, s: InputSplit)
+private class HiveAcidPartition(rddId: Int, override val index: Int, s: InputSplit)
   extends Partition {
 
   val inputSplit = new SerializableWritable[InputSplit](s)
@@ -64,39 +63,38 @@ class Hive3Partition(rddId: Int, override val index: Int, s: InputSplit)
 }
 
 /**
-  * :: DeveloperApi ::
-  * An RDD that provides core functionality for reading data stored in Hadoop (e.g., files in HDFS,
-  * sources in HBase, or S3), using the older MapReduce API (`org.apache.hadoop.mapred`).
-  *
-  * @param sc The SparkContext to associate the RDD with.
-  * @param broadcastedConf A general Hadoop Configuration, or a subclass of it. If the enclosed
-  *   variable references an instance of JobConf, then that JobConf will be used for the Hadoop job.
-  *   Otherwise, a new JobConf will be created on each slave using the enclosed Configuration.
-  * @param initLocalJobConfFuncOpt Optional closure used to initialize any JobConf that Hive3RDD
-  *     creates.
-  * @param inputFormatClass Storage format of the data to be read.
-  * @param keyClass Class of the key associated with the inputFormatClass.
-  * @param valueClass Class of the value associated with the inputFormatClass.
-  * @param minPartitions Minimum number of Hive3RDD partitions (Hadoop Splits) to generate.
-  *
-  * @note Instantiating this class directly is not recommended, please use
-  * `org.apache.spark.SparkContext.Hive3RDD()`
-  */
-@DeveloperApi
-class Hive3RDD[K, V](
-                      sc: SparkContext,
-                      @transient val acidState: HiveAcidState,
-                      broadcastedConf: Broadcast[SerializableConfiguration],
-                      initLocalJobConfFuncOpt: Option[JobConf => Unit],
-                      inputFormatClass: Class[_ <: InputFormat[K, V]],
-                      keyClass: Class[K],
-                      valueClass: Class[V],
-                      minPartitions: Int)
-  extends RDD[(K, V)](sc, Nil) with Logging {
+ * An RDD that provides core functionality for reading data stored in Hadoop (e.g., files in HDFS,
+ * sources in HBase, or S3), using the older MapReduce API (`org.apache.hadoop.mapred`).
+ *
+ * @param sc The SparkContext to associate the RDD with.
+ * @param txn The HiveAcidTxn corresponding to this read operation. It will be used to identify
+ *             valid write ids
+ * @param broadcastedConf A general Hadoop Configuration, or a subclass of it. If the enclosed
+ *   variable references an instance of JobConf, then that JobConf will be used for the Hadoop job.
+ *   Otherwise, a new JobConf will be created on each slave using the enclosed Configuration.
+ * @param initLocalJobConfFuncOpt Optional closure used to initialize any JobConf that HiveAcidRDD
+ *     creates.
+ * @param inputFormatClass Storage format of the data to be read.
+ * @param keyClass Class of the key associated with the inputFormatClass.
+ * @param valueClass Class of the value associated with the inputFormatClass.
+ * @param minPartitions Minimum number of HiveAcidRDD partitions (Hadoop Splits) to generate.
+ *
+ * @note Instantiating this class directly is not recommended, please use
+ * `org.apache.spark.SparkContext.HiveAcidRDD()`
+ */
+private[reader] class HiveAcidRDD[K, V](sc: SparkContext,
+                                     @transient val txn: HiveAcidTxn,
+                                     broadcastedConf: Broadcast[SerializableConfiguration],
+                                     initLocalJobConfFuncOpt: Option[JobConf => Unit],
+                                     inputFormatClass: Class[_ <: InputFormat[K, V]],
+                                     keyClass: Class[K],
+                                     valueClass: Class[V],
+                                     minPartitions: Int)
+  extends RDD[(RecordIdentifier, V)](sc, Nil) with Logging {
 
   def this(
             sc: SparkContext,
-            @transient acidState: HiveAcidState,
+            @transient txn: HiveAcidTxn,
             conf: JobConf,
             inputFormatClass: Class[_ <: InputFormat[K, V]],
             keyClass: Class[K],
@@ -104,7 +102,7 @@ class Hive3RDD[K, V](
             minPartitions: Int) = {
     this(
       sc,
-      acidState,
+      txn,
       sc.broadcast(new SerializableConfiguration(conf))
         .asInstanceOf[Broadcast[SerializableConfiguration]],
       initLocalJobConfFuncOpt = None,
@@ -122,19 +120,19 @@ class Hive3RDD[K, V](
   private val createTime = new Date()
 
   private val shouldCloneJobConf =
-    sparkContext.getConf.getBoolean("spark.hadoop.cloneConf", false)
+    sparkContext.getConf.getBoolean("spark.hadoop.cloneConf", defaultValue = false)
 
   private val ignoreCorruptFiles =
-    sparkContext.getConf.getBoolean("spark.files.ignoreCorruptFiles", false)
+    sparkContext.getConf.getBoolean("spark.files.ignoreCorruptFiles", defaultValue = false)
 
   private val ignoreMissingFiles =
-    sparkContext.getConf.getBoolean("spark.files.ignoreMissingFiles", false)
+    sparkContext.getConf.getBoolean("spark.files.ignoreMissingFiles", defaultValue = false)
 
   private val ignoreEmptySplits =
-    sparkContext.getConf.getBoolean("spark.hadoopRDD.ignoreEmptySplits", false)
+    sparkContext.getConf.getBoolean("spark.hadoopRDD.ignoreEmptySplits", defaultValue = false)
 
   // Returns a JobConf that will be used on slaves to obtain input splits for Hadoop reads.
-  protected def getJobConf(): JobConf = {
+  protected def getJobConf: JobConf = {
     val conf: Configuration = broadcastedConf.value.value
     if (shouldCloneJobConf) {
       // Hadoop Configuration objects are not thread-safe, which may lead to various problems if
@@ -144,7 +142,7 @@ class Hive3RDD[K, V](
       // clone can be very expensive.  To avoid unexpected performance regressions for workloads and
       // Hadoop versions that do not suffer from these thread-safety issues, this cloning is
       // disabled by default.
-      Hive3RDD.CONFIGURATION_INSTANTIATION_LOCK.synchronized {
+      HiveAcidRDD.CONFIGURATION_INSTANTIATION_LOCK.synchronized {
         logDebug("Cloning Hadoop Configuration")
         val newJobConf = new JobConf(conf)
         if (!conf.isInstanceOf[JobConf]) {
@@ -153,29 +151,30 @@ class Hive3RDD[K, V](
         newJobConf
       }
     } else {
-      if (conf.isInstanceOf[JobConf]) {
-        logDebug("Re-using user-broadcasted JobConf")
-        conf.asInstanceOf[JobConf]
-      } else {
-        Option(Hive3RDD.getCachedMetadata(jobConfCacheKey))
-          .map { conf =>
-            logDebug("Re-using cached JobConf")
-            conf.asInstanceOf[JobConf]
-          }
-          .getOrElse {
-            // Create a JobConf that will be cached and used across this RDD's getJobConf() calls in
-            // the local process. The local cache is accessed through Hive3RDD.putCachedMetadata().
-            // The caching helps minimize GC, since a JobConf can contain ~10KB of temporary
-            // objects. Synchronize to prevent ConcurrentModificationException (SPARK-1097,
-            // HADOOP-10456).
-            Hive3RDD.CONFIGURATION_INSTANTIATION_LOCK.synchronized {
-              logDebug("Creating new JobConf and caching it for later re-use")
-              val newJobConf = new JobConf(conf)
-              initLocalJobConfFuncOpt.foreach(f => f(newJobConf))
-              Hive3RDD.putCachedMetadata(jobConfCacheKey, newJobConf)
-              newJobConf
+      conf match {
+        case c: JobConf =>
+          logDebug("Re-using user-broadcasted JobConf")
+          c
+        case _ =>
+          Option(HiveAcidRDD.getCachedMetadata(jobConfCacheKey))
+            .map { conf =>
+              logDebug("Re-using cached JobConf")
+              conf.asInstanceOf[JobConf]
             }
-          }
+            .getOrElse {
+              // Create a JobConf that will be cached and used across this RDD's getJobConf() calls in
+              // the local process. The local cache is accessed through HiveAcidRDD.putCachedMetadata().
+              // The caching helps minimize GC, since a JobConf can contain ~10KB of temporary
+              // objects. Synchronize to prevent ConcurrentModificationException (SPARK-1097,
+              // HADOOP-10456).
+              HiveAcidRDD.CONFIGURATION_INSTANTIATION_LOCK.synchronized {
+                logDebug("Creating new JobConf and caching it for later re-use")
+                val newJobConf = new JobConf(conf)
+                initLocalJobConfFuncOpt.foreach(f => f(newJobConf))
+                HiveAcidRDD.putCachedMetadata(jobConfCacheKey, newJobConf)
+                newJobConf
+              }
+            }
       }
     }
   }
@@ -191,12 +190,12 @@ class Hive3RDD[K, V](
   }
 
   override def getPartitions: Array[Partition] = {
-    val validWriteIds: ValidWriteIdList = acidState.getValidWriteIds
-    //val ValidWriteIdList = acidState.getValidWriteIdsNoTxn
-    var jobConf = getJobConf()
+    val validWriteIds: ValidWriteIdList = txn.validWriteIds
+    var jobConf = getJobConf
 
-    if (acidState.isFullAcidTable) {
-      // If full ACID table, just set the right writeIds, the OrcInputFormat.getSplits() will take care of the rest
+    if (txn.hiveAcidMetadata.isFullAcidTable) {
+      // If full ACID table, just set the right writeIds, the
+      // OrcInputFormat.getSplits() will take care of the rest
       AcidUtils.setValidWriteIdList(jobConf, validWriteIds)
     } else {
       val finalPaths = new ListBuffer[Path]()
@@ -237,62 +236,39 @@ class Hive3RDD[K, V](
       }
       val array = new Array[Partition](inputSplits.size)
       for (i <- 0 until inputSplits.size) {
-        array(i) = new Hive3Partition(id, i, inputSplits(i))
+        array(i) = new HiveAcidPartition(id, i, inputSplits(i))
       }
       array
     } catch {
       case e: InvalidInputException if ignoreMissingFiles =>
-        logWarning(s"${jobConf.get(org.apache.hadoop.mapreduce.lib.input.FileInputFormat.INPUT_DIR)} doesn't exist and no" +
+        val inputDir = jobConf.get(org.apache.hadoop.mapreduce.lib.input.FileInputFormat.INPUT_DIR)
+        logWarning(s"$inputDir doesn't exist and no" +
           s" partitions returned from this path.", e)
         Array.empty[Partition]
     }
   }
 
-  override def compute(theSplit: Partition, context: TaskContext): InterruptibleIterator[(K, V)] = {
-    val iter: NextIterator[(K, V)] = new NextIterator[(K, V)] {
+  override def compute(theSplit: Partition,
+                       context: TaskContext): InterruptibleIterator[(RecordIdentifier, V)] = {
+    val iter: NextIterator[(RecordIdentifier, V)] = new NextIterator[(RecordIdentifier, V)] {
 
-      private val split = theSplit.asInstanceOf[Hive3Partition]
+      private val split = theSplit.asInstanceOf[HiveAcidPartition]
       logInfo("Input split: " + split.inputSplit)
-      val scheme = Util.getSplitScheme(split.inputSplit.value)
-      val jobConf = getJobConf()
+      val jobConf: JobConf = getJobConf
 
-      val inputMetrics = context.taskMetrics().inputMetrics
-      val existingBytesRead = inputMetrics.bytesRead
-      val blobStoreInputMetrics: Option[InputMetrics] = None
-      val existingBlobStoreBytesRead = blobStoreInputMetrics.map(_.bytesRead).sum
-
-      // Sets InputFileBlockHolder for the file block's information
-      split.inputSplit.value match {
-        case fs: FileSplit =>
-          InputFileBlockHolder.set(fs.getPath.toString, fs.getStart, fs.getLength)
-        case _ =>
-          InputFileBlockHolder.unset()
-      }
-
-      // Find a function that will return the FileSystem bytes read by this thread. Do this before
-      // creating RecordReader, because RecordReader's constructor might read some bytes
-      private val getBytesReadCallback: Option[() => Long] = None
-
-      // We get our input bytes from thread-local Hadoop FileSystem statistics.
-      // If we do a coalesce, however, we are likely to compute multiple partitions in the same
-      // task and in the same thread, in which case we need to avoid override values written by
-      // previous partitions (SPARK-13071).
-      private def updateBytesRead(): Unit = {
-        getBytesReadCallback.foreach { getBytesRead =>
-//          inputMetrics.setBytesRead(existingBytesRead + getBytesRead())
-//          blobStoreInputMetrics.foreach(_.setBytesRead(existingBlobStoreBytesRead + getBytesRead()))
-        }
-      }
-
-      private var reader: RecordReader[K, V] = null
+      private var reader: RecordReader[K, V] = _
       private val inputFormat = getInputFormat(jobConf)
-      Hive3RDD.addLocalConfiguration(
+      HiveAcidRDD.addLocalConfiguration(
         new SimpleDateFormat("yyyyMMddHHmmss", Locale.US).format(createTime),
         context.stageId, theSplit.index, context.attemptNumber, jobConf)
 
       reader =
         try {
-          inputFormat.getRecordReader(split.inputSplit.value, jobConf, Reporter.NULL)
+          // Underlying code is not MT safe. Synchronize
+          // while creating record reader
+          HiveAcidRDD.RECORD_READER_INIT_LOCK.synchronized {
+            inputFormat.getRecordReader(split.inputSplit.value, jobConf, Reporter.NULL)
+          }
         } catch {
           case e: FileNotFoundException if ignoreMissingFiles =>
             logWarning(s"Skipped missing file: ${split.inputSplit}", e)
@@ -306,19 +282,26 @@ class Hive3RDD[K, V](
             null
         }
       // Register an on-task-completion callback to close the input stream.
-      context.addTaskCompletionListener[Unit] { context =>
-        // Update the bytes read before closing is to make sure lingering bytesRead statistics in
-        // this thread get correctly added.
-        updateBytesRead()
+      context.addTaskCompletionListener[Unit] { _ =>
         closeIfNeeded()
       }
 
       private val key: K = if (reader == null) null.asInstanceOf[K] else reader.createKey()
       private val value: V = if (reader == null) null.asInstanceOf[V] else reader.createValue()
+      private var recordIdentifier: RecordIdentifier = _
+      private val acidRecordReader = reader match {
+        case acidReader: AcidInputFormat.AcidRecordReader[_, _] =>
+          acidReader
+        case _ =>
+          null
+      }
 
-      override def getNext(): (K, V) = {
+      override def getNext(): (RecordIdentifier, V) = {
         try {
           finished = !reader.next(key, value)
+          if (!finished && acidRecordReader != null) {
+            recordIdentifier = acidRecordReader.getRecordIdentifier
+          }
         } catch {
           case e: FileNotFoundException if ignoreMissingFiles =>
             logWarning(s"Skipped missing file: ${split.inputSplit}", e)
@@ -329,19 +312,11 @@ class Hive3RDD[K, V](
             logWarning(s"Skipped the rest content in the corrupted file: ${split.inputSplit}", e)
             finished = true
         }
-        if (!finished) {
-//          inputMetrics.incRecordsRead(1)
-//          blobStoreInputMetrics.foreach(_.incRecordsRead(1))
-        }
-//        if (inputMetrics.recordsRead % SparkHadoopUtil.UPDATE_INPUT_METRICS_INTERVAL_RECORDS == 0) {
-//          updateBytesRead()
-//        }
-        (key, value)
+        (recordIdentifier, value)
       }
 
       override def close(): Unit = {
         if (reader != null) {
-          InputFileBlockHolder.unset()
           try {
             reader.close()
           } catch {
@@ -352,24 +327,10 @@ class Hive3RDD[K, V](
           } finally {
             reader = null
           }
-          if (getBytesReadCallback.isDefined) {
-            updateBytesRead()
-          } else if (split.inputSplit.value.isInstanceOf[FileSplit] ||
-            split.inputSplit.value.isInstanceOf[CombineFileSplit]) {
-            // If we can't get the bytes read from the FS stats, fall back to the split size,
-            // which may be inaccurate.
-            try {
-//              inputMetrics.incBytesRead(split.inputSplit.value.getLength)
-//              blobStoreInputMetrics.foreach(_.incBytesRead(split.inputSplit.value.getLength))
-            } catch {
-              case e: java.io.IOException =>
-                logWarning("Unable to get input size to set InputMetrics for task", e)
-            }
-          }
         }
       }
     }
-    new InterruptibleIterator[(K, V)](context, iter)
+    new InterruptibleIterator[(RecordIdentifier, V)](context, iter)
   }
 
 
@@ -377,16 +338,16 @@ class Hive3RDD[K, V](
   /** Maps over a partition, providing the InputSplit that was used as the base of the partition. */
   @DeveloperApi
   def mapPartitionsWithInputSplit[U: ClassTag](
-                                                f: (InputSplit, Iterator[(K, V)]) => Iterator[U],
-                                                preservesPartitioning: Boolean = false): RDD[U] = {
-    new Hive3PartitionsWithSplitRDD(this, f, preservesPartitioning)
+      f: (InputSplit, Iterator[(RecordIdentifier, V)]) => Iterator[U],
+      preservesPartitioning: Boolean = false): RDD[U] = {
+    new HiveAcidPartitionsWithSplitRDD(this, f, preservesPartitioning)
   }
 
   override def getPreferredLocations(split: Partition): Seq[String] = {
-    val hsplit = split.asInstanceOf[Hive3Partition].inputSplit.value
+    val hsplit = split.asInstanceOf[HiveAcidPartition].inputSplit.value
     val locs = hsplit match {
       case lsplit: InputSplitWithLocationInfo =>
-        Hive3RDD.convertSplitLocationInfo(lsplit.getLocationInfo)
+        HiveAcidRDD.convertSplitLocationInfo(lsplit.getLocationInfo)
       case _ => None
     }
     locs.getOrElse(hsplit.getLocations.filter(_ != "localhost"))
@@ -398,17 +359,29 @@ class Hive3RDD[K, V](
 
   override def persist(storageLevel: StorageLevel): this.type = {
     if (storageLevel.deserialized) {
-      logWarning("Caching Hive3RDDs as deserialized objects usually leads to undesired" +
+      logWarning("Caching HiveAcidRDDs as deserialized objects usually leads to undesired" +
         " behavior because Hadoop's RecordReader reuses the same Writable object for all records." +
         " Use a map transformation to make copies of the records.")
     }
     super.persist(storageLevel)
   }
 
-  def getConf: Configuration = getJobConf()
+  def getConf: Configuration = getJobConf
 }
 
+<<<<<<< HEAD:src/main/scala/com/qubole/spark/datasources/hiveacid/rdd/Hive3Rdd.scala
 object Hive3RDD extends Logging {
+=======
+object HiveAcidRDD extends Logging {
+
+  /*
+   * Use of utf8Decoder inside OrcRecordUpdater is not MT safe when peforming
+   * getRecordReader. This leads to illlegal state exeception when called in
+   * parallel by multiple tasks in single executor (JVM). Synchronize !!
+   */
+  val RECORD_READER_INIT_LOCK = new Object()
+
+>>>>>>> dec9109... [SPAR-3779]:[oss]: Insert into/overwrite support for orc full acid tables:src/main/scala/com/qubole/spark/datasources/hiveacid/reader/HiveAcidRDD.scala
   /**
     * Configuration's constructor is not threadsafe (see SPARK-1097 and HADOOP-10456).
     * Therefore, we synchronize on this lock before calling new JobConf() or new Configuration().
@@ -443,18 +416,18 @@ object Hive3RDD extends Logging {
     * Analogous to [[org.apache.spark.rdd.MapPartitionsRDD]], but passes in an InputSplit to
     * the given function rather than the index of the partition.
     */
-  class Hive3PartitionsWithSplitRDD[U: ClassTag, T: ClassTag](
+  class HiveAcidPartitionsWithSplitRDD[U: ClassTag, T: ClassTag](
                                                                prev: RDD[T],
                                                                f: (InputSplit, Iterator[T]) => Iterator[U],
                                                                preservesPartitioning: Boolean = false)
     extends RDD[U](prev) {
 
-    override val partitioner = if (preservesPartitioning) firstParent[T].partitioner else None
+    override val partitioner: Option[Partitioner] = if (preservesPartitioning) firstParent[T].partitioner else None
 
     override def getPartitions: Array[Partition] = firstParent[T].partitions
 
     override def compute(split: Partition, context: TaskContext): Iterator[U] = {
-      val partition = split.asInstanceOf[Hive3Partition]
+      val partition = split.asInstanceOf[HiveAcidPartition]
       val inputSplit = partition.inputSplit.value
       f(inputSplit, firstParent[T].iterator(split, context))
     }
@@ -477,5 +450,79 @@ object Hive3RDD extends Logging {
         None
       }
     })
+  }
+}
+
+/**
+ * Borrowed from org.apache.spark.util.NextIterator
+ */
+private abstract class NextIterator[U] extends Iterator[U] {
+
+  private var gotNext = false
+  private var nextValue: U = _
+  private var closed = false
+  protected var finished = false
+
+  /**
+    * Method for subclasses to implement to provide the next element.
+    *
+    * If no next element is available, the subclass should set `finished`
+    * to `true` and may return any value (it will be ignored).
+    *
+    * This convention is required because `null` may be a valid value,
+    * and using `Option` seems like it might create unnecessary Some/None
+    * instances, given some iterators might be called in a tight loop.
+    *
+    * @return U, or set 'finished' when done
+    */
+  protected def getNext(): U
+
+  /**
+    * Method for subclasses to implement when all elements have been successfully
+    * iterated, and the iteration is done.
+    *
+    * <b>Note:</b> `NextIterator` cannot guarantee that `close` will be
+    * called because it has no control over what happens when an exception
+    * happens in the user code that is calling hasNext/next.
+    *
+    * Ideally you should have another try/catch, as in HadoopRDD, that
+    * ensures any resources are closed should iteration fail.
+    */
+  protected def close()
+
+  /**
+    * Calls the subclass-defined close method, but only once.
+    *
+    * Usually calling `close` multiple times should be fine, but historically
+    * there have been issues with some InputFormats throwing exceptions.
+    */
+  def closeIfNeeded() {
+    if (!closed) {
+      // Note: it's important that we set closed = true before calling close(), since setting it
+      // afterwards would permit us to call close() multiple times if close() threw an exception.
+      closed = true
+      close()
+    }
+  }
+
+  override def hasNext: Boolean = {
+    if (!finished) {
+      if (!gotNext) {
+        nextValue = getNext()
+        if (finished) {
+          closeIfNeeded()
+        }
+        gotNext = true
+      }
+    }
+    !finished
+  }
+
+  override def next(): U = {
+    if (!hasNext) {
+      throw new NoSuchElementException("End of stream")
+    }
+    gotNext = false
+    nextValue
   }
 }

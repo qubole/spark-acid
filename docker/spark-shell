@@ -1,0 +1,66 @@
+#!/bin/bash
+if [ -z ${2} ]
+then
+	echo "Specify the spark-acid jar location"
+	echo "spark-shell ~/codeline/TOT ~/codeline/TOT/acid-ds/target/scala-2.11/spark-acid-qds-assembly-0.4.3.jar"
+	exit
+fi
+if [ -z ${1} ]
+then
+	echo "Specify and spark code base directory"
+	echo "spark-shell ~/codeline/TOT ~/codeline/TOT/acid-ds/target/scala-2.11/spark-acid-qds-assembly-0.4.3.jar"
+	exit
+fi
+
+shellenv() {
+	export QENV_LOCAL_CODELINE="${1}"
+	export QENV_LOCAL_CONF="${QENV_LOCAL}/conf"
+	export HADOOP_SRC="${QENV_LOCAL_CODELINE}/hadoop2"
+	export SPARK_SRC="${QENV_LOCAL_CODELINE}/spark"
+	export HUSTLER_SRC="${QENV_LOCAL_CODELINE}/hustler"
+	export HIVE_SRC="${QENV_LOCAL_CODELINE}/hive"
+	export ZEPPELIN_SRC="${QENV_LOCAL_CODELINE}/zeppelin"
+}
+
+hsnapshot() {
+     HADOOP_SNAPSHOT=`ls ${HADOOP_SRC}/hadoop-dist/target/hadoop* | grep SNAPSHOT: | cut -d':' -f1`
+}
+ 
+hivesnapshot() {
+     loc=`ls ${HIVE_SRC}/packaging/target/apache-hive* |grep bin |grep -v ':'`
+     HIVE_SNAPSHOT=${HIVE_SRC}/packaging/target/${loc}/${loc}/
+}
+
+run_spark_shelllocal() {
+
+	# Setup writest into spark-env file. Run spark-shell after it.
+	echo "Update Spark Conf based on Hadoop Build Version --> ${SPARK_SRC}/conf/spark-env.sh"
+	hsnapshot
+	hivesnapshot
+
+	str="export SPARK_YARN_USER_ENV=CLASSPATH=${QENV_LOCAL_CONF}/"
+	echo ${str} > ${SPARK_SRC}/conf/spark-env.sh
+
+	if [ -n "${HADOOP_SNAPSHOT}" ]
+	then
+
+		str="export SPARK_DIST_CLASSPATH=${QENV_LOCAL_CONF}/:${HADOOP_SNAPSHOT}/share/hadoop/common/lib/*:${HADOOP_SNAPSHOT}/share/hadoop/common/*:${HADOOP_SNAPSHOT}/share/hadoop/hdfs:${HADOOP_SNAPSHOT}/share/hadoop/hdfs/lib/*:${HADOOP_SNAPSHOT}/share/hadoop/hdfs/*:${HADOOP_SNAPSHOT}/share/hadoop/yarn/lib/*:${HADOOP_SNAPSHOT}/share/hadoop/yarn/*:${HADOOP_SNAPSHOT}/share/hadoop/mapreduce/*:/share/hadoop/tools:${HADOOP_SNAPSHOT}/share/hadoop/tools/lib/*:${HADOOP_SNAPSHOT}/share/hadoop/tools/*:/share/hadoop/qubole:${HADOOP_SNAPSHOT}/share/hadoop/qubole/*"
+		 echo ${str} >> ${SPARK_SRC}/conf/spark-env.sh
+	fi
+
+	if [ -n "${HIVE_SNAPSHOT}" ]
+	then
+		str="export SPARK_DIST_CLASSPATH=\${SPARK_DIST_CLASSPATH}:${HIVE_SNAPSHOT}/lib/*"
+		echo ${str} >> ${SPARK_SRC}/conf/spark-env.sh
+	fi
+
+	str="export HADOOP_CONF_DIR=${QENV_LOCAL_CONF}/"
+	echo ${str} >> ${SPARK_SRC}/conf/spark-env.sh
+
+	$SPARK_SRC/bin/spark-shell $@
+}
+
+
+shellenv ${1}
+shift
+run_spark_shelllocal --jars $@ --conf spark.sql.extensions=com.qubole.spark.datasources.hiveacid.HiveAcidAutoConvertExtension --conf spark.hadoop.hive.metastore.uris=thrift://localhost:10000 --conf spark.sql.catalogImplementation=hive

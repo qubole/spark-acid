@@ -19,24 +19,64 @@
 
 package com.qubole.spark.datasources.hiveacid
 
+import org.apache.spark.sql.SaveMode
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 
-object HiveAcidErrors {
-  def tableNotSpecifiedException: Throwable = {
-    new IllegalArgumentException("'table' is not specified")
+private[hiveacid] object HiveAcidErrors {
+  def tableNotSpecifiedException(): Throwable = {
+    new IllegalArgumentException("'table' is not specified in parameters")
   }
 
-  def tableNotAcidException: Throwable = {
-    new IllegalArgumentException("The specified table is not an acid table")
+  def unsupportedFunction(): Throwable = {
+    new java.lang.UnsupportedOperationException()
   }
 
-  def validWriteIdsNotInitialized: Throwable = {
-    new RuntimeException("Valid WriteIds not initialized")
+  def invalidOperationType(operation: String): Throwable = {
+    new RuntimeException(s"Invalid operation type - $operation")
   }
 
+  def unsupportedSaveMode(saveMode: SaveMode): Throwable = {
+    new RuntimeException(s"Unsupported save mode - $saveMode")
+  }
+  def unsupportedOperationTypeInsertOnlyTable(operation: String): Throwable = {
+    new RuntimeException(s"Unsupported operation type - $operation for InsertOnly tables")
+  }
+
+  def tableNotAcidException(tableName: String): Throwable = {
+    new IllegalArgumentException(s"table $tableName is not an acid table")
+  }
+
+  def couldNotAcquireLockException(exception: Exception = null): Throwable = {
+    new RuntimeException(s"Could not acquire lock.", exception)
+  }
+
+  def couldNotAcquireLockException(state: String): Throwable = {
+    new RuntimeException(s"Could not acquire lock. Lock State: $state")
+  }
+
+  def txnAlreadyClosed(txnId: Long): Throwable = {
+    new RuntimeException(s"Transaction $txnId is already closed")
+  }
+
+  def txnAlreadyOpen(txnId: Long): Throwable = {
+    new RuntimeException(s"Transaction already opened. Existing txnId: $txnId")
+  }
+
+  def txnNotStarted(table: String): Throwable = {
+    new RuntimeException(s"Transaction on $table not started")
+  }
+
+  def tableWriteIdRequestedBeforeTxnStart(table: String): Throwable = {
+    new RuntimeException(s"Write id requested for table $table before txn was started")
+  }
+
+  def repeatedTxnId(txnId: Long, activeTxns: Seq[Long]): Throwable = {
+    new RuntimeException(s"Repeated transaction id $txnId," +
+      s"active transactions are [${activeTxns.mkString(",")}]")
+  }
 }
 
-class AnalysisException (
+private[hiveacid] class AnalysisException(
      val message: String,
      val line: Option[Int] = None,
      val startPosition: Option[Int] = None,

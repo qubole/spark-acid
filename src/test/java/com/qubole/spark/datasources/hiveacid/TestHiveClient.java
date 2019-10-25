@@ -104,11 +104,11 @@ public class TestHiveClient {
 	public void teardown() throws SQLException {
 		if (stmt != null) {
 			stmt.close();
+			stmt = null;
 		}
 		if (con != null) {
 			con.close();
+			con = null;
 		}
-		stmt = null;
-		con = null;
 	}
 }

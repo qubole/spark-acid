@@ -1,0 +1,8 @@
+#!/bin/bash
+
+name="spark-hiveacid-test-container"
+
+docker exec -it $name bin/bash -c "\
+	. ~/.bashrc;                   \
+	export HADOOP_HOME=/hadoop;    \
+	hive/bin/beeline -u jdbc:hive2://0.0.0.0:10001/default root root"

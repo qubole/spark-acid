@@ -17,20 +17,20 @@
  * limitations under the License.
  */
 
-package com.qubole.spark.datasources.hiveacid.rdd
+package com.qubole.spark.datasources.hiveacid.util
 
 import java.lang.reflect.{ParameterizedType, Type, WildcardType}
-import java.sql.Date
-import java.sql.Timestamp
 
 import scala.collection.JavaConverters._
-import org.apache.hadoop.{io => hadoopIo}
+
 import com.qubole.shaded.hadoop.hive.common.`type`.{HiveChar, HiveDecimal, HiveVarchar}
 import com.qubole.shaded.hadoop.hive.serde2.{io => hiveIo}
 import com.qubole.shaded.hadoop.hive.serde2.objectinspector.{StructField => HiveStructField, _}
 import com.qubole.shaded.hadoop.hive.serde2.objectinspector.primitive._
 import com.qubole.shaded.hadoop.hive.serde2.typeinfo.{DecimalTypeInfo, TypeInfoFactory}
 import com.qubole.spark.datasources.hiveacid.AnalysisException
+import org.apache.hadoop.{io => hadoopIo}
+
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.util._
@@ -38,7 +38,11 @@ import org.apache.spark.sql.types
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.types.UTF8String
 
-trait Hive3Inspectors {
+/**
+ * This class is similar to org.apache.spark.sql.hive.HiveInspectors.
+ * Changes are made here to make it work with Hive3
+ */
+private[hiveacid] trait Hive3Inspectors {
 
   def javaTypeToDataType(clz: Type): DataType = clz match {
     // writable
@@ -136,7 +140,7 @@ trait Hive3Inspectors {
       case _: StringObjectInspector if x.preferWritable() =>
         withNullSafe(o => getStringWritable(o))
       case _: StringObjectInspector =>
-        withNullSafe(o => o.asInstanceOf[UTF8String].toString())
+        withNullSafe(o => o.asInstanceOf[UTF8String].toString)
       case _: IntObjectInspector if x.preferWritable() =>
         withNullSafe(o => getIntWritable(o))
       case _: IntObjectInspector =>
@@ -366,7 +370,7 @@ trait Hive3Inspectors {
           .toArray
         val constant = new GenericArrayData(values)
         _ => constant
-      case poi: VoidObjectInspector =>
+      case _: VoidObjectInspector =>
         _ => null // always be null for void object inspector
       case pi: PrimitiveObjectInspector => pi match {
         // We think HiveVarchar/HiveChar is also a String
@@ -453,9 +457,7 @@ trait Hive3Inspectors {
           data: Any => {
             if (data != null) {
               toCatalystDecimal(x, data)
-            } else {
-              null
-            }
+            } else null
           }
         case x: BinaryObjectInspector if x.preferWritable() =>
           data: Any => {
@@ -464,12 +466,10 @@ trait Hive3Inspectors {
               // In order to keep backward-compatible, we have to copy the
               // bytes with old apis
               val bw = x.getPrimitiveWritableObject(data)
-              val result = new Array[Byte](bw.getLength())
-              System.arraycopy(bw.getBytes(), 0, result, 0, bw.getLength())
+              val result = new Array[Byte](bw.getLength)
+              System.arraycopy(bw.getBytes, 0, result, 0, bw.getLength)
               result
-            } else {
-              null
-            }
+            } else null
           }
         case x: DateObjectInspector if x.preferWritable() =>
           data: Any => {
@@ -483,7 +483,7 @@ trait Hive3Inspectors {
         case x: DateObjectInspector =>
           data: Any => {
             if (data != null) {
-              val y = x.getPrimitiveJavaObject(data).toEpochMilli
+              val y: Long = x.getPrimitiveJavaObject(data).toEpochMilli
               DateTimeUtils.fromJavaDate(new java.sql.Date(y))
             } else {
               null
@@ -596,7 +596,7 @@ trait Hive3Inspectors {
 
   def wrap(
             row: InternalRow,
-            wrappers: Array[(Any) => Any],
+            wrappers: Array[Any => Any],
             cache: Array[AnyRef],
             dataTypes: Array[DataType]): Array[AnyRef] = {
     var i = 0
@@ -610,7 +610,7 @@ trait Hive3Inspectors {
 
   def wrap(
             row: Seq[Any],
-            wrappers: Array[(Any) => Any],
+            wrappers: Array[Any => Any],
             cache: Array[AnyRef],
             dataTypes: Array[DataType]): Array[AnyRef] = {
     var i = 0

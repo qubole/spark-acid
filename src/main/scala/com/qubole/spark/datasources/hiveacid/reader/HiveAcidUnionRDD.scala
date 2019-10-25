@@ -17,23 +17,39 @@
  * limitations under the License.
  */
 
-package com.qubole.spark.datasources.hiveacid.rdd
-
-import com.qubole.spark.datasources.hiveacid.HiveAcidState
-import org.apache.spark._
-import org.apache.spark.rdd.{RDD, UnionRDD}
+package com.qubole.spark.datasources.hiveacid.reader
 
 import scala.reflect.ClassTag
 
-class AcidLockUnionRDD[T: ClassTag](
+import com.qubole.spark.datasources.hiveacid.HiveAcidOperation
+import com.qubole.spark.datasources.hiveacid.transaction.HiveAcidTxn
+
+import org.apache.spark._
+import org.apache.spark.rdd.{RDD, UnionRDD}
+
+/**
+  * A Hive3RDD is created for each of the hive partition of the table. But at the end the buildScan
+  * is supposed to return only 1 RDD for entire table. So we have to create UnionRDD for it.
+  *
+  * This class extends UnionRDD and makes sure that we acquire read lock once for all the
+  * partitions of the table
+
+  * @param sc - sparkContext
+  * @param rddSeq - underlying partition RDDs
+  * @param partitionList - partitions represented by this Union RDD
+  * @param txn - HiveAcidTxn to take read locks
+  */
+private[reader] class HiveAcidUnionRDD[T: ClassTag](
    sc: SparkContext,
    rddSeq: Seq[RDD[T]],
    partitionList: Seq[String],
-   @transient val acidState: HiveAcidState) extends UnionRDD[T](sc, rddSeq) {
+   @transient val txn: HiveAcidTxn) extends UnionRDD[T](sc, rddSeq) {
 
   override def getPartitions: Array[Partition] = {
     // Initialize the ACID state here to get the write-ids to read
-    acidState.beginRead
+    // Start transaction
+    txn.begin()
+    txn.acquireLocks(HiveAcidOperation.READ, partitionList)
     super.getPartitions
   }
 }
