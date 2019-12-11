@@ -21,14 +21,20 @@ package com.qubole.spark.datasources.hiveacid.writer
 
 import java.util.Properties
 
+import scala.collection.JavaConverters._
+import scala.collection.mutable
+import com.qubole.shaded.hadoop.hive.ql.exec.FileSinkOperator.RecordWriter
 import com.qubole.shaded.hadoop.hive.ql.exec.Utilities
-import com.qubole.shaded.hadoop.hive.ql.io.{HiveFileFormatUtils, RecordIdentifier, RecordUpdater, _}
-import com.qubole.shaded.hadoop.hive.serde2.objectinspector.ObjectInspectorUtils.ObjectInspectorCopyOption
-import com.qubole.shaded.hadoop.hive.serde2.objectinspector.{ObjectInspectorFactory, ObjectInspectorUtils, StructObjectInspector}
+import com.qubole.shaded.hadoop.hive.ql.io.{BucketCodec, HiveFileFormatUtils, RecordIdentifier, RecordUpdater, _}
+import com.qubole.shaded.hadoop.hive.ql.plan.{FileSinkDesc, TableDesc}
 import com.qubole.shaded.hadoop.hive.serde2.{Deserializer, SerDeUtils}
-import com.qubole.spark.datasources.hiveacid.util.{Hive3Inspectors, Util}
+import com.qubole.shaded.hadoop.hive.serde2.Serializer
+import com.qubole.shaded.hadoop.hive.serde2.objectinspector.{ObjectInspector, ObjectInspectorFactory, ObjectInspectorUtils, StructObjectInspector}
+import com.qubole.shaded.hadoop.hive.serde2.objectinspector.ObjectInspectorUtils.ObjectInspectorCopyOption
 import com.qubole.spark.datasources.hiveacid.{HiveAcidErrors, HiveAcidOperation}
+import com.qubole.spark.datasources.hiveacid.util.{Hive3Inspectors, Util}
 import org.apache.hadoop.fs.Path
+import org.apache.hadoop.io.Writable
 import org.apache.hadoop.mapred.{JobConf, Reporter}
 import org.apache.spark.TaskContext
 import org.apache.spark.internal.Logging
@@ -39,7 +45,86 @@ import org.apache.spark.sql.catalyst.expressions.{Cast, Concat, Expression, Lite
 import org.apache.spark.sql.execution.datasources.PartitioningUtils
 import org.apache.spark.sql.types.StringType
 
-import scala.collection.JavaConverters._
+
+
+abstract private[writer] class HiveAcidWriter(val options: WriterOptions,
+                                     val hive3Options: HiveAcidWriterOptions)
+  extends Writer with Logging {
+
+  // Takes as input partition columns returns expression to
+  // create partition path. See udf `getPartitionPathString`
+  // input = p1, p2, p3
+  // output = Seq(Expr(p1=*), Literal(/), Expr(p2=?), Literal('/'), Expr(p3=?))
+  private val partitionPathExpression: Expression = Concat(
+    options.partitionColumns.zipWithIndex.flatMap { case (c, i) =>
+      val partitionName = ScalaUDF(
+        ExternalCatalogUtils.getPartitionPathString _,
+        StringType,
+        Seq(Literal(c.name), Cast(c, StringType, Option(options.timeZoneId))),
+        Seq(true, true))
+      if (i == 0) Seq(partitionName) else Seq(Literal(Path.SEPARATOR), partitionName)
+    })
+
+  private val getPartitionPath: InternalRow => String = {
+    val proj = UnsafeProjection.create(Seq(partitionPathExpression),
+      options.partitionColumns)
+    row => proj(row).getString(0)
+  }
+
+  private val partitionsTouchedSet = scala.collection.mutable.HashSet[TablePartitionSpec]()
+  def partitionsTouched(): Seq[TablePartitionSpec] = partitionsTouchedSet.toSeq
+
+  // Utility functions for extracting partition and data parts of row
+  //
+  protected val getDataValues: InternalRow => UnsafeRow = {
+    val proj = UnsafeProjection.create(options.dataColumns, options.allColumns)
+    row => proj(row)
+  }
+
+  protected val getPartitionValues: InternalRow => UnsafeRow = {
+    val proj = UnsafeProjection.create(options.partitionColumns,
+      options.allColumns)
+    row => proj(row)
+  }
+
+  protected val jobConf: JobConf = {
+    val hConf = options.serializableHadoopConf.value
+    new JobConf(hConf)
+  }
+
+  protected val sparkHiveRowConverter = new SparkHiveRowConverter(options, hive3Options, jobConf)
+
+  // Cache of writers
+  protected val writers: mutable.Map[(String, Int, Int), Any] = scala.collection.mutable.Map[(String, Int, Int), Any]()
+
+  lazy protected val taskId: Int =
+    Utilities.getTaskIdFromFilename(TaskContext.get.taskAttemptId().toString).toInt
+
+  protected def getOrCreateWriter(partitionRow: InternalRow, acidBucketId: Int): Any = {
+
+    val partitionBasePath = if (options.partitionColumns.isEmpty) {
+      new Path(hive3Options.rootPath)
+    } else {
+      val path = getPartitionPath(partitionRow)
+      partitionsTouchedSet.add(PartitioningUtils.parsePathFragment(path))
+      new Path(hive3Options.rootPath, path)
+    }
+
+    writers.getOrElseUpdate((partitionBasePath.toUri.toString, taskId, acidBucketId),
+      createWriter(partitionBasePath, acidBucketId))
+  }
+
+  protected def createWriter(path: Path, acidBucketId: Int): Any = {}
+
+  // Cache structure to store row
+  protected val hiveRow = new Array[Any](sparkHiveRowConverter.numFields)
+
+  lazy protected val fileSinkConf: FileSinkDesc = {
+    val fileSinkConf = hive3Options.getFileSinkDesc
+    fileSinkConf.setDirName(new Path(hive3Options.rootPath))
+    fileSinkConf
+  }
+}
 
 /**
  * This class is responsible for writing a InternalRow into a Full-ACID table
@@ -53,59 +138,48 @@ import scala.collection.JavaConverters._
  * for Delete, row is expected to contain rowId
  * for Update, row is expected to contain data as well as row Id
  *
+ * BucketID Conundrum: In acid table single bucket cannot have multiple files.
+ *
+ * When performing inserts for the first time, bucketId needs to assigned such that
+ * only 1 tasks writes the data to 1 bucket. Scheme used currently is to use shuffle
+ * partitionID as bucketID. This scheme works even for task retry as retried task
+ * overwrite already half written file, but has a problem of skew as the shuffle
+ * partitionId is not based on data but on number of splits, it has bias towards
+ * adding more data on lower number bucket. Ideally the data should been equally
+ * distributed across multiple inserts.
+ *
+ * When performing delete/updates (updates are inserts + deletes) inside delete
+ * delta directory bucket number in file name needs to match that of base and
+ * delta file for which the delete file is being written. This is to be able
+ * to prune files by name itself (penalty paid at the time of write). For handling
+ * it data is repartitioned on rowId.bucketId (see [[TableWriter]]) values
+ * before writing delete delta file.
+ *
+ * For Bucketed tables
+ *
+ * Invariant of however many splits that may have been created at the source the
+ * data into single bucket needs to be written by single task. Hence before writing
+ * the data is Same bucket cannot have multiple files
+ *
  * @param options - writer options to use
  * @param hive3Options - Hive3 related writer options.
  */
-private[writer] class HiveAcidFullAcidWriter(val options: WriterOptions,
-                                             val hive3Options: HiveAcidWriterOptions)
-  extends Writer with Logging {
+private[writer] class HiveAcidFullAcidWriter(options: WriterOptions,
+                                             hive3Options: HiveAcidWriterOptions)
+  extends HiveAcidWriter(options, hive3Options) with Logging {
 
-  private val partitionPathExpression: Expression = Concat(
-    options.partitionColumns.zipWithIndex.flatMap { case (c, i) =>
-      val partitionName = ScalaUDF(
-        ExternalCatalogUtils.getPartitionPathString _,
-        StringType,
-        Seq(Literal(c.name), Cast(c, StringType, Option(options.timeZoneId))),
-        Seq(true, true))
-      if (i == 0) Seq(partitionName) else Seq(Literal(Path.SEPARATOR), partitionName)
-    })
-
-  private val getDataValues: InternalRow => UnsafeRow = {
-    val proj = UnsafeProjection.create(options.dataColumns, options.allColumns)
-    row => proj(row)
+  private lazy val rowIdColNum = options.operationType match {
+    case HiveAcidOperation.INSERT_INTO | HiveAcidOperation.INSERT_OVERWRITE =>
+      -1
+    case HiveAcidOperation.UPDATE | HiveAcidOperation.DELETE =>
+      0
+    case x =>
+      throw new RuntimeException(s"Invalid write operation $x")
   }
 
-  private val getPartitionValues: InternalRow => UnsafeRow = {
-    val proj = UnsafeProjection.create(options.partitionColumns,
-      options.allColumns)
-    row => proj(row)
-  }
+  override protected def createWriter(path: Path, acidBucketId: Int): Any = {
 
-  private val getPartitionPath: InternalRow => String = {
-    val proj = UnsafeProjection.create(Seq(partitionPathExpression),
-      options.partitionColumns)
-    row => proj(row).getString(0)
-  }
-
-  private val jobConf = {
-    val hConf = options.serializableHadoopConf.value
-    new JobConf(hConf)
-  }
-
-  private val partitionsTouchedSet = scala.collection.mutable.HashSet[TablePartitionSpec]()
-
-  def initializeNewRecordUpdater(path: Path, acidBucketId: Int): RecordUpdater = {
     val tableDesc = hive3Options.getFileSinkDesc.getTableInfo
-
-    val rowIdColNum = options.operationType match {
-      case HiveAcidOperation.INSERT_INTO | HiveAcidOperation.INSERT_OVERWRITE =>
-        -1
-      case x =>
-        throw new RuntimeException(s"Invalid write operation $x")
-    }
-
-    val fileSinkConf = hive3Options.getFileSinkDesc
-    fileSinkConf.setDirName(new Path(hive3Options.rootPath))
 
     val recordUpdater = HiveFileFormatUtils.getAcidRecordUpdater(
       jobConf,
@@ -126,6 +200,8 @@ private[writer] class HiveAcidFullAcidWriter(val options: WriterOptions,
 
     val (createDelta, createDeleteDelta) = options.operationType match {
       case HiveAcidOperation.INSERT_INTO | HiveAcidOperation.INSERT_OVERWRITE => (true, false)
+      case HiveAcidOperation.UPDATE => (true, true)
+      case HiveAcidOperation.DELETE => (false, true)
       case unknownOperation => throw HiveAcidErrors.invalidOperationType(unknownOperation.toString)
     }
 
@@ -155,25 +231,26 @@ private[writer] class HiveAcidFullAcidWriter(val options: WriterOptions,
     recordUpdater
   }
 
-  private val recordUpdaters = scala.collection.mutable.Map[(String, Int), RecordUpdater]()
-  private def getRecordUpdaterForPartition(partitionRow: InternalRow): RecordUpdater = {
-    val path = if (options.partitionColumns.isEmpty) {
-      new Path(hive3Options.rootPath)
+  private def getBucketID(dataRow: InternalRow): Int = {
+    // FIXME: Deal with bucketed table.
+    val bucketedTable = false
+    if (bucketedTable) {
+      // getBucketIdFromCol(partitionRow)
+      0
     } else {
-      val partitionPath = getPartitionPath(partitionRow)
-      partitionsTouchedSet.add(PartitioningUtils.parsePathFragment(partitionPath))
-      new Path(hive3Options.rootPath, partitionPath)
+      options.operationType match {
+        case HiveAcidOperation.INSERT_INTO | HiveAcidOperation.INSERT_OVERWRITE =>
+          Utilities.getTaskIdFromFilename(TaskContext.getPartitionId().toString)
+            .toInt
+        case HiveAcidOperation.DELETE | HiveAcidOperation.UPDATE =>
+          val rowID = dataRow.get(rowIdColNum, options.rowIDSchema)
+          // FIXME: Currently hard coding codec as V1 and also bucket ordinal as 1.
+          BucketCodec.V1.decodeWriterId(rowID.asInstanceOf[UnsafeRow].getInt(1))
+        case x =>
+          throw new RuntimeException(s"Invalid write operation $x")
+      }
     }
-    val acidBucketId = Utilities.getTaskIdFromFilename(TaskContext.get.taskAttemptId().toString)
-      .toInt
-
-    recordUpdaters.getOrElseUpdate((path.toUri.toString, acidBucketId),
-      initializeNewRecordUpdater(path, acidBucketId))
   }
-
-  private val sparkHiveRowConverter = new SparkHiveRowConverter(options, hive3Options, jobConf)
-
-  private val hiveRow = new Array[Any](sparkHiveRowConverter.numFields)
 
   /**
    * Process an Spark InternalRow
@@ -185,29 +262,34 @@ private[writer] class HiveAcidFullAcidWriter(val options: WriterOptions,
     val partitionColRow = getPartitionValues(row)
     val dataColRow = getDataValues(row)
 
-    //  Get the recordUpdater for  this partitionedRow
-    val recordUpdater = getRecordUpdaterForPartition(partitionColRow)
+    //  Get the recordWriter for  this partitionedRow
+    val recordUpdater =
+      getOrCreateWriter(partitionColRow, getBucketID(dataColRow)).asInstanceOf[RecordUpdater]
 
-    sparkHiveRowConverter.buildHiveRow(dataColRow, hiveRow)
-    // val serializedRow = serializer.serialize(outputData, standardOI)
-    // hiveWriter.write(serializedRow)
+    val recordValue = sparkHiveRowConverter.toHiveRow(dataColRow, hiveRow)
 
     options.operationType match {
       case HiveAcidOperation.INSERT_INTO | HiveAcidOperation.INSERT_OVERWRITE =>
-        recordUpdater.insert(options.currentWriteId, hiveRow)
+        recordUpdater.insert(options.currentWriteId, recordValue)
+      case HiveAcidOperation.UPDATE =>
+        recordUpdater.update(options.currentWriteId, recordValue)
+      case HiveAcidOperation.DELETE =>
+        recordUpdater.delete(options.currentWriteId, recordValue)
       case x =>
         throw new RuntimeException(s"Invalid write operation $x")
     }
-
   }
 
   def close(): Unit = {
-    // Seems the boolean value passed into close does not matter.
-    // hiveWriter.close(false)
-    recordUpdaters.foreach(_._2.close(false))
+    writers.foreach( x => try {
+      // TODO: Seems the boolean value passed into close does not matter.
+      x._2.asInstanceOf[RecordUpdater].close(false)
+    }
+    catch {
+      case e: Exception =>
+        logError("Unable to close " + x._2 + " due to: " + e.getMessage())
+    })
   }
-
-  override def partitionsTouched(): Seq[TablePartitionSpec] = partitionsTouchedSet.toSeq
 }
 
 /**
@@ -221,12 +303,71 @@ private[writer] class HiveAcidFullAcidWriter(val options: WriterOptions,
   */
 private class HiveAcidInsertOnlyWriter(options: WriterOptions,
                                        hive3Options: HiveAcidWriterOptions)
-  extends Writer {
-  override def process(row: InternalRow): Unit = {}
+  extends HiveAcidWriter(options, hive3Options) {
 
-  override def close(): Unit = {}
+  override protected def createWriter(path: Path, acidBucketId: Int): Any = {
+    val outputClass = sparkHiveRowConverter.serializer.getSerializedClass
 
-  override def partitionsTouched(): Seq[TablePartitionSpec] = Seq()
+    val acidOutputFormatOptions = new AcidOutputFormat.Options(jobConf)
+      .writingBase(options.operationType == HiveAcidOperation.INSERT_OVERWRITE)
+      .bucket(acidBucketId)
+      .minimumWriteId(fileSinkConf.getTableWriteId)
+      .maximumWriteId(fileSinkConf.getTableWriteId)
+      .statementId(fileSinkConf.getStatementId)
+
+    // FIXME: Hack to remove bucket prefix for Insert only table.
+    var fullPathStr = AcidUtils.createFilename(path,
+      acidOutputFormatOptions).toString.replace("bucket_", "")
+
+    fullPathStr += "_" + taskId
+
+    logDebug(s" $fullPathStr")
+
+    HiveFileFormatUtils.getHiveRecordWriter(
+      jobConf,
+      sparkHiveRowConverter.tableDesc,
+      outputClass,
+      hive3Options.getFileSinkDesc,
+      new Path(fullPathStr),
+      Reporter.NULL)
+  }
+  /**
+    * Process an Spark InternalRow
+    * @param row row to be processed
+    */
+  override def process(row: InternalRow): Unit = {
+    //  Identify the partitionColumns and nonPartitionColumns in row
+    val partitionColRow = getPartitionValues(row)
+    val dataColRow = getDataValues(row)
+
+    // FIXME: Find the bucket id based on some sort hash on the data row
+    val bucketId = 0
+
+    //  Get the recordWriter for  this partitionedRow
+    val writer = getOrCreateWriter(partitionColRow, bucketId)
+
+    val recordValue =
+      sparkHiveRowConverter.serialize(sparkHiveRowConverter.toHiveRow(dataColRow, hiveRow))
+
+    options.operationType match {
+      case HiveAcidOperation.INSERT_INTO | HiveAcidOperation.INSERT_OVERWRITE =>
+        writer.asInstanceOf[RecordWriter].write(recordValue)
+      case x =>
+        throw new RuntimeException(s"Invalid write operation $x")
+    }
+  }
+
+  def close(): Unit = {
+    writers.foreach( x => try {
+      // TODO: Seems the boolean value passed into close does not matter.
+      x._2.asInstanceOf[RecordWriter].close(false)
+    }
+    catch {
+      case e: Exception =>
+        logError("Unable to close " + x._2 + " due to: " + e.getMessage())
+    })
+  }
+
 }
 
 /**
@@ -238,58 +379,77 @@ private class SparkHiveRowConverter(options: WriterOptions,
                                     hive3Options: HiveAcidWriterOptions,
                                     jobConf: JobConf) extends Hive3Inspectors {
 
-  private val tableDesc = hive3Options.getFileSinkDesc.getTableInfo
-  private lazy val deserializerClass = Util.classForName(tableDesc.getSerdeClassName,
-    loadShaded = true).asInstanceOf[Class[Deserializer]]
+  val tableDesc: TableDesc = hive3Options.getFileSinkDesc.getTableInfo
 
-  private val objectInspectorWithoutRowId = {
-    // Can't use tableDesc.getDeserializer as it  uses Reflection
-    // internally which doesn't work because of shading. So copied its logic
-    val deserializer = deserializerClass.newInstance()
-    SerDeUtils.initializeSerDe(
-      deserializer, jobConf, tableDesc.getProperties, null.asInstanceOf[Properties])
-    ObjectInspectorUtils
+  // NB: Can't use tableDesc.getDeserializer as it  uses Reflection
+  // internally which doesn't work because of shading. So copied its logic
+  lazy val serializer: Serializer = {
+    val serializer = Util.classForName(tableDesc.getSerdeClassName,
+      loadShaded = true).asInstanceOf[Class[Serializer]].newInstance()
+    serializer.initialize(jobConf, tableDesc.getProperties)
+    serializer
+  }
+
+  lazy val deserializer: Deserializer = {
+    val deserializer = Util.classForName(tableDesc.getSerdeClassName,
+      loadShaded = true).asInstanceOf[Class[Deserializer]].newInstance()
+    SerDeUtils.initializeSerDe(deserializer, jobConf, tableDesc.getProperties,
+      null.asInstanceOf[Properties])
+    deserializer
+  }
+
+  // Object Inspector Objects
+  //
+  private val recIdInspector = RecordIdentifier.StructInfo.oi
+
+  private val oIWithoutRowId = ObjectInspectorUtils
       .getStandardObjectInspector(
         deserializer.getObjectInspector,
         ObjectInspectorCopyOption.JAVA)
       .asInstanceOf[StructObjectInspector]
-  }
 
-  private val recordIdentifierInspector = RecordIdentifier.StructInfo.oi
 
-  private val objectInspectorWithRowId = {
+  private val oIWithRowId = {
     val dataStructFields = asScalaIteratorConverter(
-      objectInspectorWithoutRowId.getAllStructFieldRefs.iterator).asScala.toSeq
+      oIWithoutRowId.getAllStructFieldRefs.iterator).asScala.toSeq
 
     val newFieldNameSeq = Seq("rowId") ++ dataStructFields.map(_.getFieldName)
-    val newOISeq = Seq(recordIdentifierInspector) ++
+    val newOISeq = Seq(recIdInspector) ++
       dataStructFields.map(_.getFieldObjectInspector)
     ObjectInspectorFactory.getStandardStructObjectInspector(
       newFieldNameSeq.asJava, newOISeq.asJava
     )
   }
 
-  private val objectInspector = options.operationType match {
+  val objectInspector: StructObjectInspector = options.operationType match {
     case HiveAcidOperation.INSERT_INTO | HiveAcidOperation.INSERT_OVERWRITE =>
-      objectInspectorWithoutRowId
+      oIWithoutRowId
+    case HiveAcidOperation.DELETE | HiveAcidOperation.UPDATE =>
+      oIWithRowId
     case x =>
       throw new RuntimeException(s"Invalid write operation $x")
   }
 
   private val fieldOIs =
     objectInspector.getAllStructFieldRefs.asScala.map(_.getFieldObjectInspector).toArray
-  private val dataTypes = options.dataColumns.map(_.dataType).toArray
-  private val wrappers = fieldOIs.zip(dataTypes).map { case (f, dt) => wrapperFor(f, dt) }
 
   def getObjectInspector: StructObjectInspector = objectInspector
 
   def numFields: Int = fieldOIs.length
 
-  def buildHiveRow(sparkRow: InternalRow, hiveRow: Array[Any]): Unit = {
+  def serialize(hiveRow: Array[Any]): Writable = {
+    serializer.serialize(hiveRow, objectInspector.asInstanceOf[ObjectInspector])
+  }
+
+  def toHiveRow(sparkRow: InternalRow, hiveRow: Array[Any]): Array[Any] = {
+    val dataTypes = options.dataColumns.map(_.dataType).toArray
+    val wrappers = fieldOIs.zip(dataTypes).map { case (f, dt) => wrapperFor(f, dt) }
+
     var i = 0
     while (i < fieldOIs.length) {
       hiveRow(i) = if (sparkRow.isNullAt(i)) null else wrappers(i)(sparkRow.get(i, dataTypes(i)))
       i += 1
     }
+    hiveRow
   }
 }

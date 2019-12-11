@@ -24,6 +24,7 @@ import com.qubole.spark.datasources.hiveacid.{HiveAcidMetadata, HiveAcidOperatio
 import com.qubole.spark.datasources.hiveacid.util.SerializableConfiguration
 import org.apache.hadoop.fs.Path
 import org.apache.spark.sql.catalyst.expressions.Attribute
+import org.apache.spark.sql.types.StructType
 
 /**
  * Writer options which will be serialized and sent to each executor
@@ -31,6 +32,7 @@ import org.apache.spark.sql.catalyst.expressions.Attribute
 private[writer] class WriterOptions(val currentWriteId: Long,
                                     val operationType: HiveAcidOperation.OperationType,
                                     val serializableHadoopConf: SerializableConfiguration,
+                                    val rowIDSchema: StructType,
                                     val dataColumns: Seq[Attribute],
                                     val partitionColumns: Seq[Attribute],
                                     val allColumns: Seq[Attribute],

@@ -21,7 +21,7 @@ package com.qubole.spark.datasources.hiveacid.reader
 
 import com.qubole.spark.datasources.hiveacid.{HiveAcidMetadata, ReadConf}
 import com.qubole.spark.datasources.hiveacid.transaction.{HiveAcidReadTxn, HiveAcidTxnManager}
-
+import com.qubole.spark.datasources.hiveacid.util.HiveConverter
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.{Row, SparkSession}
@@ -29,8 +29,10 @@ import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.sources.Filter
 
 private[hiveacid] class TableReader(sparkSession: SparkSession,
-                                    txnManager: HiveAcidTxnManager,
                                     hiveAcidMetadata: HiveAcidMetadata) extends Logging {
+
+  private val hiveConf = HiveConverter.getHiveConf(sparkSession.sparkContext)
+  private val txnManager = new HiveAcidTxnManager(sparkSession, hiveConf)
 
   def getRdd(requiredColumns: Array[String],
              filters: Array[Filter],

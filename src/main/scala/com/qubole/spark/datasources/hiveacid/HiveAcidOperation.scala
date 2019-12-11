@@ -21,5 +21,5 @@ package com.qubole.spark.datasources.hiveacid
 
 private[hiveacid] object HiveAcidOperation extends Enumeration {
   type OperationType = Value
-  val READ, INSERT_INTO, INSERT_OVERWRITE = Value
+  val READ, INSERT_INTO, INSERT_OVERWRITE, DELETE, UPDATE = Value
 }

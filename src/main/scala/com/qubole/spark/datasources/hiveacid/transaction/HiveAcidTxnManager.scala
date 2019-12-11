@@ -207,6 +207,10 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession,
             lcb.setShared().setOperationType(DataOperationType.INSERT)
           case HiveAcidOperation.READ =>
             lcb.setShared().setOperationType(DataOperationType.SELECT)
+          case HiveAcidOperation.UPDATE =>
+            lcb.setExclusive().setOperationType(DataOperationType.UPDATE)
+          case HiveAcidOperation.DELETE =>
+            lcb.setExclusive().setOperationType(DataOperationType.DELETE)
           case _ =>
             throw HiveAcidErrors.invalidOperationType(operationType.toString)
         }

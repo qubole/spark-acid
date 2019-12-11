@@ -115,10 +115,10 @@ private[hiveacid] class HiveAcidMetadata(sparkSession: SparkSession,
   lazy val tableDesc: TableDesc = {
     val inputFormatClass: Class[InputFormat[Writable, Writable]] =
       Util.classForName(hTable.getInputFormatClass.getName,
-        true).asInstanceOf[java.lang.Class[InputFormat[Writable, Writable]]]
+        loadShaded = true).asInstanceOf[java.lang.Class[InputFormat[Writable, Writable]]]
     val outputFormatClass: Class[OutputFormat[Writable, Writable]] =
       Util.classForName(hTable.getOutputFormatClass.getName,
-        true).asInstanceOf[java.lang.Class[OutputFormat[Writable, Writable]]]
+        loadShaded = true).asInstanceOf[java.lang.Class[OutputFormat[Writable, Writable]]]
     new TableDesc(
       inputFormatClass,
       outputFormatClass,

@@ -46,9 +46,8 @@ class HiveAcidDataSource
 
     val hiveAcidTable: HiveAcidTable = HiveAcidTable.fromSparkSession(
       sqlContext.sparkSession,
-      parameters,
-      getFullyQualifiedTableName(parameters)
-    )
+      getFullyQualifiedTableName(parameters),
+      parameters)
 
     mode match {
       case SaveMode.Overwrite =>

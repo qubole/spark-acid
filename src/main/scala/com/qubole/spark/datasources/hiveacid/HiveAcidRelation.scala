@@ -21,17 +21,19 @@ package com.qubole.spark.datasources.hiveacid
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.{DataFrame, Row, SQLContext, SparkSession}
+import org.apache.spark.sql.{DataFrame, Row, SparkSession, SQLContext}
 import org.apache.spark.sql.sources.{BaseRelation, Filter, InsertableRelation, PrunedFilteredScan}
 import org.apache.spark.sql.types._
 
 /**
-  * Container for all metadata, configuration and schema to perform operations on Hive ACID datasource.
-  * This provides for plumbing most of the heavy lifting is performed inside HiveAcidtTable.
+  * Container for all metadata, configuration and schema to perform operations on
+  * Hive ACID datasource. This provides for plumbing most of the heavy lifting is
+  * performed inside HiveAcidtTable.
   *
   * @param sparkSession Spark Session object
   * @param fullyQualifiedTableName Table name for the data source.
-  * @param parameters user provided parameters required for reading and writing, including configuration
+  * @param parameters user provided parameters required for reading and writing,
+  *        including configuration
   */
 case class HiveAcidRelation(sparkSession: SparkSession,
                             fullyQualifiedTableName: String,
@@ -46,7 +48,7 @@ case class HiveAcidRelation(sparkSession: SparkSession,
     fullyQualifiedTableName
   )
   private val hiveAcidTable: HiveAcidTable = new HiveAcidTable(sparkSession,
-    parameters, hiveAcidMetadata)
+    hiveAcidMetadata, parameters)
 
   private val readOptions = ReadConf.build(sparkSession, parameters)
 
@@ -59,7 +61,7 @@ case class HiveAcidRelation(sparkSession: SparkSession,
   }
 
   override def insert(data: DataFrame, overwrite: Boolean): Unit = {
-    // sql insert into and overwrite
+   // sql insert into and overwrite
     if (overwrite) {
       hiveAcidTable.insertOverwrite(data)
     } else {

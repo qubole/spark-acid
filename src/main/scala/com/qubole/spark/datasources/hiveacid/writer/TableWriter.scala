@@ -19,18 +19,22 @@
 
 package com.qubole.spark.datasources.hiveacid.writer
 
+import scala.collection.JavaConverters._
+import scala.language.implicitConversions
+
 import com.qubole.spark.datasources.hiveacid._
+import com.qubole.spark.datasources.hiveacid.util.HiveConverter
 import com.qubole.spark.datasources.hiveacid.transaction.{HiveAcidFullTxn, HiveAcidTxnManager}
 import com.qubole.spark.datasources.hiveacid.util.SerializableConfiguration
+
 import org.apache.spark.internal.Logging
+import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.catalyst.{InternalRow, TableIdentifier}
 import org.apache.spark.sql.catalyst.catalog.CatalogTypes.TablePartitionSpec
 import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.execution.command.AlterTableAddPartitionCommand
-import org.apache.spark.sql.{DataFrame, SparkSession}
 
-import scala.collection.JavaConverters._
-import scala.language.implicitConversions
+import org.apache.spark.sql.types.StructType
 
 /**
  * Performs eager write of a dataframe df to a hive acid table based on operationType
@@ -38,30 +42,29 @@ import scala.language.implicitConversions
  * @param hiveAcidMetadata - hive acid table where we want to write dataframe
  */
 private[hiveacid] class TableWriter(sparkSession: SparkSession,
-                                    txnManager: HiveAcidTxnManager,
                                     hiveAcidMetadata: HiveAcidMetadata) extends Logging {
 
-  private def assertOperation(operationType: HiveAcidOperation.OperationType): Unit = {
-    if (hiveAcidMetadata.isInsertOnlyTable) {
-      // TODO: Tighten this check once we add support for insert into / insert overwrite in
-      //  insertonly tables.
-      throw HiveAcidErrors.unsupportedOperationTypeInsertOnlyTable(operationType.toString)
+  private val hiveConf = HiveConverter.getHiveConf(sparkSession.sparkContext)
+  private val txnManager = new HiveAcidTxnManager(sparkSession, hiveConf)
+
+  private def getSchema(operationType: HiveAcidOperation.OperationType): StructType = {
+    val expectRowIdsInDataFrame = operationType match {
+      case HiveAcidOperation.INSERT_OVERWRITE | HiveAcidOperation.INSERT_INTO => false
+      case HiveAcidOperation.DELETE | HiveAcidOperation.UPDATE => true
+      case _ => throw HiveAcidErrors.invalidOperationType(operationType.toString)
+    }
+
+    if (expectRowIdsInDataFrame) {
+      hiveAcidMetadata.tableSchemaWithRowId
+    } else {
+      hiveAcidMetadata.tableSchema
     }
   }
 
   private def getColumns(operationType: HiveAcidOperation.OperationType,
             df: DataFrame): (Seq[Attribute], Array[Attribute], Seq[Attribute]) = {
 
-    val expectRowIdsInDataFrame = operationType match {
-      case HiveAcidOperation.INSERT_OVERWRITE | HiveAcidOperation.INSERT_INTO => false
-      case _ => throw HiveAcidErrors.invalidOperationType(operationType.toString)
-    }
-
-    val columnNames = if (expectRowIdsInDataFrame) {
-      hiveAcidMetadata.tableSchemaWithRowId.fields.map(_.name)
-    } else {
-      hiveAcidMetadata.tableSchema.fields.map(_.name)
-    }
+    val columnNames = getSchema(operationType).fields.map(_.name)
 
     val allColumns = df.queryExecution.optimizedPlan.output.zip(columnNames).map {
       case (attr, columnName) =>
@@ -79,21 +82,20 @@ private[hiveacid] class TableWriter(sparkSession: SparkSession,
   }
 
   /**
-    * Common utility function to perform all types of writes into hive acid table
+    * Common utility function to process all types of operations insert/update/delete
+    * for the hive acid table
     * @param operationType type of operation.
     * @param df data frame to be written into the table.
     */
-  def write(operationType: HiveAcidOperation.OperationType,
+  def process(operationType: HiveAcidOperation.OperationType,
             df: DataFrame): Unit = {
-
-    assertOperation(operationType)
 
     val hadoopConf = sparkSession.sessionState.newHadoopConf()
 
     val (allColumns, partitionColumns, dataColumns) = getColumns(operationType, df)
 
     // Start full transaction
-    val txn = new HiveAcidFullTxn(hiveAcidMetadata, txnManager)
+    val txn: HiveAcidFullTxn = new HiveAcidFullTxn(hiveAcidMetadata, txnManager)
 
     try {
       txn.begin()
@@ -103,6 +105,7 @@ private[hiveacid] class TableWriter(sparkSession: SparkSession,
       val writerOptions = new WriterOptions(txn.currentWriteId,
         operationType,
         new SerializableConfiguration(hadoopConf),
+        getSchema(operationType),
         dataColumns,
         partitionColumns,
         allColumns,
@@ -129,8 +132,23 @@ private[hiveacid] class TableWriter(sparkSession: SparkSession,
         }
       }
 
+      val resultRDD =
+        operationType match {
+          // Deleted rowId needs to be in the same bucketed file name
+          // as original row. To achieve that repartition it based on
+          // the rowId.bucketId. After this shuffle partitionId maps
+          // 1-to-1 with bucketId.
+          case HiveAcidOperation.DELETE | HiveAcidOperation.UPDATE =>
+            df.sort("rowId.bucketId")
+              .toDF.queryExecution.executedPlan.execute()
+          case HiveAcidOperation.INSERT_OVERWRITE | HiveAcidOperation.INSERT_INTO =>
+            df.queryExecution.executedPlan.execute()
+          case unknownOperation =>
+            throw HiveAcidErrors.invalidOperationType(unknownOperation.toString)
+        }
+
       val touchedPartitions = sparkSession.sparkContext.runJob(
-        df.queryExecution.executedPlan.execute(), processRddPartition
+        resultRDD, processRddPartition
       ).flatten.toSet
 
       // Add new partition to table metadata under the transaction.
