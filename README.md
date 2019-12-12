@@ -67,9 +67,9 @@ To read an existing Hive acid table through pure SQL, there are two ways:
         spark.sql("select * from symlinkacidtable")
 
 
-_NB: This will produce a warning indicating that Hive does not understand this format_
+	_NB: This will produce a warning indicating that Hive does not understand this format_
 
-    WARN hive.HiveExternalCatalog: Couldn’t find corresponding Hive SerDe for data source provider com.qubole.spark.datasources.hiveacid.HiveAcidDataSource. Persisting data source table `default`.`sparkacidtbl` into Hive metastore in Spark SQL specific format, which is NOT compatible with Hive.
+     WARN hive.HiveExternalCatalog: Couldn’t find corresponding Hive SerDe for data source provider com.qubole.spark.hiveacid.datasource.HiveAcidDataSource. Persisting data source table `default`.`sparkacidtbl` into Hive metastore in Spark SQL specific format, which is NOT compatible with Hive.
 
 _Please ignore it, as this is a sym table for Spark to operate with and no underlying storage._
 
@@ -79,7 +79,7 @@ _Please ignore it, as this is a sym table for Spark to operate with and no under
 
          val spark = SparkSession.builder()
            .appName("Hive-acid-test")
-           .config("spark.sql.extensions", "com.qubole.spark.datasources.hiveacid.HiveAcidAutoConvertExtension")
+           .config("spark.sql.extensions", "com.qubole.spark.hiveacid.HiveAcidAutoConvertExtension")
            .enableHiveSupport()
            .<OTHER OPTIONS>
            .getOrCreate()
