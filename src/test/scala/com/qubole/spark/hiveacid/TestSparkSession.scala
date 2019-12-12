@@ -16,13 +16,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.qubole.spark.datasources.hiveacid
+package com.qubole.spark.hiveacid
 
 import org.apache.spark.sql.SparkSession
 
 private[hiveacid] object TestSparkSession {
 
-  val spark = SparkSession.builder().appName("Hive-acid-test")
+  val spark: SparkSession = SparkSession.builder().appName("Hive-acid-test")
     .master("local[*]")
     .config("spark.hadoop.hive.metastore.uris", "thrift://0.0.0.0:10000")
     .config("spark.sql.warehouse.dir", "/tmp")
@@ -31,8 +31,8 @@ private[hiveacid] object TestSparkSession {
     .enableHiveSupport()
     .getOrCreate()
 
-  def getSession(): SparkSession = {
+  def getSession: SparkSession = {
     spark.sparkContext.setLogLevel("WARN")
-    return spark
+    spark
   }
 }

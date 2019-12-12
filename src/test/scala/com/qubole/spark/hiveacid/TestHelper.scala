@@ -17,18 +17,13 @@
  * limitations under the License.
  */
 
-package com.qubole.spark.datasources.hiveacid
+package com.qubole.spark.hiveacid
 
-import java.io.StringWriter
 import java.net.URLClassLoader
 import java.net.URL
 
-import org.apache.commons.logging.LogFactory
-import org.apache.log4j.{Level, LogManager}
-import org.apache.spark.internal.Logging
+import org.apache.log4j.{Level, LogManager, Logger}
 import org.apache.spark.sql._
-import org.apache.spark.util._
-
 import org.apache.spark.sql.functions.col
 import org.apache.spark.sql.internal.SQLConf
 
@@ -45,7 +40,7 @@ class TestHelper {
   def init(isDebug: Boolean) {
     verbose = isDebug
     // Clients
-    spark = TestSparkSession.getSession()
+    spark = TestSparkSession.getSession
     if (verbose) {
       log.setLevel(Level.DEBUG)
     }
@@ -70,7 +65,7 @@ class TestHelper {
 
   // Check the data present in this table via hive as well as spark sql and df
   private def compare(table: Table, msg: String): Unit = {
-    log.info(s"Verify simple ${msg}")
+    log.info(s"Verify simple $msg")
     val hiveResStr = hiveExecuteQuery(table.hiveSelect)
     val (dfFromSql, dfFromScala) = sparkGetDF(table)
     compareResult(hiveResStr, dfFromSql.collect())
@@ -79,7 +74,7 @@ class TestHelper {
 
   // With Predicate
   private def compareWithPred(table: Table, msg: String, pred: String): Unit = {
-    log.info(s"Verify with predicate ${msg}")
+    log.info(s"Verify with predicate $msg")
     val hiveResStr = hiveExecuteQuery(table.hiveSelectWithPred(pred))
     val (dfFromSql, dfFromScala) = sparkGetDFWithPred(table, pred)
     compareResult(hiveResStr, dfFromSql.collect())
@@ -87,7 +82,7 @@ class TestHelper {
   }
   // With Projection
   private def compareWithProj(table: Table, msg: String): Unit = {
-    log.info(s"Verify with projection ${msg}")
+    log.info(s"Verify with projection $msg")
     val hiveResStr = hiveExecuteQuery(table.hiveSelectWithProj)
     val (dfFromSql, dfFromScala) = sparkGetDFWithProj(table)
     compareResult(hiveResStr, dfFromSql.collect())
@@ -97,10 +92,10 @@ class TestHelper {
   // Compare result of 2 tables via hive
   def compareTwoTablesViaHive(table1: Table, table2: Table, msg: String,
                                       expectedRows: Int = -1): Unit = {
-    log.info(s"Verify output of 2 tables via Hive: ${msg}")
+    log.info(s"Verify output of 2 tables via Hive: $msg")
     val hiveResStr1 = hiveExecuteQuery(table1.hiveSelect)
     val hiveResStr2 = hiveExecuteQuery(table2.hiveSelect)
-    assert(hiveResStr1 == hiveResStr2, s"out1: \n${hiveResStr1}\nout2: \n${hiveResStr2}\n")
+    assert(hiveResStr1 == hiveResStr2, s"out1: \n$hiveResStr1\nout2: \n$hiveResStr2\n")
     if (expectedRows != -1) {
       val resultRows = hiveResStr1.split("\n").length
       assert(resultRows == expectedRows, s"Expected $expectedRows rows, got $resultRows rows " +
@@ -111,7 +106,7 @@ class TestHelper {
   // Compare result of 2 tables via spark
   def compareTwoTablesViaSpark(table1: Table, table2: Table, msg: String,
                                expectedRows: Int = -1): Unit = {
-    log.info(s"Verify output of 2 tables via Spark: ${msg}")
+    log.info(s"Verify output of 2 tables via Spark: $msg")
     val sparkResRows1 = sparkCollect(table1.hiveSelect)
     val sparkResRows2 = sparkCollect(table2.hiveSelect)
     compareResult(sparkResRows1, sparkResRows2)
@@ -199,7 +194,7 @@ class TestHelper {
 
     var dfScala = spark.read.format("HiveAcid").options(Map("table" -> table.hiveTname)).load().select(table.sparkDFProj)
     dfScala = totalOrderBy(table, dfScala)
-    return (dfSql, dfScala)
+    (dfSql, dfScala)
   }
 
   def sparkGetDFWithPred(table: Table, pred: String): (DataFrame, DataFrame) = {
@@ -207,7 +202,7 @@ class TestHelper {
 
     var dfScala = spark.read.format("HiveAcid").options(Map("table" -> table.hiveTname)).load().where(col("intCol") < "5")
     dfScala = totalOrderBy(table, dfScala)
-    return (dfSql, dfScala)
+    (dfSql, dfScala)
   }
 
   def sparkGetDF(table: Table): (DataFrame, DataFrame) = {
@@ -215,26 +210,26 @@ class TestHelper {
 
     var dfScala = spark.read.format("HiveAcid").options(Map("table" -> table.hiveTname)).load()
     dfScala = totalOrderBy(table, dfScala)
-    return (dfSql, dfScala)
+    (dfSql, dfScala)
   }
 
   def sparkSQL(cmd: String): DataFrame = {
-    log.debug(s"Spark> ${cmd}\n")
+    log.debug(s"Spark> $cmd\n")
     spark.sql(cmd)
   }
 
   def sparkCollect(cmd: String): Array[Row] = {
-    log.debug(s"Spark> ${cmd}\n")
+    log.debug(s"Spark> $cmd\n")
     spark.sql(cmd).collect()
   }
 
   def hiveExecute(cmd: String): Any = {
-	log.debug(s"Hive>  ${cmd}\n");
+  	log.debug(s"Hive>  $cmd\n")
     hiveClient.execute(cmd)
   }
 
   def hiveExecuteQuery(cmd: String): String = {
-	log.debug(s"Hive>  ${cmd}\n");
+	  log.debug(s"Hive>  $cmd\n")
     hiveClient.executeQuery(cmd)
   }
 
@@ -283,7 +278,7 @@ class TestHelper {
       code()
     } catch {
       case NonFatal(e) =>
-        log.info(s"Failed test[${testName}]:$e")
+        log.info(s"Failed test[$testName]:$e")
         throw e
     }
   }
@@ -313,10 +308,10 @@ class TestHelper {
   }
 
   // Given a className, identify all the jars in classpath that contains the class
-  def getJarsForClass(className: String): Unit = {
+  def printJarsForClass(className: String): Unit = {
     def list_urls(cl: ClassLoader): Array[java.net.URL] = cl match {
       case null => Array()
-      case u: java.net.URLClassLoader => u.getURLs() ++ list_urls(cl.getParent)
+      case u: java.net.URLClassLoader => u.getURLs ++ list_urls(cl.getParent)
       case _ => list_urls(cl.getParent)
     }
 
@@ -329,27 +324,27 @@ class TestHelper {
           resultJarsArray = resultJarsArray :+ classPath
         }
       }
-      return resultJarsArray
+      resultJarsArray
     }
 
     val allJars = list_urls(getClass.getClassLoader).distinct
     val requiredJars = findJarsHavingClass(className, allJars)
 
-    log.info(s"Class: $className found in following ${requiredJars.size} jars:")
+    log.info(s"Class: $className found in following ${requiredJars.length} jars:")
     requiredJars.foreach(uri => log.info(uri.toString))
   }
 }
 
 object TestHelper {
 
-  val log = LogManager.getLogger(this.getClass)
+  val log: Logger = LogManager.getLogger(this.getClass)
   log.setLevel(Level.INFO)
 
   // Given a className, identify all the jars in classpath that contains the class
-  def getJarsForClass(className: String): Unit = {
+  def printJarsForClass(className: String): Unit = {
     def list_urls(cl: ClassLoader): Array[java.net.URL] = cl match {
       case null => Array()
-      case u: java.net.URLClassLoader => u.getURLs() ++ list_urls(cl.getParent)
+      case u: java.net.URLClassLoader => u.getURLs ++ list_urls(cl.getParent)
       case _ => list_urls(cl.getParent)
     }
 
@@ -362,13 +357,13 @@ object TestHelper {
           resultJarsArray = resultJarsArray :+ classPath
         }
       }
-      return resultJarsArray
+      resultJarsArray
     }
 
     val allJars = list_urls(getClass.getClassLoader).distinct
     val requiredJars = findJarsHavingClass(className, allJars)
 
-    log.info(s"Class: $className found in following ${requiredJars.size} jars:")
+    log.info(s"Class: $className found in following ${requiredJars.length} jars:")
     requiredJars.foreach(uri => log.info(uri.toString))
   }
 }

@@ -17,10 +17,11 @@
  * limitations under the License.
  */
 
-package com.qubole.spark.datasources.hiveacid
+package com.qubole.spark.hiveacid
 
 import org.joda.time.DateTime
 import scala.collection.mutable.{ListBuffer, HashMap}
+
 /*
  *
  *
@@ -33,17 +34,11 @@ class Table (
   private val isPartitioned: Boolean = false) {
 
     private var colMap = Map("key" -> "int") ++ extraColMap
-    private var colMapWithPartitionedCols = {
-      if (isPartitioned) {
-        Map("load_date" -> "int") ++ colMap
+    private var colMapWithPartitionedCols = if (isPartitioned) {
+        Map("ptnCol" -> "int") ++ colMap
       } else {
         colMap
       }
-      columnMap.put("ptnCol", "int")
-      columnMap
-    } else {
-      colMap
-    }
 
   // NB Add date column as well apparently always in the end
   private def getRow(key: Int): String = colMap.map( x => {
@@ -60,8 +55,8 @@ class Table (
   private def getColDefString = colMap.map(x => x._1 + " " + x._2).mkString(",")
 
   // FIXME: Add ptn_col column of partitioned table in order by clause
-  private def sparkOrderBy: String = sparkOrderBy(sparkTname)
-  private def hiveOrderBy: String = hiveOrderBy(tName)
+  // private def sparkOrderBy: String = sparkOrderBy(sparkTname)
+  // private def hiveOrderBy: String = hiveOrderBy(tName)
   private def sparkOrderBy(aliasedTable: String): String =
     colMapWithPartitionedCols.map(x => s"${aliasedTable}.${x._1}").mkString(", ")
   private def hiveOrderBy(aliasedTable: String): String =

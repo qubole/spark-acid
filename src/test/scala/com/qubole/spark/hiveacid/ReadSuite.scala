@@ -17,29 +17,26 @@
  * limitations under the License.
  */
 
-package com.qubole.spark.datasources.hiveacid
+package com.qubole.spark.hiveacid
 
 
-import org.apache.commons.logging.LogFactory
-import org.apache.log4j.{Level, LogManager}
-import org.apache.spark.internal.Logging
+import org.apache.log4j.{Level, LogManager, Logger}
 import org.apache.spark.sql._
-import org.apache.spark.util._
 import org.scalatest._
 
 import scala.util.control.NonFatal
 
 class ReadSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll {
 
-  val log = LogManager.getLogger(this.getClass)
+  val log: Logger = LogManager.getLogger(this.getClass)
   log.setLevel(Level.INFO)
 
-  var helper: TestHelper = _;
+  var helper: TestHelper = _
   val isDebug = true
 
   val DEFAULT_DBNAME =  "HiveTestDB"
   val defaultPred = " intCol < 5 "
-  val cols = Map(
+  val cols: Map[String, String] = Map(
     ("intCol","int"),
     ("doubleCol","double"),
     ("floatCol","float"),
@@ -50,7 +47,7 @@ class ReadSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll 
   override def beforeAll() {
     try {
 
-      helper = new TestHelper();
+      helper = new TestHelper()
       if (isDebug) {
         log.setLevel(Level.DEBUG)
       }
@@ -69,8 +66,8 @@ class ReadSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll 
   }
 
   // Test Run
-  readTest(Table.allFullAcidTypes, false)
-  readTest(Table.allInsertOnlyTypes, true)
+  readTest(Table.allFullAcidTypes(), insertOnly = false)
+  readTest(Table.allInsertOnlyTypes(), insertOnly = true)
 
   // NB: Cannot create merged table for insert only table
  // mergeTest(Table.allFullAcidTypes, false)
@@ -79,8 +76,8 @@ class ReadSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll 
   joinTest(Table.allInsertOnlyTypes(), Table.allFullAcidTypes())
   joinTest(Table.allInsertOnlyTypes(), Table.allInsertOnlyTypes())
 
-  compactionTest(Table.allFullAcidTypes(), false)
-  compactionTest(Table.allInsertOnlyTypes(), true)
+  compactionTest(Table.allFullAcidTypes(), insertOnly = false)
+  compactionTest(Table.allInsertOnlyTypes(), insertOnly = true)
 
   // NB: No run for the insert only table.
   nonAcidToFullAcidConversionTest(List(
@@ -115,7 +112,7 @@ class ReadSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll 
       val testName = "Simple Read Test for " + tName + " type " + tType
       test(testName) {
         val table = new Table(DEFAULT_DBNAME, tName, cols, tType, isPartitioned)
-        def code() = {
+        def code(): Unit = {
           helper.recreate(table)
           helper.hiveExecute(table.insertIntoHiveTableKeyRange(1, 10))
           helper.verify(table, insertOnly)
@@ -133,18 +130,18 @@ class ReadSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll 
         val table = new Table(DEFAULT_DBNAME, tName, cols, tType, isPartitioned)
 
         def checkOutputRowsInLeafNode(df: DataFrame): Long = {
-          val tableScanNode = df.queryExecution.executedPlan.collectLeaves()(0)
+          val tableScanNode = df.queryExecution.executedPlan.collectLeaves().head
           val metricsMap = tableScanNode.metrics
           val dfRowsRead = metricsMap("numOutputRows").value
           log.info(s"dfRowsRead: $dfRowsRead")
-          return dfRowsRead
+          dfRowsRead
         }
 
-        def code() = {
+        def code(): Unit = {
           helper.withSQLConf("spark.sql.hiveAcid.enablePredicatePushdown" -> "true") {
-            helper.recreate(table, true)
+            helper.recreate(table)
             // Inserting 5 rows in different hive queries so that we will have 5 files - one for each row
-            (3 to 7).toSeq.foreach(k => helper.hiveExecute(table.insertIntoHiveTableKey(k)))
+            (3 to 7).foreach(k => helper.hiveExecute(table.insertIntoHiveTableKey(k)))
 
             val dfFromSql = helper.sparkSQL(table.sparkSelectWithPred(defaultPred))
             val hiveResStr = helper.hiveExecuteQuery(table.hiveSelectWithPred(defaultPred))
@@ -212,8 +209,8 @@ class ReadSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll 
       val testName = "NonAcid to Acid conversion test for " + tName + " type " + tType
       test(testName) {
         val table = new Table(DEFAULT_DBNAME, tName, cols, tType, isPartitioned)
-        def code() = {
-          helper.recreate(table, false)
+        def code(): Unit = {
+          helper.recreate(table, createSymlinkSparkTables = false)
           helper.hiveExecute(table.insertIntoHiveTableKeyRange(1, 10))
           val hiveResStr = helper.hiveExecuteQuery(table.hiveSelect)
 
@@ -228,7 +225,7 @@ class ReadSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll 
           helper.compareResult(hiveResStr, dfFromSql.collect())
           helper.compareResult(hiveResStr, dfFromScala.collect())
 
-          helper.verify(table, false)
+          helper.verify(table, insertOnly = false)
         }
         helper.myRun(testName, code)
       }
@@ -237,7 +234,7 @@ class ReadSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll 
 
   // Compaction Test
   //
-  // 1. Disable comaction on the table.
+  // 1. Disable compaction on the table.
   // 2. Insert bunch of rows into the table.
   // 4. Read entire table using hive client
   // 5. Delete few keys, to create delete delta files.
@@ -265,7 +262,7 @@ class ReadSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll 
       val testName = "Simple Compaction Test for " + tName + " type " + tType
       test(testName) {
         val table = new Table(DEFAULT_DBNAME, tName, cols, tType, isPartitioned)
-        def code() = {
+        def code(): Unit = {
 
           helper.recreate(table)
 
@@ -315,7 +312,7 @@ class ReadSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll 
           }
         }
 
-        def compactAndTest(hiveResStr: String, df1: DataFrame, df2: DataFrame) = {
+        def compactAndTest(hiveResStr: String, df1: DataFrame, df2: DataFrame): Unit = {
           helper.compareResult(hiveResStr, df1.collect())
           helper.compareResult(hiveResStr, df2.collect())
           helper.hiveExecute(table.minorCompaction)
@@ -326,13 +323,13 @@ class ReadSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll 
           helper.compareResult(hiveResStr, df2.collect())
         }
 
-        def compactPartitionedAndTest(hiveResStr: String, df1: DataFrame, df2: DataFrame, keys: Seq[Int]) = {
+        def compactPartitionedAndTest(hiveResStr: String, df1: DataFrame, df2: DataFrame, keys: Seq[Int]): Unit = {
           helper.compareResult(hiveResStr, df1.collect())
           helper.compareResult(hiveResStr, df2.collect())
-          keys.foreach {case k => helper.hiveExecute(table.minorPartitionCompaction(k))}
+          keys.foreach(k => helper.hiveExecute(table.minorPartitionCompaction(k)))
           helper.compareResult(hiveResStr, df1.collect())
           helper.compareResult(hiveResStr, df2.collect())
-          keys.foreach {case k => helper.hiveExecute(table.majorPartitionCompaction(k))}
+          keys.foreach((k: Int) => helper.hiveExecute(table.majorPartitionCompaction(k)))
           helper.compareResult(hiveResStr, df1.collect())
           helper.compareResult(hiveResStr, df2.collect())
         }
@@ -358,7 +355,7 @@ class ReadSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll 
         test(testName) {
           val table1 = new Table(DEFAULT_DBNAME, tName1, cols, tType1, isPartitioned1)
           val table2 = new Table(DEFAULT_DBNAME, tName2, cols, tType2, isPartitioned2)
-          def code() = {
+          def code(): Unit = {
 
             helper.recreate(table1)
             helper.recreate(table2)

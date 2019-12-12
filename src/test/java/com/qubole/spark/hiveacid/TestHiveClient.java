@@ -17,7 +17,7 @@
  * limitations under the License.
  */
 
-package com.qubole.spark.datasources.hiveacid;
+package com.qubole.spark.hiveacid
 
 
 import java.sql.Connection;
@@ -29,20 +29,16 @@ import java.sql.Statement;
 
 import java.io.StringWriter;
 
-import java.util.logging.Level;
-import java.util.logging.Logger;
-import java.util.logging.*;
-
 public class TestHiveClient {
-	/*
-	* Before running this docker container with HS2 / HMS / Hadoop running
-	*/
-	private static String driverName = "com.qubole.shaded.hive.jdbc.HiveDriver";
 	private static Connection con = null;
 	private static Statement stmt = null;
 
 	TestHiveClient() {
 		try {
+			/*
+			 * Before running this docker container with HS2 / HMS / Hadoop running
+			 */
+			String driverName = "com.qubole.shaded.hive.jdbc.HiveDriver";
 			Class.forName(driverName);
 		} catch (ClassNotFoundException e) {
 			e.printStackTrace();
@@ -81,7 +77,7 @@ public class TestHiveClient {
 		stmt.execute(cmd);
 	}
 
-	public String resultStr(ResultSet rs) throws SQLException {
+	private String resultStr(ResultSet rs) throws SQLException {
 		StringWriter outputWriter = new StringWriter();
 		ResultSetMetaData rsmd = rs.getMetaData();
 		int columnsNumber = rsmd.getColumnCount();

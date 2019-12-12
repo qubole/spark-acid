@@ -17,29 +17,25 @@
  * limitations under the License.
  */
 
-package com.qubole.spark.datasources.hiveacid
+package com.qubole.spark.hiveacid
 
 
-import org.apache.commons.logging.LogFactory
-import org.apache.log4j.{Level, LogManager}
-import org.apache.spark.internal.Logging
-import org.apache.spark.sql._
-import org.apache.spark.util._
+import org.apache.log4j.{Level, LogManager, Logger}
 import org.scalatest._
 
 import scala.util.control.NonFatal
 
 class WriteSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll {
 
-  val log = LogManager.getLogger(this.getClass)
+  val log: Logger = LogManager.getLogger(this.getClass)
   log.setLevel(Level.INFO)
 
-  var helper: TestHelper = _;
+  var helper: TestHelper = _
   val isDebug = true
 
   val DEFAULT_DBNAME =  "HiveTestDB"
   val defaultPred = " intCol < 5 "
-  val cols = Map(
+  val cols: Map[String, String] = Map(
     ("intCol","int"),
     ("doubleCol","double"),
     ("floatCol","float"),
@@ -50,7 +46,7 @@ class WriteSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll
   override def beforeAll() {
     try {
 
-      helper = new TestHelper();
+      helper = new TestHelper
       if (isDebug) {
         log.setLevel(Level.DEBUG)
       }
@@ -82,7 +78,7 @@ class WriteSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll
       test(testName) {
         val tableHive = new Table(DEFAULT_DBNAME, tableNameHive, cols, tType, isPartitioned)
         val tableSpark = new Table(DEFAULT_DBNAME, tableNameSpark, cols, tType, isPartitioned)
-        def code() = {
+        def code(): Unit = {
           helper.recreate(tableHive)
           helper.recreate(tableSpark)
 
