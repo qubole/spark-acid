@@ -31,14 +31,14 @@ RUN wget https://archive.apache.org/dist/hadoop/common/hadoop-3.1.1/hadoop-3.1.1
 RUN tar -xvzf hadoop-3.1.1.tar.gz
 RUN ln -sf /hadoop-3.1.1 /hadoop
 
-RUN wget http://mirrors.estointernet.in/apache/hive/hive-3.1.1/apache-hive-3.1.1-bin.tar.gz
-RUN tar -xvzf apache-hive-3.1.1-bin.tar.gz
-RUN ln -sf /apache-hive-3.1.1-bin /hive
+RUN wget http://mirrors.estointernet.in/apache/hive/hive-3.1.2/apache-hive-3.1.2-bin.tar.gz
+RUN tar -xvzf apache-hive-3.1.2-bin.tar.gz
+RUN ln -sf /apache-hive-3.1.2-bin /hive
 
 RUN yum -y install \
     mysql-server mysql-connector-java \
      && yum -y clean all && rm -rf /tmp/* /var/tmp/* \
-     && ln -s /usr/share/java/mysql-connector-java.jar apache-hive-3.1.1-bin/lib/mysql-connector-java.jar
+     && ln -s /usr/share/java/mysql-connector-java.jar apache-hive-3.1.2-bin/lib/mysql-connector-java.jar
 
 # Setup sock proxy
 RUN yum install -y openssh openssh-clients openssh-server
