@@ -369,9 +369,6 @@ private[hiveacid] class HiveAcidRDD[K, V](sc: SparkContext,
   def getConf: Configuration = getJobConf
 }
 
-<<<<<<< HEAD:src/main/scala/com/qubole/spark/datasources/hiveacid/rdd/Hive3Rdd.scala
-object Hive3RDD extends Logging {
-=======
 object HiveAcidRDD extends Logging {
 
   /*
@@ -381,7 +378,6 @@ object HiveAcidRDD extends Logging {
    */
   val RECORD_READER_INIT_LOCK = new Object()
 
->>>>>>> dec9109... [SPAR-3779]:[oss]: Insert into/overwrite support for orc full acid tables:src/main/scala/com/qubole/spark/datasources/hiveacid/reader/HiveAcidRDD.scala
   /**
     * Configuration's constructor is not threadsafe (see SPARK-1097 and HADOOP-10456).
     * Therefore, we synchronize on this lock before calling new JobConf() or new Configuration().
