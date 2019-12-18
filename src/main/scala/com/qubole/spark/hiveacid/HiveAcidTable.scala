@@ -89,10 +89,8 @@ class HiveAcidTable(sparkSession: SparkSession,
       functions.expr(condition).expr,
       df.queryExecution.analyzed)
 
-    df.filter(resolvedExpr.sql)
-
     val tableWriter = new TableWriter(sparkSession, hiveAcidMetadata)
-    tableWriter.process(HiveAcidOperation.DELETE, df)
+    tableWriter.process(HiveAcidOperation.DELETE, df.filter(resolvedExpr.sql))
   }
 
   /**
