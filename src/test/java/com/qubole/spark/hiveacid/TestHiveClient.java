@@ -17,7 +17,7 @@
  * limitations under the License.
  */
 
-package com.qubole.spark.hiveacid
+package com.qubole.spark.hiveacid;
 
 
 import java.sql.Connection;
@@ -35,9 +35,7 @@ public class TestHiveClient {
 
 	TestHiveClient() {
 		try {
-			/*
-			 * Before running this docker container with HS2 / HMS / Hadoop running
-			 */
+			// Before running this docker container with HS2 / HMS / Hadoop running
 			String driverName = "com.qubole.shaded.hive.jdbc.HiveDriver";
 			Class.forName(driverName);
 		} catch (ClassNotFoundException e) {
@@ -65,7 +63,7 @@ public class TestHiveClient {
 			rs = null;
 
 		} catch (Exception e) {
-			System.out.println("Failed execute statement "+ e);
+			System.out.println("Failed execute query statement \""+ cmd +"\" Error:"+ e);
 			if (rs != null ) {
 				rs.close();
 			}
@@ -74,7 +72,11 @@ public class TestHiveClient {
 	}
 
 	public void execute(String cmd) throws SQLException {
-		stmt.execute(cmd);
+		try {
+			stmt.execute(cmd);
+		} catch (Exception e) {
+			System.out.println("Failed execute statement \""+ cmd +"\" Error:"+ e);
+		}
 	}
 
 	private String resultStr(ResultSet rs) throws SQLException {

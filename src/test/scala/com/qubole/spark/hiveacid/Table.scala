@@ -31,7 +31,7 @@ class Table (
   private val tName: String,
   private val extraColMap: Map[String, String],
   private val tblProp: String,
-  private val isPartitioned: Boolean = false) {
+  val isPartitioned: Boolean = false) {
 
     private var colMap = Map("key" -> "int") ++ extraColMap
     private var colMapWithPartitionedCols = if (isPartitioned) {
