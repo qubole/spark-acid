@@ -163,8 +163,9 @@ class HiveAcidRelation(var sqlContext: SQLContext,
       s"hive.io.file.readcolumn.names: ${hadoopConf.get("hive.io.file.readcolumn.names")}, " +
       s"hive.io.file.readcolumn.ids: ${hadoopConf.get("hive.io.file.readcolumn.ids")}")
 
-    val acidState = new HiveAcidState(sqlContext.sparkSession, hiveConf, hTable,
+    val acidState = new HiveAcidState(sqlContext.sparkSession, hiveConf,
       sqlContext.sparkSession.sessionState.conf.defaultSizeInBytes, partitionSchema, isFullAcidTable)
+    acidState.addTable(hTable)
 
     val hiveReader = new HiveTableReader(
       requiredAttributes,
