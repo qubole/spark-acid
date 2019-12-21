@@ -21,6 +21,7 @@ package com.qubole.spark.hiveacid.rdd
 
 import java.io.{FileNotFoundException, IOException}
 import java.text.SimpleDateFormat
+import java.util.concurrent.ConcurrentHashMap
 import java.util.{Date, Locale}
 
 import scala.collection.JavaConversions._
@@ -44,12 +45,11 @@ import org.apache.spark.deploy.SparkHadoopUtil
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.storage.StorageLevel
-import com.google.common.collect.MapMaker
 
 // This file has lot of borrowed code from org.apache.spark.rdd.HadoopRdd
 
 private object Cache {
-  val jobConf = new MapMaker().softValues().makeMap[String, Any]()
+  val jobConf =  new ConcurrentHashMap[String, Any]()
 }
 
 private class HiveAcidPartition(rddId: Int, override val index: Int, s: InputSplit)

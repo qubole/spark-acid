@@ -1,6 +1,6 @@
 name := "spark-acid-shaded-dependencies"
 
-version := "0.1"
+version := sys.props.getOrElse("package.version", "0.1")
 
 organization:= "com.qubole"
 
@@ -28,9 +28,11 @@ publishArtifact in (Compile, packageSrc) := false
 
 publishArtifact in (Compile, packageBin) := false
 
-val hive_version = "3.1.1"
+val hive_version = sys.props.getOrElse("hive.version", "3.1.2")
 
-val orc_version = "1.5.6"
+val orc_version = sys.props.getOrElse("orc.version", "1.5.6")
+
+resolvers += "Additional Maven Repository" at sys.props.getOrElse("hive.repo", "https://repo1.maven.org/maven2/")
 
 // Shaded dependency
 libraryDependencies ++= Seq(

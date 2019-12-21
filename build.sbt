@@ -6,7 +6,7 @@ crossScalaVersions := Seq("2.11.12")
 
 scalaVersion := crossScalaVersions.value.head
 
-sparkVersion := "2.4.3"
+sparkVersion := sys.props.getOrElse("spark.version", "2.4.3")
 
 scalacOptions ++= Seq(
 	"-Xlint",
@@ -21,20 +21,20 @@ scalacOptions in (Compile, doc) ++= Seq(
 	"-no-link-warnings" // Suppresses problems with Scaladoc @throws links
 )
 
-resolvers += "spark-packages" at "https://dl.bintray.com/spark-packages/maven/"
+resolvers += "spark-packages" at sys.props.getOrElse("spark.repo", "https://dl.bintray.com/spark-packages/maven/")
 
 libraryDependencies ++= Seq(
 	// Adding test classifier seems to break transitive resolution of the core dependencies
-	"org.apache.spark" %% "spark-hive" % "2.4.3" % "provided" excludeAll(
+	"org.apache.spark" %% "spark-hive" % sparkVersion.value % "provided" excludeAll(
 		ExclusionRule("org.apache", "hadoop-common"),
 		ExclusionRule("org.apache", "hadoop-hdfs")),
-	"org.apache.spark" %% "spark-sql" % "2.4.3" % "provided" excludeAll(
+	"org.apache.spark" %% "spark-sql" % sparkVersion.value % "provided" excludeAll(
 		ExclusionRule("org.apache", "hadoop-common"),
 		ExclusionRule("org.apache", "hadoop-hdfs")),
-	"org.apache.spark" %% "spark-core" % "2.4.3" % "provided" excludeAll(
+	"org.apache.spark" %% "spark-core" % sparkVersion.value % "provided" excludeAll(
 		ExclusionRule("org.apache", "hadoop-common"),
 		ExclusionRule("org.apache", "hadoop-hdfs")),
-	"org.apache.spark" %% "spark-catalyst" % "2.4.3" % "provided" excludeAll(
+	"org.apache.spark" %% "spark-catalyst" % sparkVersion.value % "provided" excludeAll(
 		ExclusionRule("org.apache", "hadoop-common"),
 		ExclusionRule("org.apache", "hadoop-hdfs"))
 )
@@ -49,7 +49,7 @@ libraryDependencies ++= Seq(
 
 // Shaded jar dependency
 libraryDependencies ++= Seq(
-	"com.qubole" %% "spark-acid-shaded-dependencies" % "0.1"
+	"com.qubole" %% "spark-acid-shaded-dependencies" % sys.props.getOrElse("package.version", "0.1")
 )
 
 
