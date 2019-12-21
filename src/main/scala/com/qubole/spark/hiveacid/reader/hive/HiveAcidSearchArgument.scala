@@ -17,7 +17,7 @@
  * limitations under the License.
  */
 
-package com.qubole.spark.hiveacid.hive
+package com.qubole.spark.hiveacid.reader.hive
 
 import com.qubole.shaded.hadoop.hive.ql.io.sarg.{PredicateLeaf, SearchArgument}
 import com.qubole.shaded.hadoop.hive.ql.io.sarg.SearchArgument.Builder
@@ -26,9 +26,6 @@ import com.qubole.shaded.hadoop.hive.serde2.io.HiveDecimalWritable
 
 import org.apache.spark.sql.sources.{And, Filter}
 import org.apache.spark.sql.types._
-
-
-
 
 /**
  * Copied from org.apache.spark.sql.execution.datasources.orc.OrcFilters

@@ -17,16 +17,16 @@
  * limitations under the License.
  */
 
-package com.qubole.spark.hiveacid.hive
+package com.qubole.spark.hiveacid.reader.hive
 
 import com.qubole.shaded.hadoop.hive.ql.plan.TableDesc
-import com.qubole.spark.hiveacid.HiveAcidMetadata
+import com.qubole.spark.hiveacid.hive.HiveAcidMetadata
 import org.apache.spark.sql.types.StructType
 
-private[hiveacid] class HiveAcidReaderOptions(val tableDesc: TableDesc,
+private[reader] class HiveAcidReaderOptions(val tableDesc: TableDesc,
                                          val rowIdSchema: Option[StructType])
 
-private[hiveacid] object HiveAcidReaderOptions {
+private[reader] object HiveAcidReaderOptions {
   def get(hiveAcidMetadata: HiveAcidMetadata, includeRowIds: Boolean): HiveAcidReaderOptions = {
     val rowIdSchema = if (includeRowIds) {
       Option(hiveAcidMetadata.rowIdSchema)

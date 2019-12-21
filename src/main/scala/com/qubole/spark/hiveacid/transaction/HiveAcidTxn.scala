@@ -20,7 +20,8 @@ package com.qubole.spark.hiveacid.transaction
 import java.util.concurrent.atomic.AtomicBoolean
 
 import com.qubole.shaded.hadoop.hive.common.ValidWriteIdList
-import com.qubole.spark.hiveacid.{HiveAcidErrors, HiveAcidMetadata, HiveAcidOperation}
+import com.qubole.spark.hiveacid.{HiveAcidErrors, HiveAcidOperation}
+import com.qubole.spark.hiveacid.hive.HiveAcidMetadata
 import org.apache.spark.internal.Logging
 
 private[hiveacid] abstract class HiveAcidTxn(

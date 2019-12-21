@@ -21,6 +21,7 @@ import scala.collection.Map
 import com.qubole.spark.hiveacid.reader.TableReader
 import com.qubole.spark.hiveacid.writer.TableWriter
 import com.qubole.spark.hiveacid.datasource.HiveAcidDataSource
+import com.qubole.spark.hiveacid.hive.HiveAcidMetadata
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.{DataFrame, _}

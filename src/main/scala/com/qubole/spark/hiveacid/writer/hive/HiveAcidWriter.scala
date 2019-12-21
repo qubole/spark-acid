@@ -17,7 +17,7 @@
  * limitations under the License.
  */
 
-package com.qubole.spark.hiveacid.hive
+package com.qubole.spark.hiveacid.writer.hive
 
 import java.util.Properties
 
@@ -47,9 +47,7 @@ import org.apache.spark.sql.execution.datasources.PartitioningUtils
 import org.apache.spark.sql.hive.Hive3Inspectors
 import org.apache.spark.sql.types.StringType
 
-
-
-abstract private[hiveacid] class HiveAcidWriter(val options: WriterOptions,
+abstract private[writer] class HiveAcidWriter(val options: WriterOptions,
                                      val hive3Options: HiveAcidWriterOptions)
   extends Writer with Logging {
 
@@ -166,7 +164,7 @@ abstract private[hiveacid] class HiveAcidWriter(val options: WriterOptions,
  * @param options - writer options to use
  * @param hive3Options - Hive3 related writer options.
  */
-private[hiveacid] class HiveAcidFullAcidWriter(options: WriterOptions,
+private[writer] class HiveAcidFullAcidWriter(options: WriterOptions,
                                              hive3Options: HiveAcidWriterOptions)
   extends HiveAcidWriter(options, hive3Options) with Logging {
 
@@ -303,7 +301,7 @@ private[hiveacid] class HiveAcidFullAcidWriter(options: WriterOptions,
   * @param options writer options to use
   * @param hive3Options hive3 specific options, which is passed into underlying hive3 API
   */
-private[hiveacid] class HiveAcidInsertOnlyWriter(options: WriterOptions,
+private[writer] class HiveAcidInsertOnlyWriter(options: WriterOptions,
                                        hive3Options: HiveAcidWriterOptions)
   extends HiveAcidWriter(options, hive3Options) {
 

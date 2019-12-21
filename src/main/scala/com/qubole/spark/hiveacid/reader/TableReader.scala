@@ -19,9 +19,10 @@
 
 package com.qubole.spark.hiveacid.reader
 
-import com.qubole.spark.hiveacid.{HiveAcidMetadata, ReadConf}
+import com.qubole.spark.hiveacid.ReadConf
 import com.qubole.spark.hiveacid.transaction.{HiveAcidReadTxn, HiveAcidTxnManager}
-import com.qubole.spark.hiveacid.hive.{HiveAcidReader, HiveConverter, HiveAcidReaderOptions}
+import com.qubole.spark.hiveacid.hive.{HiveAcidMetadata, HiveConverter}
+import com.qubole.spark.hiveacid.reader.hive.{HiveAcidReader, HiveAcidReaderOptions}
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.{Row, SparkSession}

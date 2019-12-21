@@ -19,7 +19,7 @@
 
 package com.qubole.spark.hiveacid.reader
 
-import com.qubole.spark.hiveacid.HiveAcidMetadata
+import com.qubole.spark.hiveacid.hive.HiveAcidMetadata
 
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
@@ -27,5 +27,6 @@ import org.apache.spark.sql.sources.Filter
 
 private[reader] trait Reader {
   def makeRDDForTable(hiveAcidMetadata: HiveAcidMetadata): RDD[InternalRow]
-  def makeRDDForPartitionedTable(partitions: Seq[Filter]): RDD[InternalRow]
+  def makeRDDForPartitionedTable(hiveAcidMetadata: HiveAcidMetadata,
+                                 partitionFilters: Seq[Filter]): RDD[InternalRow]
 }

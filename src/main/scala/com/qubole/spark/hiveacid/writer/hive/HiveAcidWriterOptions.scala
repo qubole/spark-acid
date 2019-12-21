@@ -17,14 +17,15 @@
  * limitations under the License.
  */
 
-package com.qubole.spark.hiveacid.hive
+package com.qubole.spark.hiveacid.writer.hive
 
 import com.qubole.shaded.hadoop.hive.ql.plan.FileSinkDesc
-import com.qubole.spark.hiveacid.{HiveAcidMetadata, HiveAcidOperation}
+import com.qubole.spark.hiveacid.HiveAcidOperation
+import com.qubole.spark.hiveacid.hive.HiveAcidMetadata
 import com.qubole.spark.hiveacid.writer.WriterOptions
 import org.apache.hadoop.fs.Path
 
-private[hiveacid] class HiveAcidWriterOptions(val rootPath: String,
+private[writer] class HiveAcidWriterOptions(val rootPath: String,
                                             fileSinkDesc: FileSinkDesc) extends Serializable {
   lazy val getFileSinkDesc: FileSinkDesc = {
     fileSinkDesc.setDirName(new Path(rootPath))
@@ -32,7 +33,7 @@ private[hiveacid] class HiveAcidWriterOptions(val rootPath: String,
   }
 }
 
-private[hiveacid] object HiveAcidWriterOptions {
+private[writer] object HiveAcidWriterOptions {
   def get(hiveAcidMetadata: HiveAcidMetadata,
                             options: WriterOptions): HiveAcidWriterOptions = {
     lazy val fileSinkDescriptor: FileSinkDesc = {

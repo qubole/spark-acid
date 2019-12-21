@@ -26,7 +26,8 @@ import com.qubole.shaded.hadoop.hive.metastore.conf.MetastoreConf
 import com.qubole.shaded.hadoop.hive.metastore.txn.TxnUtils
 import com.qubole.shaded.hadoop.hive.metastore.{HiveMetaStoreClient, LockComponentBuilder, LockRequestBuilder}
 import com.qubole.spark.hiveacid.datasource.HiveAcidDataSource
-import com.qubole.spark.hiveacid._
+import com.qubole.spark.hiveacid.hive.HiveAcidMetadata
+import com.qubole.spark.hiveacid.{HiveAcidOperation, HiveAcidErrors}
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.SparkSession
 import com.qubole.shaded.thrift.TException
@@ -53,7 +54,7 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession,
     new HiveMetaStoreClient(hiveConf, null, false)
 
   // FIXME: Use thread pool so that we don't create multiple threads
-  private var heartBeater: ScheduledExecutorService =
+  private val heartBeater: ScheduledExecutorService =
     Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
       def newThread(r: Runnable) = new HeartBeaterThread(r, "AcidDataSourceHeartBeater")
     })

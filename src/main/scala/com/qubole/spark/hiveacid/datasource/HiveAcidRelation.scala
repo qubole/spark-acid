@@ -25,7 +25,8 @@ import org.apache.spark.sql.{DataFrame, Row, SparkSession, SQLContext}
 import org.apache.spark.sql.sources.{BaseRelation, Filter, InsertableRelation, PrunedFilteredScan}
 import org.apache.spark.sql.types._
 
-import com.qubole.spark.hiveacid.{HiveAcidMetadata, HiveAcidTable, ReadConf}
+import com.qubole.spark.hiveacid.{HiveAcidTable, ReadConf}
+import com.qubole.spark.hiveacid.hive.HiveAcidMetadata
 
 /**
   * Container for all metadata, configuration and schema to perform operations on

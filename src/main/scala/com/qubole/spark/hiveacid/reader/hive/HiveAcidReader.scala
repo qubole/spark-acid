@@ -17,7 +17,7 @@
  * limitations under the License.
  */
 
-package com.qubole.spark.hiveacid.hive
+package com.qubole.spark.hiveacid.reader.hive
 
 import java.util
 import java.util.Properties
@@ -37,8 +37,9 @@ import com.qubole.shaded.hadoop.hive.ql.plan.TableDesc
 import com.qubole.shaded.hadoop.hive.serde2.Deserializer
 import com.qubole.shaded.hadoop.hive.serde2.objectinspector.{ObjectInspectorConverters, StructObjectInspector}
 import com.qubole.shaded.hadoop.hive.serde2.objectinspector.primitive._
-import com.qubole.spark.hiveacid.HiveAcidMetadata
-import com.qubole.spark.hiveacid.reader.ReaderOptions
+import com.qubole.spark.hiveacid.hive.HiveAcidMetadata
+import com.qubole.spark.hiveacid.hive.HiveConverter
+import com.qubole.spark.hiveacid.reader.{Reader, ReaderOptions}
 import com.qubole.spark.hiveacid.rdd._
 import com.qubole.spark.hiveacid.transaction.HiveAcidTxn
 import com.qubole.spark.hiveacid.util._
@@ -72,12 +73,12 @@ import org.apache.spark.unsafe.types.UTF8String
  * @param readerOptions - reader options for creating RDD
  * @param hiveAcidOptions - hive related reader options for creating RDD
  */
-private[hiveacid] class HiveAcidReader(private val sparkSession: SparkSession,
+private[reader] class HiveAcidReader(private val sparkSession: SparkSession,
                                   private val txn: HiveAcidTxn,
                                   private val readerOptions: ReaderOptions,
                                   private val hiveAcidOptions: HiveAcidReaderOptions)
 
-  extends CastSupport with Logging {
+  extends CastSupport with Reader with Logging {
 
   private val _minSplitsPerRDD = if (sparkSession.sparkContext.isLocal) {
     0 // will splitted based on block by default.
@@ -396,7 +397,7 @@ private[hiveacid] class HiveAcidReader(private val sparkSession: SparkSession,
   }
 }
 
-private[hiveacid] object HiveAcidReader extends Hive3Inspectors with Logging {
+private[reader] object HiveAcidReader extends Hive3Inspectors with Logging {
 
   // copied from PlanUtils.configureJobPropertiesForStorageHandler(tableDesc)
   // that calls Hive.get() which tries to access metastore, but it's not valid in runtime
@@ -558,6 +559,4 @@ private[hiveacid] object HiveAcidReader extends Hive3Inspectors with Logging {
       mutableRow: InternalRow
     }
   }
-
-
 }

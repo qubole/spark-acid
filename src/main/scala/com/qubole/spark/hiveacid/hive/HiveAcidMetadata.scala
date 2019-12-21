@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package com.qubole.spark.hiveacid
+package com.qubole.spark.hiveacid.hive
 
 import java.util.Locale
 
@@ -28,7 +28,7 @@ import com.qubole.shaded.hadoop.hive.ql.metadata
 import com.qubole.shaded.hadoop.hive.ql.metadata.Hive
 import com.qubole.shaded.hadoop.hive.ql.plan.TableDesc
 import com.qubole.spark.hiveacid.util.Util
-import com.qubole.spark.hiveacid.hive.HiveConverter
+import com.qubole.spark.hiveacid.HiveAcidErrors
 import org.apache.hadoop.fs.Path
 import org.apache.hadoop.io.Writable
 import org.apache.hadoop.mapred.{InputFormat, OutputFormat}
@@ -42,7 +42,7 @@ import org.apache.spark.sql.types._
  * @param sparkSession - spark session object
  * @param fullyQualifiedTableName - the fully qualified hive acid table name
  */
-private[hiveacid] class HiveAcidMetadata(sparkSession: SparkSession,
+class HiveAcidMetadata(sparkSession: SparkSession,
                                          fullyQualifiedTableName: String) extends Logging {
 
   // hive conf

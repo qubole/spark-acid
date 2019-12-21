@@ -22,7 +22,7 @@ package com.qubole.spark.hiveacid
 import org.apache.spark.sql.SaveMode
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 
-private[hiveacid] object HiveAcidErrors {
+object HiveAcidErrors {
   def tableNotSpecifiedException(): Throwable = {
     new IllegalArgumentException("'table' is not specified in parameters")
   }
@@ -76,7 +76,7 @@ private[hiveacid] object HiveAcidErrors {
   }
 }
 
-private[hiveacid] class AnalysisException(
+class AnalysisException(
      val message: String,
      val line: Option[Int] = None,
      val startPosition: Option[Int] = None,
