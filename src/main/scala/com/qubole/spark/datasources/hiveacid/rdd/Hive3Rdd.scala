@@ -21,6 +21,7 @@ package com.qubole.spark.datasources.hiveacid.rdd
 
 import java.io.{FileNotFoundException, IOException}
 import java.text.SimpleDateFormat
+import java.util.concurrent.ConcurrentHashMap
 import java.util.{Date, Locale}
 
 import com.qubole.shaded.hadoop.hive.common.ValidWriteIdList
@@ -50,7 +51,7 @@ import scala.reflect.ClassTag
 
 object Cache {
   import com.google.common.collect.MapMaker
-  val jobConf = new MapMaker().softValues().makeMap[String, Any]()
+  val jobConf =  new ConcurrentHashMap[String, Any]()
 }
 
 class Hive3Partition(rddId: Int, override val index: Int, s: InputSplit)
