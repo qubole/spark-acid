@@ -48,7 +48,7 @@ import org.apache.spark.sql.hive.Hive3Inspectors
 import org.apache.spark.sql.types.StringType
 
 abstract private[writer] class HiveAcidWriter(val options: WriterOptions,
-                                     val hive3Options: HiveAcidWriterOptions)
+                                              val HiveAcidOptions: HiveAcidWriterOptions)
   extends Writer with Logging {
 
   // Takes as input partition columns returns expression to
@@ -92,7 +92,7 @@ abstract private[writer] class HiveAcidWriter(val options: WriterOptions,
     new JobConf(hConf)
   }
 
-  protected val sparkHiveRowConverter = new SparkHiveRowConverter(options, hive3Options, jobConf)
+  protected val sparkHiveRowConverter = new SparkHiveRowConverter(options, HiveAcidOptions, jobConf)
 
   // Cache of writers
   protected val writers: mutable.Map[(String, Int, Int), Any] = scala.collection.mutable.Map[(String, Int, Int), Any]()
@@ -103,11 +103,11 @@ abstract private[writer] class HiveAcidWriter(val options: WriterOptions,
   protected def getOrCreateWriter(partitionRow: InternalRow, acidBucketId: Int): Any = {
 
     val partitionBasePath = if (options.partitionColumns.isEmpty) {
-      new Path(hive3Options.rootPath)
+      new Path(HiveAcidOptions.rootPath)
     } else {
       val path = getPartitionPath(partitionRow)
       partitionsTouchedSet.add(PartitioningUtils.parsePathFragment(path))
-      new Path(hive3Options.rootPath, path)
+      new Path(HiveAcidOptions.rootPath, path)
     }
 
     writers.getOrElseUpdate((partitionBasePath.toUri.toString, taskId, acidBucketId),
@@ -120,8 +120,8 @@ abstract private[writer] class HiveAcidWriter(val options: WriterOptions,
   protected val hiveRow = new Array[Any](sparkHiveRowConverter.numFields)
 
   lazy protected val fileSinkConf: FileSinkDesc = {
-    val fileSinkConf = hive3Options.getFileSinkDesc
-    fileSinkConf.setDirName(new Path(hive3Options.rootPath))
+    val fileSinkConf = HiveAcidOptions.getFileSinkDesc
+    fileSinkConf.setDirName(new Path(HiveAcidOptions.rootPath))
     fileSinkConf
   }
 }
@@ -162,11 +162,11 @@ abstract private[writer] class HiveAcidWriter(val options: WriterOptions,
  * the data is Same bucket cannot have multiple files
  *
  * @param options - writer options to use
- * @param hive3Options - Hive3 related writer options.
+ * @param HiveAcidOptions - Hive3 related writer options.
  */
 private[writer] class HiveAcidFullAcidWriter(options: WriterOptions,
-                                             hive3Options: HiveAcidWriterOptions)
-  extends HiveAcidWriter(options, hive3Options) with Logging {
+                                             HiveAcidOptions: HiveAcidWriterOptions)
+  extends HiveAcidWriter(options, HiveAcidOptions) with Logging {
 
   private lazy val rowIdColNum = options.operationType match {
     case HiveAcidOperation.INSERT_INTO | HiveAcidOperation.INSERT_OVERWRITE =>
@@ -179,13 +179,13 @@ private[writer] class HiveAcidFullAcidWriter(options: WriterOptions,
 
   override protected def createWriter(path: Path, acidBucketId: Int): Any = {
 
-    val tableDesc = hive3Options.getFileSinkDesc.getTableInfo
+    val tableDesc = HiveAcidOptions.getFileSinkDesc.getTableInfo
 
     val recordUpdater = HiveFileFormatUtils.getAcidRecordUpdater(
       jobConf,
       tableDesc,
       acidBucketId,
-      hive3Options.getFileSinkDesc,
+      HiveAcidOptions.getFileSinkDesc,
       path,
       sparkHiveRowConverter.getObjectInspector,
       Reporter.NULL,
@@ -287,7 +287,7 @@ private[writer] class HiveAcidFullAcidWriter(options: WriterOptions,
     }
     catch {
       case e: Exception =>
-        logError("Unable to close " + x._2 + " due to: " + e.getMessage())
+        logError("Unable to close " + x._2 + " due to: " + e.getMessage)
     })
   }
 }
@@ -299,11 +299,11 @@ private[writer] class HiveAcidFullAcidWriter(options: WriterOptions,
   * OperationType. row is expected to contain data and no row ids
   *
   * @param options writer options to use
-  * @param hive3Options hive3 specific options, which is passed into underlying hive3 API
+  * @param HiveAcidOptions hive3 specific options, which is passed into underlying hive3 API
   */
 private[writer] class HiveAcidInsertOnlyWriter(options: WriterOptions,
-                                       hive3Options: HiveAcidWriterOptions)
-  extends HiveAcidWriter(options, hive3Options) {
+                                       HiveAcidOptions: HiveAcidWriterOptions)
+  extends HiveAcidWriter(options, HiveAcidOptions) {
 
   override protected def createWriter(path: Path, acidBucketId: Int): Any = {
     val outputClass = sparkHiveRowConverter.serializer.getSerializedClass
@@ -327,7 +327,7 @@ private[writer] class HiveAcidInsertOnlyWriter(options: WriterOptions,
       jobConf,
       sparkHiveRowConverter.tableDesc,
       outputClass,
-      hive3Options.getFileSinkDesc,
+      HiveAcidOptions.getFileSinkDesc,
       new Path(fullPathStr),
       Reporter.NULL)
   }
@@ -364,7 +364,7 @@ private[writer] class HiveAcidInsertOnlyWriter(options: WriterOptions,
     }
     catch {
       case e: Exception =>
-        logError("Unable to close " + x._2 + " due to: " + e.getMessage())
+        logError("Unable to close " + x._2 + " due to: " + e.getMessage)
     })
   }
 
@@ -376,10 +376,10 @@ private[writer] class HiveAcidInsertOnlyWriter(options: WriterOptions,
  * @param jobConf - job conf
  */
 private[hive] class SparkHiveRowConverter(options: WriterOptions,
-                                    hive3Options: HiveAcidWriterOptions,
-                                    jobConf: JobConf) extends Hive3Inspectors {
+                                          HiveAcidOptions: HiveAcidWriterOptions,
+                                          jobConf: JobConf) extends Hive3Inspectors {
 
-  val tableDesc: TableDesc = hive3Options.getFileSinkDesc.getTableInfo
+  val tableDesc: TableDesc = HiveAcidOptions.getFileSinkDesc.getTableInfo
 
   // NB: Can't use tableDesc.getDeserializer as it  uses Reflection
   // internally which doesn't work because of shading. So copied its logic

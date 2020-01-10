@@ -29,8 +29,8 @@ import org.apache.spark.sql.sources.Filter
  * Reader options which will be serialized and sent to each executor
  */
 private[hiveacid] class ReaderOptions(val hadoopConf: Configuration,
-                                    val partitionAttributes: Seq[Attribute],
-                                    val requiredAttributes: Seq[Attribute],
-                                    val dataFilters: Array[Filter],
-                                    val requiredNonPartitionedColumns: Array[String],
-                                    val readConf: ReadConf) extends Serializable
+                                      val partitionAttributes: Seq[Attribute],
+                                      val requiredAttributes: Seq[Attribute],
+                                      val dataFilters: Array[Filter],
+                                      val requiredNonPartitionedColumns: Array[String],
+                                      val readConf: ReadConf) extends Serializable

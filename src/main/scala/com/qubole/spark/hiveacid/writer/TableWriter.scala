@@ -23,10 +23,9 @@ import scala.collection.JavaConverters._
 import scala.language.implicitConversions
 
 import com.qubole.spark.hiveacid._
-import com.qubole.spark.hiveacid.hive.{HiveConverter, HiveAcidMetadata}
-import com.qubole.spark.hiveacid.writer.hive.HiveAcidWriterOptions
-import com.qubole.spark.hiveacid.writer.hive.{HiveAcidFullAcidWriter, HiveAcidInsertOnlyWriter}
-import com.qubole.spark.hiveacid.transaction.{HiveAcidFullTxn, HiveAcidTxnManager}
+import com.qubole.spark.hiveacid.hive.HiveAcidMetadata
+import com.qubole.spark.hiveacid.writer.hive.{HiveAcidFullAcidWriter, HiveAcidInsertOnlyWriter, HiveAcidWriterOptions}
+import com.qubole.spark.hiveacid.transaction._
 import com.qubole.spark.hiveacid.util.SerializableConfiguration
 
 import org.apache.spark.internal.Logging
@@ -35,19 +34,17 @@ import org.apache.spark.sql.catalyst.{InternalRow, TableIdentifier}
 import org.apache.spark.sql.catalyst.catalog.CatalogTypes.TablePartitionSpec
 import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.execution.command.AlterTableAddPartitionCommand
-
 import org.apache.spark.sql.types.StructType
 
 /**
  * Performs eager write of a dataframe df to a hive acid table based on operationType
  * @param sparkSession  - Spark session
- * @param hiveAcidMetadata - hive acid table where we want to write dataframe
+ * @param curTxn - Transaction object to acquire locks.
+ * @param hiveAcidMetadata - Hive acid table where we want to write dataframe
  */
 private[hiveacid] class TableWriter(sparkSession: SparkSession,
+                                    curTxn: HiveAcidTxn,
                                     hiveAcidMetadata: HiveAcidMetadata) extends Logging {
-
-  private val hiveConf = HiveConverter.getHiveConf(sparkSession.sparkContext)
-  private val txnManager = new HiveAcidTxnManager(sparkSession, hiveConf)
 
   private def getSchema(operationType: HiveAcidOperation.OperationType): StructType = {
     val expectRowIdsInDataFrame = operationType match {
@@ -90,21 +87,22 @@ private[hiveacid] class TableWriter(sparkSession: SparkSession,
     * @param df data frame to be written into the table.
     */
   def process(operationType: HiveAcidOperation.OperationType,
-            df: DataFrame): Unit = {
+              df: DataFrame): Unit = {
 
     val hadoopConf = sparkSession.sessionState.newHadoopConf()
 
     val (allColumns, partitionColumns, dataColumns) = getColumns(operationType, df)
 
-    // Start full transaction
-    val txn: HiveAcidFullTxn = new HiveAcidFullTxn(hiveAcidMetadata, txnManager)
-
     try {
-      txn.begin()
 
-      txn.acquireLocks(operationType, Seq())
+      // FIXME: IF we knew the partition then we should
+      //   only lock that partition.
+      curTxn.acquireLocks(hiveAcidMetadata, operationType, Seq())
 
-      val writerOptions = new WriterOptions(txn.currentWriteId,
+      // Create Snapshot !!!
+      val curSnapshot = HiveAcidTxn.createSnapshot(curTxn, hiveAcidMetadata)
+
+      val writerOptions = new WriterOptions(curSnapshot.currentWriteId,
         operationType,
         new SerializableConfiguration(hadoopConf),
         getSchema(operationType),
@@ -116,7 +114,7 @@ private[hiveacid] class TableWriter(sparkSession: SparkSession,
 
       val isFullAcidTable = hiveAcidMetadata.isFullAcidTable
 
-      val hive3Options = HiveAcidWriterOptions.get(hiveAcidMetadata, writerOptions)
+      val hiveAcidWriterOptions = HiveAcidWriterOptions.get(hiveAcidMetadata, writerOptions)
 
       // This RDD is serialized and sent for distributed execution.
       // All the access object in this needs to be serializable.
@@ -124,9 +122,9 @@ private[hiveacid] class TableWriter(sparkSession: SparkSession,
         Serializable {
         override def apply(iterator: Iterator[InternalRow]): Seq[TablePartitionSpec] = {
           val writer = if (isFullAcidTable) {
-            new HiveAcidFullAcidWriter(writerOptions, hive3Options)
+            new HiveAcidFullAcidWriter(writerOptions, hiveAcidWriterOptions)
           } else {
-            new HiveAcidInsertOnlyWriter(writerOptions, hive3Options)
+            new HiveAcidInsertOnlyWriter(writerOptions, hiveAcidWriterOptions)
           }
           iterator.foreach { row => writer.process(row) }
           writer.close()
@@ -160,7 +158,7 @@ private[hiveacid] class TableWriter(sparkSession: SparkSession,
 
       val newPartitions = touchedPartitions -- existingPartitions
 
-      logInfo(s"existing partitions: ${touchedPartitions.size}, " +
+      logDebug(s"existing partitions: ${touchedPartitions.size}, " +
         s"partitions touched: ${touchedPartitions.size}, " +
         s"new partitions to add to metastore: ${newPartitions.size}")
 
@@ -171,13 +169,14 @@ private[hiveacid] class TableWriter(sparkSession: SparkSession,
           ifNotExists = true).run(sparkSession)
       }
 
+      // FIXME: Add the notification events for replication et al.
+      //
+
       logDebug("new partitions added successfully")
-      txn.end()
 
     } catch {
       case e: Exception =>
         logError("Exception", e)
-        txn.end(true)
         throw e
     }
   }

@@ -27,6 +27,7 @@ import scala.collection.JavaConverters._
 import com.esotericsoftware.kryo.Kryo
 import com.esotericsoftware.kryo.io.Output
 import com.qubole.shaded.hadoop.hive.conf.HiveConf.ConfVars
+import com.qubole.shaded.hadoop.hive.common.ValidWriteIdList
 import com.qubole.shaded.hadoop.hive.metastore.api.FieldSchema
 import com.qubole.shaded.hadoop.hive.metastore.api.hive_metastoreConstants._
 import com.qubole.shaded.hadoop.hive.metastore.utils.MetaStoreUtils.{getColumnNamesFromFieldSchema, getColumnTypesFromFieldSchema}
@@ -39,9 +40,8 @@ import com.qubole.shaded.hadoop.hive.serde2.objectinspector.{ObjectInspectorConv
 import com.qubole.shaded.hadoop.hive.serde2.objectinspector.primitive._
 import com.qubole.spark.hiveacid.hive.HiveAcidMetadata
 import com.qubole.spark.hiveacid.hive.HiveConverter
-import com.qubole.spark.hiveacid.reader.{Reader, ReaderOptions}
+import com.qubole.spark.hiveacid.reader.{Reader, ReaderOptions, ReaderPartition}
 import com.qubole.spark.hiveacid.rdd._
-import com.qubole.spark.hiveacid.transaction.HiveAcidTxn
 import com.qubole.spark.hiveacid.util._
 import org.apache.commons.codec.binary.Base64
 import org.apache.hadoop.conf.Configuration
@@ -69,19 +69,19 @@ import org.apache.spark.unsafe.types.UTF8String
  * Helper class for scanning tables stored in Hadoop - e.g., to read
  * Hive tables that reside in the data warehouse directory.
  * @param sparkSession - spark session
- * @param txn - txn to be used
  * @param readerOptions - reader options for creating RDD
  * @param hiveAcidOptions - hive related reader options for creating RDD
+ * @param validWriteIds - validWriteIds
  */
-private[reader] class HiveAcidReader(private val sparkSession: SparkSession,
-                                  private val txn: HiveAcidTxn,
-                                  private val readerOptions: ReaderOptions,
-                                  private val hiveAcidOptions: HiveAcidReaderOptions)
+private[reader] class HiveAcidReader(sparkSession: SparkSession,
+                                     readerOptions: ReaderOptions,
+                                     hiveAcidOptions: HiveAcidReaderOptions,
+                                     validWriteIds: ValidWriteIdList)
 
-  extends CastSupport with Reader with Logging {
+extends CastSupport with Reader with Logging {
 
   private val _minSplitsPerRDD = if (sparkSession.sparkContext.isLocal) {
-    0 // will splitted based on block by default.
+    0 // will be split based on block by default.
   } else {
     math.max(readerOptions.hadoopConf.getInt("mapreduce.job.maps", 1),
       sparkSession.sparkContext.defaultMinPartitions)
@@ -97,7 +97,8 @@ private[reader] class HiveAcidReader(private val sparkSession: SparkSession,
 
   /**
    * @param hiveAcidMetadata - hive acid metadata for underlying table
-   * @return - Returns RDD on top of non partitioned hive acid table
+   * @return - Returns RDD on top of non partitioned hive acid table and list of partitionNames empty list
+    *         for entire table
    */
   def makeRDDForTable(hiveAcidMetadata: HiveAcidMetadata): RDD[InternalRow] = {
     val hiveTable = hiveAcidMetadata.hTable
@@ -130,26 +131,23 @@ private[reader] class HiveAcidReader(private val sparkSession: SparkSession,
 
   /**
    * @param hiveAcidMetadata - hive acid metadata of underlying table
-   * @param partitionFilters - partition filters for the table
+   * @param partitions - partitions for the table
+   *
    * @return - Returns RDD on top of partitioned hive acid table
    */
   def makeRDDForPartitionedTable(hiveAcidMetadata: HiveAcidMetadata,
-                                 partitionFilters: Seq[Filter]): RDD[InternalRow] = {
-    val partitionPruiningFilters = if (readerOptions.readConf.metastorePartitionPruningEnabled) {
-      Option(HiveConverter.compileFilters(partitionFilters))
-    } else {
-      None
-    }
-    val partitions = hiveAcidMetadata.getRawPartitions(partitionPruiningFilters)
+                                 partitions: Seq[ReaderPartition]): RDD[InternalRow] = {
 
-    val partitionToDeserializer = partitions.map{
+    val partitionToDeserializer = partitions.map(p => p.ptn.asInstanceOf[HiveJarPartition]).map {
       part =>
         val deserializerClassName = part.getTPartition.getSd.getSerdeInfo.getSerializationLib
         val deserializer = Util.classForName(deserializerClassName, loadShaded = true)
           .asInstanceOf[Class[Deserializer]]
         (part, deserializer)
     }.toMap
-    makeRDDForPartitionedTable(partitionToDeserializer, filterOpt = None)
+
+    makeRDDForPartitionedTable(partitionToDeserializer,
+      filterOpt = None)
   }
 
   /**
@@ -176,7 +174,7 @@ private[reader] class HiveAcidReader(private val sparkSession: SparkSession,
     val ifc = Util.classForName(ifcName, loadShaded = true)
       .asInstanceOf[java.lang.Class[InputFormat[Writable, Writable]]]
     val hiveRDD = createRddForTable(localTableDesc, hiveTable.getSd.getCols,
-      hiveTable.getParameters, tablePath.toString, acquireLocks = true, ifc)
+      hiveTable.getParameters, tablePath.toString, ifc)
 
     val attrsWithIndex = readerOptions.requiredAttributes.zipWithIndex
     val localRowIdSchema: Option[StructType] = hiveAcidOptions.rowIdSchema
@@ -201,9 +199,7 @@ private[reader] class HiveAcidReader(private val sparkSession: SparkSession,
         mutableRowRecordIds,
         deserializer)
     }
-
-    new HiveAcidUnionRDD[InternalRow](sparkSession.sparkContext, Seq(deserializedHiveRDD),
-      Seq(), txn)
+    new HiveAcidUnionRDD[InternalRow](sparkSession.sparkContext, Seq(deserializedHiveRDD))
   }
 
   /**
@@ -217,12 +213,6 @@ private[reader] class HiveAcidReader(private val sparkSession: SparkSession,
   private def makeRDDForPartitionedTable(
       partitionToDeserializer: Map[HiveJarPartition, Class[_ <: Deserializer]],
       filterOpt: Option[PathFilter]): RDD[InternalRow] = {
-
-    val partitionStrings = partitionToDeserializer.map { case (partition, _) =>
-      //      val partKeysFieldSchema = partition.getTable.getPartitionKeys.asScala
-      //      partKeysFieldSchema.map(_.getName).mkString("/")
-      partition.getName
-    }.toSeq
 
     val hivePartitionRDDs = partitionToDeserializer.map { case (partition, partDeserializer) =>
       val partProps = partition.getMetadataFromPartitionSchema
@@ -287,8 +277,7 @@ private[reader] class HiveAcidReader(private val sparkSession: SparkSession,
       // Create local references so that the outer object isn't serialized.
       val localTableDesc = hiveAcidOptions.tableDesc
       createRddForTable(localTableDesc, partition.getCols,
-        partition.getTable.getParameters, inputPathStr, acquireLocks = true,
-        ifc).mapPartitions { iter =>
+        partition.getTable.getParameters, inputPathStr, ifc).mapPartitions { iter =>
         val hconf = broadcastedHiveConf.value.value
         val deserializer = localDeserializer.newInstance()
         // SPARK-13709: For SerDes like AvroSerDe, some essential information (e.g. Avro schema
@@ -319,8 +308,7 @@ private[reader] class HiveAcidReader(private val sparkSession: SparkSession,
     if (hivePartitionRDDs.isEmpty) {
       new EmptyRDD[InternalRow](sparkSession.sparkContext)
     } else {
-      new HiveAcidUnionRDD[InternalRow](hivePartitionRDDs.head.context, hivePartitionRDDs,
-        partitionStrings, txn)
+      new HiveAcidUnionRDD[InternalRow](hivePartitionRDDs.head.context, hivePartitionRDDs)
     }
   }
 
@@ -346,7 +334,6 @@ private[reader] class HiveAcidReader(private val sparkSession: SparkSession,
                                 cols: util.List[FieldSchema],
                                 tableParameters: util.Map[String, String],
                                 path: String,
-                                acquireLocks: Boolean,
                                 inputFormatClass: Class[InputFormat[Writable, Writable]]
                                ): RDD[(RecordIdentifier, Writable)] = {
 
@@ -357,7 +344,8 @@ private[reader] class HiveAcidReader(private val sparkSession: SparkSession,
       colNames, colTypes) _
     val rdd = new HiveAcidRDD(
       sparkSession.sparkContext,
-      txn,
+      validWriteIds,
+      hiveAcidOptions.isFullAcidTable,
       _broadcastedHadoopConf.asInstanceOf[Broadcast[SerializableConfiguration]],
       Some(initializeJobConfFunc),
       inputFormatClass,
@@ -398,6 +386,26 @@ private[reader] class HiveAcidReader(private val sparkSession: SparkSession,
 }
 
 private[reader] object HiveAcidReader extends Hive3Inspectors with Logging {
+
+  def getPartitions(hiveAcidMetadata: HiveAcidMetadata,
+                    readerOptions: ReaderOptions,
+                    partitionFilters: Seq[Filter]): (Seq[ReaderPartition], Seq[String]) = {
+
+    val partitions = if (hiveAcidMetadata.isPartitioned) {
+      val partitionPruiningFilters = if (readerOptions.readConf.metastorePartitionPruningEnabled) {
+        Option(HiveConverter.compileFilters(partitionFilters))
+      } else {
+        None
+      }
+      hiveAcidMetadata.getRawPartitions(partitionPruiningFilters)
+    } else {
+      Seq()
+    }
+
+    val partitionNames = partitions.map(_.getName())
+
+    (partitions.map(p => ReaderPartition(p)), partitionNames)
+  }
 
   // copied from PlanUtils.configureJobPropertiesForStorageHandler(tableDesc)
   // that calls Hive.get() which tries to access metastore, but it's not valid in runtime

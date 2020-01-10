@@ -21,9 +21,6 @@ package com.qubole.spark.hiveacid.rdd
 
 import scala.reflect.ClassTag
 
-import com.qubole.spark.hiveacid.HiveAcidOperation
-import com.qubole.spark.hiveacid.transaction.HiveAcidTxn
-
 import org.apache.spark._
 import org.apache.spark.rdd.{RDD, UnionRDD}
 
@@ -36,20 +33,11 @@ import org.apache.spark.rdd.{RDD, UnionRDD}
 
   * @param sc - sparkContext
   * @param rddSeq - underlying partition RDDs
-  * @param partitionList - partitions represented by this Union RDD
-  * @param txn - HiveAcidTxn to take read locks
   */
 private[hiveacid] class HiveAcidUnionRDD[T: ClassTag](
    sc: SparkContext,
-   rddSeq: Seq[RDD[T]],
-   partitionList: Seq[String],
-   @transient val txn: HiveAcidTxn) extends UnionRDD[T](sc, rddSeq) {
-
+   rddSeq: Seq[RDD[T]]) extends UnionRDD[T](sc, rddSeq) {
   override def getPartitions: Array[Partition] = {
-    // Initialize the ACID state here to get the write-ids to read
-    // Start transaction
-    txn.begin()
-    txn.acquireLocks(HiveAcidOperation.READ, partitionList)
     super.getPartitions
   }
 }

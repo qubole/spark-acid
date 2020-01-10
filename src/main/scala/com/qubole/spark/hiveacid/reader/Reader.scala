@@ -23,10 +23,11 @@ import com.qubole.spark.hiveacid.hive.HiveAcidMetadata
 
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.sources.Filter
 
 private[reader] trait Reader {
   def makeRDDForTable(hiveAcidMetadata: HiveAcidMetadata): RDD[InternalRow]
   def makeRDDForPartitionedTable(hiveAcidMetadata: HiveAcidMetadata,
-                                 partitionFilters: Seq[Filter]): RDD[InternalRow]
+                                 partitions: Seq[ReaderPartition]):  RDD[InternalRow]
 }
+
+private[reader] case class ReaderPartition(ptn: Any)

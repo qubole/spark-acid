@@ -66,6 +66,14 @@ object HiveAcidErrors {
     new RuntimeException(s"Transaction on $table not started")
   }
 
+  def txnNoTransaction(): Throwable = {
+    new RuntimeException(s"No transaction found")
+  }
+
+  def tableSnapshotNonExistent(snapshotId: Long): Throwable = {
+    new RuntimeException(s"Table snapshost $snapshotId does not exist")
+  }
+
   def tableWriteIdRequestedBeforeTxnStart(table: String): Throwable = {
     new RuntimeException(s"Write id requested for table $table before txn was started")
   }

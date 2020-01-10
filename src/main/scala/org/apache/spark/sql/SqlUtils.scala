@@ -40,6 +40,9 @@ object SqlUtils {
       // This is unexpected
     }
   }
+  def hasSparkStopped(sparkSession: SparkSession): Boolean = {
+    sparkSession.sparkContext.stopped.get()
+  }
 }
 
 case class FakeLogicalPlan(expr: Expression, children: Seq[LogicalPlan])

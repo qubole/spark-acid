@@ -43,7 +43,7 @@ import org.apache.spark.sql.types._
  * @param fullyQualifiedTableName - the fully qualified hive acid table name
  */
 class HiveAcidMetadata(sparkSession: SparkSession,
-                                         fullyQualifiedTableName: String) extends Logging {
+                       fullyQualifiedTableName: String) extends Logging {
 
   // hive conf
   private val hiveConf: HiveConf = HiveConverter.getHiveConf(sparkSession.sparkContext)
@@ -156,8 +156,6 @@ object HiveAcidMetadata {
 
   def fromSparkSession(sparkSession: SparkSession,
                        fullyQualifiedTableName: String): HiveAcidMetadata = {
-
-
     new HiveAcidMetadata(
       sparkSession,
       fullyQualifiedTableName)

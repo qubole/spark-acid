@@ -30,9 +30,8 @@ import scala.reflect.ClassTag
 import com.qubole.shaded.hadoop.hive.common.ValidWriteIdList
 import com.qubole.shaded.hadoop.hive.ql.io.{AcidInputFormat, AcidUtils, HiveInputFormat, RecordIdentifier}
 import com.qubole.spark.hiveacid.rdd.HiveAcidRDD.HiveAcidPartitionsWithSplitRDD
-import com.qubole.spark.hiveacid.transaction.HiveAcidTxn
 import com.qubole.spark.hiveacid.util.{SerializableConfiguration, Util}
-import com.qubole.spark.hiveacid.util.{SerializableWritable => _, _}
+import com.qubole.spark.hiveacid.util.{SerializableWritable => _}
 import org.apache.hadoop.conf.{Configurable, Configuration}
 import org.apache.hadoop.fs.Path
 import org.apache.hadoop.mapred.{FileInputFormat, _}
@@ -67,8 +66,8 @@ private class HiveAcidPartition(rddId: Int, override val index: Int, s: InputSpl
  * sources in HBase, or S3), using the older MapReduce API (`org.apache.hadoop.mapred`).
  *
  * @param sc The SparkContext to associate the RDD with.
- * @param txn The HiveAcidTxn corresponding to this read operation. It will be used to identify
- *             valid write ids
+ * @param validWriteIds The list of valid write ids.
+ * @param isFullAcidTable if table is full acid table.
  * @param broadcastedConf A general Hadoop Configuration, or a subclass of it. If the enclosed
  *   variable references an instance of JobConf, then that JobConf will be used for the Hadoop job.
  *   Otherwise, a new JobConf will be created on each slave using the enclosed Configuration.
@@ -83,7 +82,8 @@ private class HiveAcidPartition(rddId: Int, override val index: Int, s: InputSpl
  * `org.apache.spark.SparkContext.HiveAcidRDD()`
  */
 private[hiveacid] class HiveAcidRDD[K, V](sc: SparkContext,
-                                     @transient val txn: HiveAcidTxn,
+                                     @transient val validWriteIds: ValidWriteIdList,
+                                     @transient val isFullAcidTable: Boolean,
                                      broadcastedConf: Broadcast[SerializableConfiguration],
                                      initLocalJobConfFuncOpt: Option[JobConf => Unit],
                                      inputFormatClass: Class[_ <: InputFormat[K, V]],
@@ -94,7 +94,8 @@ private[hiveacid] class HiveAcidRDD[K, V](sc: SparkContext,
 
   def this(
             sc: SparkContext,
-            @transient txn: HiveAcidTxn,
+            @transient validWriteIds: ValidWriteIdList,
+            @transient isFullAcidTable: Boolean,
             conf: JobConf,
             inputFormatClass: Class[_ <: InputFormat[K, V]],
             keyClass: Class[K],
@@ -102,7 +103,8 @@ private[hiveacid] class HiveAcidRDD[K, V](sc: SparkContext,
             minPartitions: Int) = {
     this(
       sc,
-      txn,
+      validWriteIds,
+      isFullAcidTable,
       sc.broadcast(new SerializableConfiguration(conf))
         .asInstanceOf[Broadcast[SerializableConfiguration]],
       initLocalJobConfFuncOpt = None,
@@ -190,10 +192,9 @@ private[hiveacid] class HiveAcidRDD[K, V](sc: SparkContext,
   }
 
   override def getPartitions: Array[Partition] = {
-    val validWriteIds: ValidWriteIdList = txn.validWriteIds
     var jobConf = getJobConf
 
-    if (txn.hiveAcidMetadata.isFullAcidTable) {
+    if (isFullAcidTable) {
       // If full ACID table, just set the right writeIds, the
       // OrcInputFormat.getSplits() will take care of the rest
       AcidUtils.setValidWriteIdList(jobConf, validWriteIds)
@@ -253,7 +254,7 @@ private[hiveacid] class HiveAcidRDD[K, V](sc: SparkContext,
     val iter: NextIterator[(RecordIdentifier, V)] = new NextIterator[(RecordIdentifier, V)] {
 
       private val split = theSplit.asInstanceOf[HiveAcidPartition]
-      logInfo("Input split: " + split.inputSplit)
+      logDebug("Input split: " + split.inputSplit)
       val jobConf: JobConf = getJobConf
 
       private var reader: RecordReader[K, V] = _

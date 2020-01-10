@@ -17,11 +17,13 @@
 
 package com.qubole.spark.hiveacid
 
-import scala.collection.Map
 import com.qubole.spark.hiveacid.reader.TableReader
 import com.qubole.spark.hiveacid.writer.TableWriter
-import com.qubole.spark.hiveacid.datasource.HiveAcidDataSource
 import com.qubole.spark.hiveacid.hive.HiveAcidMetadata
+import com.qubole.spark.hiveacid.datasource.HiveAcidDataSource
+import com.qubole.spark.hiveacid.rdd.EmptyRDD
+import com.qubole.spark.hiveacid.transaction._
+
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.{DataFrame, _}
@@ -45,70 +47,74 @@ class HiveAcidTable(sparkSession: SparkSession,
                     parameters: Map[String, String]
                    ) extends Logging {
 
+  private var isLocalTxn: Boolean = false
+  private var curTxn: HiveAcidTxn = _
 
-  /**
-    * Return an RDD on top of Hive ACID table
-    * @param requiredColumns - columns needed
-    * @param filters - filters that can be pushed down to file format
-    * @param readConf - read conf
-    * @return
-    */
-  def getRdd(requiredColumns: Array[String],
-             filters: Array[Filter],
-             readConf: ReadConf): RDD[Row] = {
-    val tableReader = new TableReader(sparkSession, hiveAcidMetadata)
-    tableReader.getRdd(requiredColumns, filters, readConf)
+  // Start local transaction if not passed.
+  private def getOrCreateTxn(): Unit = {
+    curTxn = HiveAcidTxn.currentTxn()
+    curTxn match {
+      case null =>
+        // create local txn
+        curTxn = HiveAcidTxn.createTransaction(sparkSession)
+        curTxn.begin()
+        isLocalTxn = true
+      case txn =>
+        logDebug(s"Existing Transactions $txn")
+    }
+  }
+
+  // End and reset transaction and snapshot
+  // if locally started
+  private def unsetOrEndTxn(abort: Boolean = false): Unit = {
+    if (! isLocalTxn) {
+      return
+    }
+    curTxn.end(abort)
+    curTxn = null
+    isLocalTxn = false
+  }
+
+  // Start and end transaction under protection.
+  private def inTxn(f: => Unit): Unit = synchronized {
+    getOrCreateTxn()
+    var abort = false
+    try { f }
+    catch {
+      case e: Exception =>
+        logError("Unable to execute in transactions due to: " + e.getMessage)
+        abort = true;
+    }
+    finally {
+      unsetOrEndTxn(abort)
+    }
   }
 
   /**
-    * Appends a given dataframe df into the hive acid table
-    * @param df - dataframe to insert
+    * Create dataframe to read based on hiveAcidTable and passed in filter.
+    * @return Dataframe
     */
-  def insertInto(df: DataFrame): Unit = {
-    val tableWriter = new TableWriter(sparkSession, hiveAcidMetadata)
-    tableWriter.process(HiveAcidOperation.INSERT_INTO, df)
-  }
-
-  /**
-    * Overwrites a given dataframe df onto the hive acid table
-    * @param df - dataframe to insert
-    */
-  def insertOverwrite(df: DataFrame): Unit = {
-    val tableWriter = new TableWriter(sparkSession, hiveAcidMetadata)
-    tableWriter.process(HiveAcidOperation.INSERT_OVERWRITE, df)
-  }
-
-  def delete(condition: String): Unit = {
-
+  private def readDF: DataFrame = {
     // Fetch row with rowID in it
-    val df = sparkSession.read.format(HiveAcidDataSource.NAME)
+    sparkSession.read.format(HiveAcidDataSource.NAME)
       .options(parameters ++
         Map("includeRowIds" -> "true", "table" -> hiveAcidMetadata.fullyQualifiedName))
       .load()
-
-    val resolvedExpr = SqlUtils.resolveReferences(sparkSession,
-      functions.expr(condition).expr,
-      df.queryExecution.analyzed)
-
-    val tableWriter = new TableWriter(sparkSession, hiveAcidMetadata)
-    tableWriter.process(HiveAcidOperation.DELETE, df.filter(resolvedExpr.sql))
   }
 
   /**
-    * Update rows in the hive acid table based on condition and newValues
+    * Return df after after applying update clause and filter clause. This df is used to
+    * update the table.
     * @param condition - condition string to identify rows which needs to be updated
     * @param newValues - Map of (column, value) to set
     */
-  def updateDF(condition: String, newValues: Map[String, String]): DataFrame = {
-    // Fetch row with rowID in it
-    val df: DataFrame = sparkSession.read.format(HiveAcidDataSource.NAME)
-      .options(parameters ++
-        Map("includeRowIds" -> "true", "table" -> hiveAcidMetadata.fullyQualifiedName))
-      .load()
+  private def updateDF(condition: String, newValues: Map[String, String]): DataFrame = {
+
+    val df= readDF
 
     val plan = df.queryExecution.analyzed
     val qualifiedPlan = plan match {
-      case p : LogicalRelation =>
+      case p: LogicalRelation =>
         p.copy(output = p.output
           .map((x: AttributeReference) =>
             x.withQualifier(hiveAcidMetadata.fullyQualifiedName.split('.').toSeq))
@@ -147,13 +153,67 @@ class HiveAcidTable(sparkSession: SparkSession,
   }
 
   /**
+    * Return an RDD on top of Hive ACID table
+    * @param requiredColumns - columns needed
+    * @param filters - filters that can be pushed down to file format
+    * @param readConf - read conf
+    * @return
+    */
+  def getRdd(requiredColumns: Array[String],
+             filters: Array[Filter],
+             readConf: ReadConf): RDD[Row] = {
+    var res: RDD[Row] = new EmptyRDD[Row](sparkSession.sparkContext)
+
+    // TODO: Read does not perform read but returns an RDD, which materializes
+    //  outside this function. For transactional guarantees, the transaction
+    //  boundary needs to span getRDD call. Currently we return the RDD
+    //  without any protection.
+    inTxn {
+      val tableReader = new TableReader(sparkSession, curTxn, hiveAcidMetadata)
+      res = tableReader.getRdd(requiredColumns, filters, readConf)
+    }
+    res
+  }
+
+  /**
+    * Appends a given dataframe df into the hive acid table
+    * @param df - dataframe to insert
+    */
+  def insertInto(df: DataFrame): Unit = inTxn {
+    val tableWriter = new TableWriter(sparkSession, curTxn, hiveAcidMetadata)
+    tableWriter.process(HiveAcidOperation.INSERT_INTO, df)
+  }
+
+  /**
+    * Overwrites a given dataframe df onto the hive acid table
+    * @param df - dataframe to insert
+    */
+  def insertOverwrite(df: DataFrame): Unit = inTxn {
+    val tableWriter = new TableWriter(sparkSession, curTxn, hiveAcidMetadata)
+    tableWriter.process(HiveAcidOperation.INSERT_OVERWRITE, df)
+  }
+
+  /**
+    * Delete rows from the table based on condtional expression.
+    * @param condition - Conditional filter for delete
+    */
+  def delete(condition: String): Unit = inTxn {
+    val df = readDF
+    val resolvedExpr= SqlUtils.resolveReferences(sparkSession,
+      functions.expr(condition).expr,
+      df.queryExecution.analyzed)
+    val tableWriter = new TableWriter(sparkSession, curTxn, hiveAcidMetadata)
+    tableWriter.process(HiveAcidOperation.DELETE, df.filter(resolvedExpr.sql))
+  }
+
+  /**
     * Update rows in the hive acid table based on condition and newValues
     * @param condition - condition string to identify rows which needs to be updated
     * @param newValues - Map of (column, value) to set
     */
-  def update(condition: String, newValues: Map[String, String]): Unit = {
+  def update(condition: String, newValues: Map[String, String]): Unit = inTxn {
     val updateDf = updateDF(condition, newValues)
-    val tableWriter = new TableWriter(sparkSession, hiveAcidMetadata)
+    val tableWriter = new TableWriter(sparkSession, curTxn, hiveAcidMetadata)
     tableWriter.process(HiveAcidOperation.UPDATE, updateDf)
   }
 }

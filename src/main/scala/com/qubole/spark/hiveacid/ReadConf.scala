@@ -26,7 +26,7 @@ import org.apache.spark.sql.SparkSession
   */
 case class ReadConf(predicatePushdownEnabled: Boolean = true,
                     metastorePartitionPruningEnabled: Boolean = true,
-                    includeRowIds: Boolean = false)
+                    var includeRowIds: Boolean = false)
 
 object ReadConf {
 

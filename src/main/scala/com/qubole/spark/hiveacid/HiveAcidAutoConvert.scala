@@ -48,7 +48,7 @@ case class HiveAcidAutoConvert(spark: SparkSession) extends Rule[LogicalPlan] {
       relation.tableMeta.storage.properties ++ Map("table" -> relation.tableMeta.qualifiedName)
 
     val newRelation = new HiveAcidDataSource().createRelation(spark.sqlContext, options)
-    LogicalRelation(newRelation, false)
+    LogicalRelation(newRelation, isStreaming = false)
   }
 
   override def apply(plan: LogicalPlan): LogicalPlan = {
