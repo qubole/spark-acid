@@ -23,7 +23,6 @@ import java.util
 import java.util.Properties
 
 import scala.collection.JavaConverters._
-
 import com.esotericsoftware.kryo.Kryo
 import com.esotericsoftware.kryo.io.Output
 import com.qubole.shaded.hadoop.hive.conf.HiveConf.ConfVars
@@ -49,12 +48,11 @@ import org.apache.hadoop.fs.{Path, PathFilter}
 import org.apache.hadoop.hive.serde2.ColumnProjectionUtils
 import org.apache.hadoop.io.Writable
 import org.apache.hadoop.mapred.{FileInputFormat, InputFormat, JobConf}
-
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.deploy.SparkHadoopUtil
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.{Column, DataFrame, SparkSession}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.CastSupport
 import org.apache.spark.sql.catalyst.expressions._
@@ -125,7 +123,9 @@ extends CastSupport with Reader with Logging {
     makeRDDForTable(
       hiveTable,
       Util.classForName(hiveAcidOptions.tableDesc.getSerdeClassName,
-        loadShaded = true).asInstanceOf[Class[Deserializer]]
+        loadShaded = true).asInstanceOf[Class[Deserializer]],
+      hiveAcidMetadata,
+      readerOptions
     )
   }
 
@@ -145,9 +145,7 @@ extends CastSupport with Reader with Logging {
           .asInstanceOf[Class[Deserializer]]
         (part, deserializer)
     }.toMap
-
-    makeRDDForPartitionedTable(partitionToDeserializer,
-      filterOpt = None)
+    makeRDDForPartitionedTable(partitionToDeserializer, filterOpt = None, readerOptions)
   }
 
   /**
@@ -158,7 +156,9 @@ extends CastSupport with Reader with Logging {
    * @param deserializerClass Class of the SerDe used to deserialize Writables read from Hadoop.
    */
   private def makeRDDForTable(hiveTable: HiveTable,
-                              deserializerClass: Class[_ <: Deserializer]): RDD[InternalRow] = {
+                              deserializerClass: Class[_ <: Deserializer],
+                              hiveAcidMetadata: HiveAcidMetadata,
+                              readerOptions: ReaderOptions): RDD[InternalRow] = {
 
     assert(!hiveTable.isPartitioned,
       "makeRDDForTable() cannot be called on a partitioned table, since input formats may " +
@@ -167,7 +167,6 @@ extends CastSupport with Reader with Logging {
     // Create local references to member variables, so that the entire `this` object won't be
     // serialized in the closure below.
     val localTableDesc = hiveAcidOptions.tableDesc
-    val broadcastedHadoopConf = _broadcastedHadoopConf
     val tablePath = hiveTable.getPath
 
     val ifcName = hiveTable.getInputFormatClass.getName
@@ -175,7 +174,20 @@ extends CastSupport with Reader with Logging {
       .asInstanceOf[java.lang.Class[InputFormat[Writable, Writable]]]
     val hiveRDD = createRddForTable(localTableDesc, hiveTable.getSd.getCols,
       hiveTable.getParameters, tablePath.toString, ifc)
+    deserializeTableRdd(hiveRDD, deserializerClass)
+  }
 
+  /**
+    * Utility to convert hiveRDD on non-partitioned table to Deserialized RDD which transforms
+    * raw Records from hiveRDD to InternalRow
+    * @param hiveRDD
+    * @param deserializerClass
+    * @return Deserialized RDD
+    */
+  private def deserializeTableRdd(hiveRDD: RDD[(RecordIdentifier, Writable)],
+                                    deserializerClass: Class[_ <: Deserializer]) = {
+    val localTableDesc = hiveAcidOptions.tableDesc
+    val broadcastedHadoopConf = _broadcastedHadoopConf
     val attrsWithIndex = readerOptions.requiredAttributes.zipWithIndex
     val localRowIdSchema: Option[StructType] = hiveAcidOptions.rowIdSchema
     val outputRowDataTypes = (localRowIdSchema match {
@@ -212,103 +224,131 @@ extends CastSupport with Reader with Logging {
    */
   private def makeRDDForPartitionedTable(
       partitionToDeserializer: Map[HiveJarPartition, Class[_ <: Deserializer]],
-      filterOpt: Option[PathFilter]): RDD[InternalRow] = {
+      filterOpt: Option[PathFilter],
+      readerOptions: ReaderOptions): RDD[InternalRow] = {
 
-    val hivePartitionRDDs = partitionToDeserializer.map { case (partition, partDeserializer) =>
-      val partProps = partition.getMetadataFromPartitionSchema
+    val hivePartitionRDDSeq = partitionToDeserializer.map { case (partition, partDeserializer) =>
       val partPath = partition.getDataLocation
       val inputPathStr = applyFilterIfNeeded(partPath, filterOpt)
       val ifcString = partition.getTPartition.getSd.getInputFormat
       val ifc = Util.classForName(ifcString, loadShaded = true)
         .asInstanceOf[java.lang.Class[InputFormat[Writable, Writable]]]
-      // Get partition field info
-      val partSpec = partition.getSpec
-      val partCols = partition.getTable.getPartitionKeys.asScala.map(_.getName)
-      // 'partValues[i]' contains the value for the partitioning column at 'partCols[i]'.
-      val partValues = if (partSpec == null) {
-        Array.fill(partCols.size)(new String)
-      } else {
-        partCols.map(col => new String(partSpec.get(col))).toArray
-      }
-
-      val broadcastedHiveConf = _broadcastedHadoopConf
-      val localDeserializer = partDeserializer
-
-      val localRowIdSchema: Option[StructType] = hiveAcidOptions.rowIdSchema
-      val outputRowDataTypes = (localRowIdSchema match {
-        case Some(schema) =>
-          Seq(schema)
-        case None =>
-          Seq()
-      }) ++ readerOptions.requiredAttributes.map(_.dataType)
-      val mutableRow = new SpecificInternalRow(outputRowDataTypes)
-      val mutableRowRecordIds = localRowIdSchema match {
-        case Some(schema) => Some(new SpecificInternalRow(schema.fields.map(_.dataType)))
-        case None => None
-      }
-
-      // Splits all attributes into two groups, partition key attributes and those
-      // that are not. Attached indices indicate the position of each attribute in
-      // the output schema.
-      val (partitionKeyAttrs, nonPartitionKeyAttrs) =
-      readerOptions.requiredAttributes.zipWithIndex.partition { case (attr, _) =>
-        readerOptions.partitionAttributes.contains(attr)
-      }
-
-      def fillPartitionKeys(rawPartValues: Array[String], row: InternalRow): Unit = {
-        val offset = localRowIdSchema match {
-          case Some(_) =>
-            1
-          case None =>
-            0
-        }
-        partitionKeyAttrs.foreach { case (attr, ordinal) =>
-          val partOrdinal = readerOptions.partitionAttributes.indexOf(attr)
-          row(offset + ordinal) = cast(
-            Literal(rawPartValues(partOrdinal)), attr.dataType).eval(null)
-        }
-      }
-
-      // Fill all partition keys to the given MutableRow object
-      fillPartitionKeys(partValues, mutableRow)
-
-      val tableProperties = hiveAcidOptions.tableDesc.getProperties
 
       // Create local references so that the outer object isn't serialized.
       val localTableDesc = hiveAcidOptions.tableDesc
-      createRddForTable(localTableDesc, partition.getCols,
-        partition.getTable.getParameters, inputPathStr, ifc).mapPartitions { iter =>
-        val hconf = broadcastedHiveConf.value.value
-        val deserializer = localDeserializer.newInstance()
-        // SPARK-13709: For SerDes like AvroSerDe, some essential information (e.g. Avro schema
-        // information) may be defined in table properties. Here we should merge table properties
-        // and partition properties before initializing the deserializer. Note that partition
-        // properties take a higher priority here. For example, a partition may have a different
-        // SerDe as the one defined in table properties.
-        val props = new Properties(tableProperties)
-        partProps.asScala.foreach {
-          case (key, value) => props.setProperty(key, value)
-        }
-        deserializer.initialize(hconf, props)
-        // get the table deserializer
-        val tableSerDeClassName = localTableDesc.getSerdeClassName
-        val tableSerDe = Util.classForName(tableSerDeClassName,
-          loadShaded = true).newInstance().asInstanceOf[Deserializer]
-        tableSerDe.initialize(hconf, localTableDesc.getProperties)
-
-        // fill the non partition key attributes
-        HiveAcidReader.fillObject(iter, deserializer, nonPartitionKeyAttrs,
-          mutableRow,
-          mutableRowRecordIds,
-          tableSerDe)
-      }
+      val rdd = createRddForTable(localTableDesc, partition.getCols,
+        partition.getTable.getParameters, inputPathStr, ifc)
+      (rdd, partition, partDeserializer)
     }.toSeq
+
+    val hivePartitionRDDs = hivePartitionRDDSeq.map {
+      case (hiveRDD, partition, partDeserializer)  => {
+        makeRddForPartition(hiveRDD, partition, partDeserializer, readerOptions)
+      }
+    }
 
     // Even if we don't use any partitions, we still need an empty RDD
     if (hivePartitionRDDs.isEmpty) {
       new EmptyRDD[InternalRow](sparkSession.sparkContext)
     } else {
       new HiveAcidUnionRDD[InternalRow](hivePartitionRDDs.head.context, hivePartitionRDDs)
+    }
+  }
+
+  private def makeRddForPartition(hiveRDD: RDD[(RecordIdentifier, Writable)],
+                                  partition: HiveJarPartition,
+                                  partDeserializer: Class[_ <: Deserializer],
+                                  readerOptions: ReaderOptions) = {
+    deserializePartitionRdd(hiveRDD, partition, partDeserializer)
+  }
+
+  /**
+    * Convert Hive RDD for a particular partition into Deserialized RDD which transforms every Raw row
+    * into InternalRow.
+    *
+    * @param partitionRDD
+    * @param partition
+    * @param partDeserializer
+    * @return
+    */
+  private def deserializePartitionRdd(partitionRDD: RDD[(RecordIdentifier, Writable)], partition: HiveJarPartition, partDeserializer: Class[_ <: Deserializer]) = {
+    // member variable cannot be used directly inside mapPartition as HiveAcidReader is not serializable.
+    val broadcastedHadoopConf = _broadcastedHadoopConf
+    val tableProperties = hiveAcidOptions.tableDesc.getProperties
+    val partProps = partition.getMetadataFromPartitionSchema
+    val localTableDesc = hiveAcidOptions.tableDesc
+    val localRowIdSchema: Option[StructType] = hiveAcidOptions.rowIdSchema
+    val outputRowDataTypes = (localRowIdSchema match {
+      case Some(schema) =>
+        Seq(schema)
+      case None =>
+        Seq()
+    }) ++ readerOptions.requiredAttributes.map(_.dataType)
+    // Get partition field info
+    val partSpec = partition.getSpec
+    val partCols = partition.getTable.getPartitionKeys.asScala.map(_.getName)
+    // 'partValues[i]' contains the value for the partitioning column at 'partCols[i]'.
+    val partValues = if (partSpec == null) {
+      Array.fill(partCols.size)(new String)
+    } else {
+      partCols.map(col => new String(partSpec.get(col))).toArray
+    }
+    val mutableRow = new SpecificInternalRow(outputRowDataTypes)
+    val mutableRowRecordIds = localRowIdSchema match {
+      case Some(schema) => Some(new SpecificInternalRow(schema.fields.map(_.dataType)))
+      case None => None
+    }
+
+    // Splits all attributes into two groups, partition key attributes and those
+    // that are not. Attached indices indicate the position of each attribute in
+    // the output schema.
+    val (partitionKeyAttrs, nonPartitionKeyAttrs) =
+    readerOptions.requiredAttributes.zipWithIndex.partition { case (attr, _) =>
+      readerOptions.partitionAttributes.contains(attr)
+    }
+
+    def fillPartitionKeys(rawPartValues: Array[String], row: InternalRow): Unit = {
+      val offset = localRowIdSchema match {
+        case Some(_) =>
+          1
+        case None =>
+          0
+      }
+      partitionKeyAttrs.foreach { case (attr, ordinal) =>
+        val partOrdinal = readerOptions.partitionAttributes.indexOf(attr)
+        row(offset + ordinal) = cast(
+          Literal(rawPartValues(partOrdinal)), attr.dataType).eval(null)
+      }
+    }
+
+    // Fill all partition keys to the given MutableRow object
+    fillPartitionKeys(partValues, mutableRow)
+
+    partitionRDD.mapPartitions { iter =>
+      val hconf = broadcastedHadoopConf.value.value
+      val deserializer = partDeserializer.newInstance()
+      // SPARK-13709: For SerDes like AvroSerDe, some essential information (e.g. Avro schema
+      // information) may be defined in table properties. Here we should merge table properties
+      // and partition properties before initializing the deserializer. Note that partition
+      // properties take a higher priority here. For example, a partition may have a different
+      // SerDe as the one defined in table properties.
+      val props = new Properties(tableProperties)
+      partProps.asScala.foreach {
+        case (key, value) => props.setProperty(key, value)
+      }
+      deserializer.initialize(hconf, props)
+
+      // get the table deserializer
+      val tableSerDeClassName = localTableDesc.getSerdeClassName
+      val tableSerDe = Util.classForName(tableSerDeClassName,
+        loadShaded = true).newInstance().asInstanceOf[Deserializer]
+      tableSerDe.initialize(hconf, localTableDesc.getProperties)
+
+      // fill the non partition key attributes
+      HiveAcidReader.fillObject(iter, deserializer, nonPartitionKeyAttrs,
+        mutableRow,
+        mutableRowRecordIds,
+        tableSerDe)
     }
   }
 
@@ -447,13 +487,13 @@ private[reader] object HiveAcidReader extends Hive3Inspectors with Logging {
     jobConf.set("schema.evolution.columns.types", schemaColTypes)
 
     // Set HiveACID related properties in jobConf
-    val isTranscationalTable = AcidUtils.isTransactionalTable(tableParameters)
-    val acidProps = if (isTranscationalTable) {
+    val isTransactionalTable = AcidUtils.isTransactionalTable(tableParameters)
+    val acidProps = if (isTransactionalTable) {
       AcidUtils.getAcidOperationalProperties(tableParameters)
     } else {
       null
     }
-    AcidUtils.setAcidOperationalProperties(jobConf, isTranscationalTable, acidProps)
+    AcidUtils.setAcidOperationalProperties(jobConf, isTransactionalTable, acidProps)
   }
 
   /**

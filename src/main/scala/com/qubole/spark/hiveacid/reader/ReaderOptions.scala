@@ -19,7 +19,7 @@
 
 package com.qubole.spark.hiveacid.reader
 
-import com.qubole.spark.hiveacid.ReadConf
+import com.qubole.spark.hiveacid.SparkAcidConf
 import org.apache.hadoop.conf.Configuration
 
 import org.apache.spark.sql.catalyst.expressions.Attribute
@@ -33,4 +33,4 @@ private[hiveacid] class ReaderOptions(val hadoopConf: Configuration,
                                       val requiredAttributes: Seq[Attribute],
                                       val dataFilters: Array[Filter],
                                       val requiredNonPartitionedColumns: Array[String],
-                                      val readConf: ReadConf) extends Serializable
+                                      val readConf: SparkAcidConf) extends Serializable

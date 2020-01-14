@@ -161,7 +161,7 @@ class HiveAcidTable(sparkSession: SparkSession,
     */
   def getRdd(requiredColumns: Array[String],
              filters: Array[Filter],
-             readConf: ReadConf): RDD[Row] = {
+             readConf: SparkAcidConf): RDD[Row] = {
     var res: RDD[Row] = new EmptyRDD[Row](sparkSession.sparkContext)
 
     // TODO: Read does not perform read but returns an RDD, which materializes

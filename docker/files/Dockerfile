@@ -31,7 +31,7 @@ RUN wget https://archive.apache.org/dist/hadoop/common/hadoop-3.1.1/hadoop-3.1.1
 RUN tar -xvzf hadoop-3.1.1.tar.gz
 RUN ln -sf /hadoop-3.1.1 /hadoop
 
-RUN wget http://mirrors.estointernet.in/apache/hive/hive-3.1.2/apache-hive-3.1.2-bin.tar.gz
+RUN wget https://archive.apache.org/dist/hive/hive-3.1.2/apache-hive-3.1.2-bin.tar.gz
 RUN tar -xvzf apache-hive-3.1.2-bin.tar.gz
 RUN ln -sf /apache-hive-3.1.2-bin /hive
 

@@ -51,7 +51,7 @@ private object Cache {
   val jobConf =  new ConcurrentHashMap[String, Any]()
 }
 
-private class HiveAcidPartition(rddId: Int, override val index: Int, s: InputSplit)
+class HiveAcidPartition(rddId: Int, override val index: Int, s: InputSplit)
   extends Partition {
 
   val inputSplit = new SerializableWritable[InputSplit](s)

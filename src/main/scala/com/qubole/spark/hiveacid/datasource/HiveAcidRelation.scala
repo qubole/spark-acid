@@ -25,7 +25,7 @@ import org.apache.spark.sql.{DataFrame, Row, SparkSession, SQLContext}
 import org.apache.spark.sql.sources.{BaseRelation, Filter, InsertableRelation, PrunedFilteredScan}
 import org.apache.spark.sql.types._
 
-import com.qubole.spark.hiveacid.{HiveAcidTable, ReadConf}
+import com.qubole.spark.hiveacid.{HiveAcidTable, SparkAcidConf}
 import com.qubole.spark.hiveacid.hive.HiveAcidMetadata
 
 /**
@@ -53,7 +53,7 @@ case class HiveAcidRelation(sparkSession: SparkSession,
   private val hiveAcidTable: HiveAcidTable = new HiveAcidTable(sparkSession,
     hiveAcidMetadata, parameters)
 
-  private val readOptions = ReadConf.build(sparkSession, parameters)
+  private val readOptions = SparkAcidConf(sparkSession, parameters)
 
   override def sqlContext: SQLContext = sparkSession.sqlContext
 
@@ -82,7 +82,7 @@ case class HiveAcidRelation(sparkSession: SparkSession,
   override val needConversion: Boolean = false
 
   override def buildScan(requiredColumns: Array[String], filters: Array[Filter]): RDD[Row] = {
-    val readOptions = ReadConf.build(sparkSession, parameters)
+    val readOptions = SparkAcidConf(sparkSession, parameters)
     // sql "select *"
     hiveAcidTable.getRdd(requiredColumns, filters, readOptions)
   }
