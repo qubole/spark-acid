@@ -97,4 +97,9 @@
 		<value>false</value>
 	</property>
 
+	<property>
+		<name>hive.metastore.client.capability.check</name>
+		<value>false</value>
+	</property>
+
 </configuration>
