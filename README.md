@@ -9,11 +9,13 @@ functionality availability matrix
 Functionality | Full ACID table | Insert Only Table |
 ------------- | --------------- | ----------------- |
 READ | >= v0.4.0 | >= v0.4.0 |
-INSERT INTO / OVERWRITE | >= v0.4.3 | Not Supported |
-CTAS  | >= v0.4.3 | Not Supported |
-UPDATE  | Not Supported | Not Supported |
-DELETE | Not Supported | Not Supported |
+INSERT INTO / OVERWRITE | >= v0.4.3 | >=0.4.5 |
+CTAS  | >= v0.4.3 | >=0.4.5 |
+UPDATE  | >=0.4.5 | Not Supported |
+DELETE | >=0.4.5 | Not Supported |
 MERGE | Not Supported | Not Supported |
+
+*Note: In case of insert only table for support of write operation compatibility check needs to be disabled*
 
 ## Quick Start
 
@@ -206,14 +208,13 @@ Read more about [sbt release](https://github.com/sbt/sbt-release)
 
     spark.sql("select * from a join a)
 
-3. The files in the snapshot needs to be protected till the RDD is in use. By design concurrent reads and writes on the Hive ACID works with the help of locks, where every client (across multiple engines) that is operating on ACID tables is expected to acquire locks for the duration of reads and writes. The lifetime of RDD can be very long, to avoid blocking other operations like inserts this datasource _DOES NOT_ acquire lock but uses an alternative mechanism to protect reads. Other way the snapshot can be protected is by making sure the files in the snapshot are not deleted while in use. For the current datasoure any table on which Spark is operating `Automatic Cleanup` should be disabled. This makes sure that `compaction` is performed but cleaner does not clean any file. To disable automatic cleaner on table
+3. The files in the snapshot needs to be protected till the RDD is in use. By design concurrent reads and writes on the Hive ACID works with the help of locks, where every client (across multiple engines) that is operating on ACID tables is expected to acquire locks for the duration of reads and writes. The lifetime of RDD can be very long, to avoid blocking other operations like inserts this datasource _DOES NOT_ acquire lock but uses an alternative mechanism to protect reads. Other way the snapshot can be protected is by making sure the files in the snapshot are not deleted while in use. For the current datasoure any table on which Spark is operating `Automatic Compaction` should be disabled. This makes sure that cleaner does not clean any file. To disable automatic compaction on table
 
-         ALTER TABLE <> SET TBLPROPERTIES ("NO_CLEANER"="true")
+         ALTER TABLE <> SET TBLPROPERTIES ("NO_AUTO_COMPACTION"="true")
 
-	When the table is not in use cleaner can be enabled and all the files that needs cleaned will get queued up for cleaner. Disabling cleaner has no performance implication on reads/writes, only the storage requirement will be higher as system may hold on to all the snapshots in use.
+	When the table is not in use cleaner can be enabled and all the files that needs cleaned will get queued up for cleaner. Disabling compaction do have performance implication on reads/writes as lot of delta file may need to be merged when performing read.
 
-
-4. Note that even though reads are protected admin operation like `TRUNCATE` `ALTER TABLE DROP COLUMN` and `DROP` have no protected as they clean files with intevention from cleaner. These operations should be performed when Spark is not using the table.
+4. Note that even though reads are protected admin operation like `TRUNCATE` `ALTER TABLE DROP COLUMN` and `DROP` have no protection as they clean files with intevention from cleaner. These operations should be performed when Spark is not using the table.
 
 
 ## Contributing
