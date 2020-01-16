@@ -91,4 +91,10 @@
         <name>hive.auto.convert.join</name>
         <value>false</value>
     </property>
+
+	<property>
+		<name>hive.stats.autogather</name>
+		<value>false</value>
+	</property>
+
 </configuration>

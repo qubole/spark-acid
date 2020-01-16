@@ -46,14 +46,27 @@ libraryDependencies ++= Seq(
 	"org.apache.hive" % "hive-jdbc" % hive_version intransitive(),
 	"org.apache.hive" % "hive-service" % hive_version intransitive(),
 	"org.apache.hive" % "hive-serde" % hive_version intransitive(),
-	"org.apache.hive" % "hive-common" % hive_version intransitive()
+	"org.apache.hive" % "hive-common" % hive_version intransitive(),
+
+	// To deal with hive3 metastore library 0.9.3 vs zeppelin thirft
+	// library version 0.9.1 conflict when runing Notebooks.
+	"org.apache.thrift" % "libfb303" % "0.9.3",
+	"org.apache.thrift" % "libthrift" % "0.9.3"
 )
 
 assemblyShadeRules in assembly := Seq(
 	ShadeRule.rename("org.apache.hadoop.hive.**" -> "com.qubole.shaded.hadoop.hive.@1").inAll,
 	ShadeRule.rename("org.apache.hive.**" -> "com.qubole.shaded.hive.@1").inAll,
 	ShadeRule.rename("org.apache.orc.**" -> "com.qubole.shaded.orc.@1").inAll,
-	ShadeRule.rename("com.google.**" -> "com.qubole.shaded.@1").inAll
+	ShadeRule.rename("org.apache.commons.**" -> "com.qubole.shaded.commons.@1").inAll,
+	ShadeRule.rename("org.apache.avro.**" -> "com.qubole.shaded.avro.@1").inAll,
+	ShadeRule.rename("org.apache.parquet.**" -> "com.qubole.shaded.parquet.@1").inAll,
+	ShadeRule.rename("org.apache.http.**" -> "com.qubole.shaded.http.@1").inAll,
+	ShadeRule.rename("org.apache.tez.**" -> "com.qubole.shaded.tez.@1").inAll,
+
+	ShadeRule.rename("com.google.**" -> "com.qubole.shaded.@1").inAll,
+	ShadeRule.rename("com.facebook.fb303.**" -> "com.qubole.shaded.facebook.fb303.@1").inAll,
+	ShadeRule.rename("org.apache.thrift.**" -> "com.qubole.shaded.thrift.@1").inAll
 )
 
 import sbtassembly.AssemblyPlugin.autoImport.ShadeRule

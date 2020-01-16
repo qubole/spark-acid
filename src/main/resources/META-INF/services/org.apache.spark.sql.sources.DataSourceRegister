@@ -17,4 +17,4 @@
 # limitations under the License.
 #
 
-com.qubole.spark.datasources.hiveacid.HiveAcidDataSource
+com.qubole.spark.hiveacid.datasource.HiveAcidDataSource
