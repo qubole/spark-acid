@@ -40,7 +40,8 @@ class WriteSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll
     ("doubleCol","double"),
     ("floatCol","float"),
     ("booleanCol","boolean")
-    //   ("dateCol","date")
+    // TODO: Requires spark.sql.hive.convertMetastoreOrc=false to run
+    // ("dateCol","date")
   )
 
   override def beforeAll() {
@@ -67,7 +68,10 @@ class WriteSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll
 
   // Test Run
   insertIntoOverwriteTestForFullAcidTables(Table.allFullAcidTypes())
-  insertIntoOverwriteTestForInsertOnlyTables(Table.allInsertOnlyTypes())
+
+  // TODO: Currently requires compatibility check to be disabled in HMS to run clean
+  //  hive.metastore.client.capability.check=false
+  // insertIntoOverwriteTestForInsertOnlyTables(Table.allInsertOnlyTypes())
 
   // Insert Into/Overwrite test for full acid tables
   def insertIntoOverwriteTestForFullAcidTables(tTypes: List[(String,Boolean)]): Unit = {
@@ -124,18 +128,6 @@ class WriteSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll
         val tableSpark = new Table(DEFAULT_DBNAME, tableNameSpark, cols, tType, isPartitioned)
         def code() = {
           helper.recreate(tableSpark)
-
-          val exception1 = intercept[RuntimeException] {
-            helper.sparkSQL(tableSpark.insertIntoSparkTableKeyRange(11, 20))
-          }
-          assert(exception1.getMessage.contains(
-            "Unsupported operation type - INSERT_INTO for InsertOnly tables"))
-
-          val exception2 = intercept[RuntimeException] {
-            helper.sparkSQL(tableSpark.insertOverwriteSparkTableKeyRange(16, 25))
-          }
-          assert(exception2.getMessage.contains(
-            "Unsupported operation type - INSERT_OVERWRITE for InsertOnly tables"))
         }
         helper.myRun(testName, code)
       }

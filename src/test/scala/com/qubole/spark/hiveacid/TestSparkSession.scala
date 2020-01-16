@@ -26,6 +26,7 @@ private[hiveacid] object TestSparkSession {
     .master("local[*]")
     .config("spark.hadoop.hive.metastore.uris", "thrift://0.0.0.0:10000")
     .config("spark.sql.warehouse.dir", "/tmp")
+    .config("spark.sql.extensions", "com.qubole.spark.hiveacid.HiveAcidAutoConvertExtension")
     //.config("spark.ui.enabled", "true")
     //.config("spark.ui.port", "4041")
     .enableHiveSupport()

@@ -229,7 +229,7 @@ class TestHelper {
   }
 
   def hiveExecuteQuery(cmd: String): String = {
-	  log.debug(s"Hive>  $cmd\n")
+	log.debug(s"Hive>  $cmd\n")
     hiveClient.executeQuery(cmd)
   }
 

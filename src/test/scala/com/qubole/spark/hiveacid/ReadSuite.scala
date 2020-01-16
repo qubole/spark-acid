@@ -55,7 +55,7 @@ class ReadSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll 
 
       // DB
       helper.hiveExecute("DROP DATABASE IF EXISTS "+ DEFAULT_DBNAME +" CASCADE")
-      helper.hiveExecute("CREATE DATABASE "+ DEFAULT_DBNAME)
+      helper.hiveExecute("CREATE DATABASE IF NOT EXISTS "+ DEFAULT_DBNAME)
     } catch {
       case NonFatal(e) => log.info("failed " + e)
     }
