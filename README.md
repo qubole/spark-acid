@@ -117,7 +117,6 @@ Read Existing table and insert overwrite acid table
 	val df = spark.read.format("HiveAcid").options(Map("table" -> "aciddemo.acidtbl")).load()
 	df.write.format("HiveAcid").option("table", "aciddemo.t_scala_simple").mode("overwrite").save()
 
-
 _Note: User cannot operate directly on file level data as table is required when reading and writing transactionally.
 `df.write.format("HiveAcid").mode("overwrite").save("s3n://aciddemo/api/warehouse/aciddemo.db/random")` won't work_
 
@@ -125,6 +124,14 @@ Read acid table
 
 	val df = spark.read.format("HiveAcid").options(Map("table" -> "aciddemo.t_scala_simple")).load()
 	df.select("status", "rank").filter($"rank" > "20").show()
+
+Read and Write using implicit API
+     
+     import com.qubole.spark.hiveacid._
+
+     val df = spark.read.hiveacid("aciddemo.acidtbl")
+     df.write.hiveacid("aciddemo.t_scala_simple", "overwrite")
+     df.select("status", "rank").filter($"rank" > "20").show()
 
 ##### SQL
 
