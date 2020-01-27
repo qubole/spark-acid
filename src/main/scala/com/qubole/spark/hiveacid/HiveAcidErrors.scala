@@ -82,6 +82,19 @@ object HiveAcidErrors {
     new RuntimeException(s"Repeated transaction id $txnId," +
       s"active transactions are [${activeTxns.mkString(",")}]")
   }
+
+  def txnOutdated(txnId: Long, tableName: String): Throwable = {
+    new TransactionInvalidException(s"Transaction is $txnId is no longer valid for table $tableName", txnId, tableName)
+  }
+}
+
+class TransactionInvalidException(val message:String,
+                                  val txnId: Long,
+                                  val tableName : String)
+  extends Exception(message) {
+  override def getMessage: String = {
+    message
+  }
 }
 
 class AnalysisException(

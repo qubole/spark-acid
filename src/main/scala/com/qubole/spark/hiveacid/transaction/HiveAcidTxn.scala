@@ -141,6 +141,48 @@ object HiveAcidTxn extends Logging {
   def currentTxn(): HiveAcidTxn = {
     threadLocal.get()
   }
+
+  /**
+    * Check if valid write Ids for `fullyQualifiedTableName` when `txn` was opened
+    * is same even now. This should be invoked after `txn` acquires lock, to see
+    * if the transaction is still valid and continue.
+    */
+  def IsTxnStillValid(txn: HiveAcidTxn, fullyQualifiedTableName: String): Boolean = {
+    if (txn.txnId == - 1) {
+      logWarning(s"Transaction being validated even before it was open")
+      false
+    } else {
+      // Compare the earlier writeIds of fullyQualifiedTableName with the current one.
+      val previousWriteIdList = txnManager.getValidWriteIds(txn.txnId, txn.validTxnList, fullyQualifiedTableName)
+      val currentValidList = txnManager.getValidTxns(Some(txn.txnId))
+      val currentWriteIdList = txnManager.getValidWriteIds(txn.txnId, currentValidList, fullyQualifiedTableName)
+      // Checks if any new write transaction was started and committed
+      // after opening transaction and before acquiring locks using HighWaterMark
+      if (previousWriteIdList.getHighWatermark == currentWriteIdList.getHighWatermark) {
+        // Check all the open transactions when current transaction was opened,
+        // are still invalid i.e., either running/open or aborted.
+        val prevOpenInvalidWriteIds = previousWriteIdList.getInvalidWriteIds
+          .filter(!previousWriteIdList.isWriteIdAborted(_)).toSet
+        val currentInvalidWriteIds = currentWriteIdList.getInvalidWriteIds.toSet
+        // Previous open transactions should still be invalid
+        if (prevOpenInvalidWriteIds.isEmpty ||
+          prevOpenInvalidWriteIds.diff(currentInvalidWriteIds).isEmpty) {
+          logDebug("All previous open transactions are still invalid! Transaction is valid!")
+          true
+        } else {
+          logWarning("Prev Open transactions: " +  prevOpenInvalidWriteIds.diff(currentInvalidWriteIds).mkString(", ")
+            + " have been committed. Transaction " + txn.txnId + " is not valid !")
+          false
+        }
+      } else {
+        logWarning("HighWatermark moved from " +
+          previousWriteIdList.getHighWatermark + " to " +
+          currentWriteIdList.getHighWatermark +
+          ". Transaction " + txn.txnId + " is not valid !")
+        false
+      }
+    }
+  }
 }
 
 private[hiveacid] case class HiveAcidTableSnapshot(validWriteIdList: ValidWriteIdList, currentWriteId: Long)

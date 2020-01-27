@@ -47,6 +47,9 @@ class HiveAcidTable(sparkSession: SparkSession,
                     parameters: Map[String, String]
                    ) extends Logging {
 
+  // Pulled from thin air
+  private val maxInvalidTxnRetry = 5
+
   private var isLocalTxn: Boolean = false
   private var curTxn: HiveAcidTxn = _
 
@@ -75,18 +78,52 @@ class HiveAcidTable(sparkSession: SparkSession,
     isLocalTxn = false
   }
 
-  // Start and end transaction under protection.
+  /**
+    * Executes function `f` under transaction protection.
+    * Following is the lifecycle of the Transaction here:
+    *
+    *  1. Create Transaction
+    *  2. While creating valid transaction, also store the valid Transactions (`validTxns`) at that point.
+    *  3. Acquire Locks
+    *  4. `validTxns` could have changed at this point due to
+    *      transactions getting committed between Step 2 and 3 above.
+    *      Abort the transaction if it happened and Retry from step 1.
+    *  5. Execute `f`
+    *  6. End the transaction
+    *
+    *  Note, if transaction was already existing for this thread, it will be respected.
+    * @param f
+    */
   private def inTxn(f: => Unit): Unit = synchronized {
-    getOrCreateTxn()
-    var abort = false
-    try { f }
-    catch {
-      case e: Exception =>
-        logError("Unable to execute in transactions due to: " + e.getMessage)
-        abort = true;
+    def inTxnRetry(retryRemaining: Int) = {
+      getOrCreateTxn()
+      var abort = false
+      var retry = false
+      try {
+        f
+      }
+      catch {
+        case tie: TransactionInvalidException =>
+          abort = true
+          if (isLocalTxn && retryRemaining > 0) {
+            logError(s"Transaction ${curTxn.txnId} was aborted as it became invalid before the locks were acquired ... Retrying", tie)
+            retry = true
+          } else {
+            logError(s"Transaction ${curTxn.txnId} was aborted as it became invalid before the locks were acquired", tie)
+          }
+        case e: Exception =>
+          logError("Unable to execute in transactions due to: " + e.getMessage)
+          abort = true;
+      }
+      finally {
+        unsetOrEndTxn(abort)
+      }
+      retry
     }
-    finally {
-      unsetOrEndTxn(abort)
+
+    var retryRemaining = maxInvalidTxnRetry - 1
+    while (inTxnRetry(retryRemaining)) {
+      retryRemaining = retryRemaining - 1
     }
   }
 

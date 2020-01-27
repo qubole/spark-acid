@@ -99,6 +99,12 @@ private[hiveacid] class TableWriter(sparkSession: SparkSession,
       //   only lock that partition.
       curTxn.acquireLocks(hiveAcidMetadata, operationType, Seq())
 
+      if (!HiveAcidTxn.IsTxnStillValid(curTxn, hiveAcidMetadata.fullyQualifiedName)) {
+        logInfo(s"Transaction ${curTxn.txnId} is no more valid for table ${hiveAcidMetadata.fullyQualifiedName} as other" +
+          s" transaction might have got committed before lock got acquired")
+        HiveAcidErrors.txnOutdated(curTxn.txnId, hiveAcidMetadata.fullyQualifiedName)
+      }
+
       // Create Snapshot !!!
       val curSnapshot = HiveAcidTxn.createSnapshot(curTxn, hiveAcidMetadata)
 
