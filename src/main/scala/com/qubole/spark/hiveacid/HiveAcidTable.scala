@@ -109,11 +109,13 @@ class HiveAcidTable(sparkSession: SparkSession,
             logError(s"Transaction ${curTxn.txnId} was aborted as it became invalid before the locks were acquired ... Retrying", tie)
             retry = true
           } else {
-            logError(s"Transaction ${curTxn.txnId} was aborted as it became invalid before the locks were acquired", tie)
+            logError(s"Transaction ${curTxn.txnId} was aborted as it became invalid before the locks were acquired. Max retries reached", tie)
+            throw tie
           }
         case e: Exception =>
           logError("Unable to execute in transactions due to: " + e.getMessage)
-          abort = true;
+          abort = true
+          throw e
       }
       finally {
         unsetOrEndTxn(abort)
