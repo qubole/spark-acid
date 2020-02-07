@@ -27,8 +27,8 @@ object HiveAcidErrors {
     new IllegalArgumentException("'table' is not specified in parameters")
   }
 
-  def unsupportedFunction(): Throwable = {
-    new java.lang.UnsupportedOperationException()
+  def unsupportedFunction(function: String, caller: String): Throwable = {
+    new java.lang.UnsupportedOperationException(s"Unsupported Function - $function with $caller")
   }
 
   def invalidOperationType(operation: String): Throwable = {
@@ -83,9 +83,14 @@ object HiveAcidErrors {
       s"active transactions are [${activeTxns.mkString(",")}]")
   }
 
+  def unsupportedStreamingOutputMode(mode: String): Throwable = {
+    new AnalysisException(s"mode is $mode: Hive Acid Sink supports only Append as OutputMode")
+  }
+  
   def txnOutdated(txnId: Long, tableName: String): Throwable = {
     new TransactionInvalidException(s"Transaction is $txnId is no longer valid for table $tableName", txnId, tableName)
   }
+
 }
 
 class TransactionInvalidException(val message:String,

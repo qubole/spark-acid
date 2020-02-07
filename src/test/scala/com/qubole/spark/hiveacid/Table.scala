@@ -228,6 +228,16 @@ object Table {
     generateTableVariations(fileFormatTypes, partitionedTypes, clusteredTypes, Array(acidType))
   }
 
+
+  def allNonBucketedFullAcidTypes(): List[(String, Boolean)] = {
+    val acidType = fullAcidStr
+    val fileFormatTypes = Array(orcStr)
+    val partitionedTypes = Array("", partitionedStr)
+    val clusteredTypes = Array("")
+
+    generateTableVariations(fileFormatTypes, partitionedTypes, clusteredTypes, Array(acidType))
+  }
+
   // Loop through all variations
   def allInsertOnlyTypes(): List[(String, Boolean)] = {
     val acidType = insertOnlyStr

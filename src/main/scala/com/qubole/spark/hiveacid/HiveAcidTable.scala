@@ -95,7 +95,7 @@ class HiveAcidTable(sparkSession: SparkSession,
     * @param f
     */
   private def inTxn(f: => Unit): Unit = synchronized {
-    def inTxnRetry(retryRemaining: Int) = {
+    def inTxnRetry(retryRemaining: Int): Boolean = {
       getOrCreateTxn()
       var abort = false
       var retry = false
@@ -192,6 +192,13 @@ class HiveAcidTable(sparkSession: SparkSession,
   }
 
   /**
+    * Returns true if the table is an insert only table
+    */
+  def isInsertOnlyTable(): Boolean = {
+    hiveAcidMetadata.isInsertOnlyTable
+  }
+
+  /**
     * Return an RDD on top of Hive ACID table
     * @param requiredColumns - columns needed
     * @param filters - filters that can be pushed down to file format
@@ -212,6 +219,21 @@ class HiveAcidTable(sparkSession: SparkSession,
       res = tableReader.getRdd(requiredColumns, filters, readConf)
     }
     res
+  }
+
+  /**
+    * Used by streaming query to add a datframe to hive acid table.
+    * @param df - dataframe to insert
+    * @return - transaction Id
+    */
+  def addBatch(df: DataFrame): Long = {
+    var txnId = -1L
+    inTxn {
+      val tableWriter = new TableWriter(sparkSession, curTxn, hiveAcidMetadata)
+      tableWriter.process(HiveAcidOperation.INSERT_INTO, df)
+      txnId = HiveAcidTxn.currentTxn().txnId
+    }
+    txnId
   }
 
   /**

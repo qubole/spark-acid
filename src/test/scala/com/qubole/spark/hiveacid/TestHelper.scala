@@ -29,13 +29,16 @@ import org.apache.spark.sql.internal.SQLConf
 
 import scala.util.control.NonFatal
 
-class TestHelper {
+class TestHelper extends SQLImplicits {
 
   import TestHelper._
   var spark : SparkSession = _
   var hiveClient : TestHiveClient = _
 
   var verbose = false
+
+  implicit override def _sqlContext: SQLContext = spark.sqlContext
+
 
   def init(isDebug: Boolean) {
     verbose = isDebug
@@ -64,7 +67,7 @@ class TestHelper {
   // Verify: Both spark reads are same as hive read
 
   // Check the data present in this table via hive as well as spark sql and df
-  private def compare(table: Table, msg: String): Unit = {
+  def compare(table: Table, msg: String): Unit = {
     log.info(s"Verify simple $msg")
     val hiveResStr = hiveExecuteQuery(table.hiveSelect)
     val (dfFromSql, dfFromScala) = sparkGetDF(table)

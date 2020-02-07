@@ -19,11 +19,14 @@
 
 package com.qubole.spark.hiveacid.datasource
 
+import com.qubole.spark.hiveacid.{HiveAcidErrors, HiveAcidTable}
+import com.qubole.spark.hiveacid.streaming.HiveAcidSink
+
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql._
+import org.apache.spark.sql.execution.streaming.Sink
 import org.apache.spark.sql.sources._
-
-import com.qubole.spark.hiveacid.{HiveAcidTable, HiveAcidErrors}
+import org.apache.spark.sql.streaming.OutputMode
 
 /**
   * HiveAcid Data source implementation.
@@ -32,6 +35,7 @@ class HiveAcidDataSource
   extends RelationProvider          // USING HiveAcid
     with CreatableRelationProvider  // Insert into/overwrite
     with DataSourceRegister         // FORMAT("HiveAcid")
+    with StreamSinkProvider
     with Logging {
 
   // returns relation for passed in table name
@@ -65,6 +69,27 @@ class HiveAcidDataSource
 
   override def shortName(): String = {
     HiveAcidDataSource.NAME
+  }
+
+  override def createSink(sqlContext: SQLContext,
+                          parameters: Map[String, String],
+                          partitionColumns: Seq[String],
+                          outputMode: OutputMode): Sink = {
+
+    tableSinkAssertions(partitionColumns, outputMode)
+
+    new HiveAcidSink(sqlContext.sparkSession, parameters)
+  }
+
+  private def tableSinkAssertions(partitionColumns: Seq[String], outputMode: OutputMode): Unit = {
+
+    if (partitionColumns.nonEmpty) {
+      throw HiveAcidErrors.unsupportedFunction("partitionBy", "HiveAcidSink")
+    }
+    if (outputMode != OutputMode.Append) {
+      throw HiveAcidErrors.unsupportedStreamingOutputMode(s"$outputMode")
+    }
+
   }
 
   private def getFullyQualifiedTableName(parameters: Map[String, String]): String = {
