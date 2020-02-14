@@ -37,179 +37,9 @@ singleStatement
     : statement EOF
     ;
 
-singleExpression
-    : namedExpression EOF
-    ;
-
-singleTableIdentifier
-    : tableIdentifier EOF
-    ;
-
-singleFunctionIdentifier
-    : functionIdentifier EOF
-    ;
-
-singleDataType
-    : dataType EOF
-    ;
-
-singleTableSchema
-    : colTypeList EOF
-    ;
-
 statement
-    : query                                                            #statementDefault
-    | delete                                                           #deleteCommand
+    : delete                                                           #deleteCommand
     | update                                                           #updateCommand
-    | USE db=identifier                                                #use
-    | CREATE DATABASE (IF NOT EXISTS)? identifier
-        (COMMENT comment=STRING)? locationSpec?
-        (WITH DBPROPERTIES tablePropertyList)?                         #createDatabase
-    | ALTER DATABASE identifier SET DBPROPERTIES tablePropertyList     #setDatabaseProperties
-    | DROP DATABASE (IF EXISTS)? identifier (RESTRICT | CASCADE)?      #dropDatabase
-    | createTableHeader ('(' colTypeList ')')? tableProvider
-        ((OPTIONS options=tablePropertyList) |
-        (PARTITIONED BY partitionColumnNames=identifierList) |
-        bucketSpec |
-        locationSpec |
-        (COMMENT comment=STRING) |
-        (TBLPROPERTIES tableProps=tablePropertyList))*
-        (AS? query)?                                                   #createTable
-    | createTableHeader ('(' columns=colTypeList ')')?
-        ((COMMENT comment=STRING) |
-        (PARTITIONED BY '(' partitionColumns=colTypeList ')') |
-        bucketSpec |
-        skewSpec |
-        rowFormat |
-        createFileFormat |
-        locationSpec |
-        (TBLPROPERTIES tableProps=tablePropertyList))*
-        (AS? query)?                                                   #createHiveTable
-    | CREATE TABLE (IF NOT EXISTS)? target=tableIdentifier
-        LIKE source=tableIdentifier locationSpec?                      #createTableLike
-    | ANALYZE TABLE tableIdentifier partitionSpec? COMPUTE STATISTICS
-        (identifier | FOR COLUMNS identifierSeq)?                      #analyze
-    | ALTER TABLE tableIdentifier
-        ADD COLUMNS '(' columns=colTypeList ')'                        #addTableColumns
-    | ALTER (TABLE | VIEW) from=tableIdentifier
-        RENAME TO to=tableIdentifier                                   #renameTable
-    | ALTER (TABLE | VIEW) tableIdentifier
-        SET TBLPROPERTIES tablePropertyList                            #setTableProperties
-    | ALTER (TABLE | VIEW) tableIdentifier
-        UNSET TBLPROPERTIES (IF EXISTS)? tablePropertyList             #unsetTableProperties
-    | ALTER TABLE tableIdentifier partitionSpec?
-        CHANGE COLUMN? identifier colType colPosition?                 #changeColumn
-    | ALTER TABLE tableIdentifier (partitionSpec)?
-        SET SERDE STRING (WITH SERDEPROPERTIES tablePropertyList)?     #setTableSerDe
-    | ALTER TABLE tableIdentifier (partitionSpec)?
-        SET SERDEPROPERTIES tablePropertyList                          #setTableSerDe
-    | ALTER TABLE tableIdentifier ADD (IF NOT EXISTS)?
-        partitionSpecLocation+                                         #addTablePartition
-    | ALTER VIEW tableIdentifier ADD (IF NOT EXISTS)?
-        partitionSpec+                                                 #addTablePartition
-    | ALTER TABLE tableIdentifier
-        from=partitionSpec RENAME TO to=partitionSpec                  #renameTablePartition
-    | ALTER TABLE tableIdentifier
-        DROP (IF EXISTS)? partitionSpec (',' partitionSpec)* PURGE?    #dropTablePartitions
-    | ALTER VIEW tableIdentifier
-        DROP (IF EXISTS)? partitionSpec (',' partitionSpec)*           #dropTablePartitions
-    | ALTER TABLE tableIdentifier partitionSpec? SET locationSpec      #setTableLocation
-    | ALTER TABLE tableIdentifier RECOVER PARTITIONS                   #recoverPartitions
-    | DROP TABLE (IF EXISTS)? tableIdentifier PURGE?                   #dropTable
-    | DROP VIEW (IF EXISTS)? tableIdentifier                           #dropTable
-    | CREATE (OR REPLACE)? (GLOBAL? TEMPORARY)?
-        VIEW (IF NOT EXISTS)? tableIdentifier
-        identifierCommentList? (COMMENT STRING)?
-        (PARTITIONED ON identifierList)?
-        (TBLPROPERTIES tablePropertyList)? AS query                    #createView
-    | CREATE (OR REPLACE)? GLOBAL? TEMPORARY VIEW
-        tableIdentifier ('(' colTypeList ')')? tableProvider
-        (OPTIONS tablePropertyList)?                                   #createTempViewUsing
-    | ALTER VIEW tableIdentifier AS? query                             #alterViewQuery
-    | CREATE (OR REPLACE)? TEMPORARY? FUNCTION (IF NOT EXISTS)?
-        qualifiedName AS className=STRING
-        (USING resource (',' resource)*)?                              #createFunction
-    | DROP TEMPORARY? FUNCTION (IF EXISTS)? qualifiedName              #dropFunction
-    | EXPLAIN (LOGICAL | FORMATTED | EXTENDED | CODEGEN | COST)?
-        statement                                                      #explain
-    | SHOW TABLES ((FROM | IN) db=identifier)?
-        (LIKE? pattern=STRING)?                                        #showTables
-    | SHOW TABLE EXTENDED ((FROM | IN) db=identifier)?
-        LIKE pattern=STRING partitionSpec?                             #showTable
-    | SHOW DATABASES (LIKE? pattern=STRING)?                           #showDatabases
-    | SHOW TBLPROPERTIES table=tableIdentifier
-        ('(' key=tablePropertyKey ')')?                                #showTblProperties
-    | SHOW COLUMNS (FROM | IN) tableIdentifier
-        ((FROM | IN) db=identifier)?                                   #showColumns
-    | SHOW PARTITIONS tableIdentifier partitionSpec?                   #showPartitions
-    | SHOW identifier? FUNCTIONS
-        (LIKE? (qualifiedName | pattern=STRING))?                      #showFunctions
-    | SHOW CREATE TABLE tableIdentifier                                #showCreateTable
-    | (DESC | DESCRIBE) FUNCTION EXTENDED? describeFuncName            #describeFunction
-    | (DESC | DESCRIBE) DATABASE EXTENDED? identifier                  #describeDatabase
-    | (DESC | DESCRIBE) TABLE? option=(EXTENDED | FORMATTED)?
-        tableIdentifier partitionSpec? describeColName?                #describeTable
-    | REFRESH TABLE tableIdentifier                                    #refreshTable
-    | REFRESH (STRING | .*?)                                           #refreshResource
-    | CACHE LAZY? TABLE tableIdentifier (AS? query)?                   #cacheTable
-    | UNCACHE TABLE (IF EXISTS)? tableIdentifier                       #uncacheTable
-    | CLEAR CACHE                                                      #clearCache
-    | LOAD DATA LOCAL? INPATH path=STRING OVERWRITE? INTO TABLE
-        tableIdentifier partitionSpec?                                 #loadData
-    | TRUNCATE TABLE tableIdentifier partitionSpec?                    #truncateTable
-    | MSCK REPAIR TABLE tableIdentifier                                #repairTable
-    | op=(ADD | LIST) identifier .*?                                   #manageResource
-    | SET ROLE .*?                                                     #failNativeCommand
-    | SET .*?                                                          #setConfiguration
-    | RESET                                                            #resetConfiguration
-    | unsupportedHiveNativeCommands .*?                                #failNativeCommand
-    ;
-
-unsupportedHiveNativeCommands
-    : kw1=CREATE kw2=ROLE
-    | kw1=DROP kw2=ROLE
-    | kw1=GRANT kw2=ROLE?
-    | kw1=REVOKE kw2=ROLE?
-    | kw1=SHOW kw2=GRANT
-    | kw1=SHOW kw2=ROLE kw3=GRANT?
-    | kw1=SHOW kw2=PRINCIPALS
-    | kw1=SHOW kw2=ROLES
-    | kw1=SHOW kw2=CURRENT kw3=ROLES
-    | kw1=EXPORT kw2=TABLE
-    | kw1=IMPORT kw2=TABLE
-    | kw1=SHOW kw2=COMPACTIONS
-    | kw1=SHOW kw2=CREATE kw3=TABLE
-    | kw1=SHOW kw2=TRANSACTIONS
-    | kw1=SHOW kw2=INDEXES
-    | kw1=SHOW kw2=LOCKS
-    | kw1=CREATE kw2=INDEX
-    | kw1=DROP kw2=INDEX
-    | kw1=ALTER kw2=INDEX
-    | kw1=LOCK kw2=TABLE
-    | kw1=LOCK kw2=DATABASE
-    | kw1=UNLOCK kw2=TABLE
-    | kw1=UNLOCK kw2=DATABASE
-    | kw1=CREATE kw2=TEMPORARY kw3=MACRO
-    | kw1=DROP kw2=TEMPORARY kw3=MACRO
-    | kw1=ALTER kw2=TABLE tableIdentifier kw3=NOT kw4=CLUSTERED
-    | kw1=ALTER kw2=TABLE tableIdentifier kw3=CLUSTERED kw4=BY
-    | kw1=ALTER kw2=TABLE tableIdentifier kw3=NOT kw4=SORTED
-    | kw1=ALTER kw2=TABLE tableIdentifier kw3=SKEWED kw4=BY
-    | kw1=ALTER kw2=TABLE tableIdentifier kw3=NOT kw4=SKEWED
-    | kw1=ALTER kw2=TABLE tableIdentifier kw3=NOT kw4=STORED kw5=AS kw6=DIRECTORIES
-    | kw1=ALTER kw2=TABLE tableIdentifier kw3=SET kw4=SKEWED kw5=LOCATION
-    | kw1=ALTER kw2=TABLE tableIdentifier kw3=EXCHANGE kw4=PARTITION
-    | kw1=ALTER kw2=TABLE tableIdentifier kw3=ARCHIVE kw4=PARTITION
-    | kw1=ALTER kw2=TABLE tableIdentifier kw3=UNARCHIVE kw4=PARTITION
-    | kw1=ALTER kw2=TABLE tableIdentifier kw3=TOUCH
-    | kw1=ALTER kw2=TABLE tableIdentifier partitionSpec? kw3=COMPACT
-    | kw1=ALTER kw2=TABLE tableIdentifier partitionSpec? kw3=CONCATENATE
-    | kw1=ALTER kw2=TABLE tableIdentifier partitionSpec? kw3=SET kw4=FILEFORMAT
-    | kw1=ALTER kw2=TABLE tableIdentifier partitionSpec? kw3=REPLACE kw4=COLUMNS
-    | kw1=START kw2=TRANSACTION
-    | kw1=COMMIT
-    | kw1=ROLLBACK
-    | kw1=DFS
     ;
 
 delete
@@ -231,26 +61,6 @@ updateField
     : key=identifier EQ value=valueExpression
     ;
 
-createTableHeader
-    : CREATE TEMPORARY? EXTERNAL? TABLE (IF NOT EXISTS)? tableIdentifier
-    ;
-
-bucketSpec
-    : CLUSTERED BY identifierList
-      (SORTED BY orderedIdentifierList)?
-      INTO INTEGER_VALUE BUCKETS
-    ;
-
-skewSpec
-    : SKEWED BY identifierList
-      ON (constantList | nestedConstantList)
-      (STORED AS DIRECTORIES)?
-    ;
-
-locationSpec
-    : LOCATION STRING
-    ;
-
 query
     : ctes? queryNoWith
     ;
@@ -262,28 +72,12 @@ insertInto
     | INSERT OVERWRITE LOCAL? DIRECTORY (path=STRING)? tableProvider (OPTIONS options=tablePropertyList)?   #insertOverwriteDir
     ;
 
-partitionSpecLocation
-    : partitionSpec locationSpec?
-    ;
-
 partitionSpec
     : PARTITION '(' partitionVal (',' partitionVal)* ')'
     ;
 
 partitionVal
     : identifier (EQ constant)?
-    ;
-
-describeFuncName
-    : qualifiedName
-    | STRING
-    | comparisonOperator
-    | arithmeticOperator
-    | predicateOperator
-    ;
-
-describeColName
-    : nameParts+=identifier ('.' nameParts+=identifier)*
     ;
 
 ctes
@@ -318,14 +112,6 @@ tablePropertyValue
     | STRING
     ;
 
-constantList
-    : '(' constant (',' constant)* ')'
-    ;
-
-nestedConstantList
-    : '(' constantList (',' constantList)* ')'
-    ;
-
 createFileFormat
     : STORED AS fileFormat
     | STORED BY storageHandler
@@ -338,10 +124,6 @@ fileFormat
 
 storageHandler
     : STRING (WITH SERDEPROPERTIES tablePropertyList)?
-    ;
-
-resource
-    : identifier STRING
     ;
 
 queryNoWith
@@ -498,22 +280,6 @@ identifierSeq
     : identifier (',' identifier)*
     ;
 
-orderedIdentifierList
-    : '(' orderedIdentifier (',' orderedIdentifier)* ')'
-    ;
-
-orderedIdentifier
-    : identifier ordering=(ASC | DESC)?
-    ;
-
-identifierCommentList
-    : '(' identifierComment (',' identifierComment)* ')'
-    ;
-
-identifierComment
-    : identifier (COMMENT STRING)?
-    ;
-
 relationPrimary
     : tableIdentifier sample? tableAlias      #tableName
     | '(' queryNoWith ')' sample? tableAlias  #aliasedQuery
@@ -546,10 +312,6 @@ rowFormat
 
 tableIdentifier
     : (db=identifier '.')? table=identifier
-    ;
-
-functionIdentifier
-    : (db=identifier '.')? function=identifier
     ;
 
 namedExpression
@@ -631,14 +393,6 @@ comparisonOperator
     : EQ | NEQ | NEQJ | LT | LTE | GT | GTE | NSEQ
     ;
 
-arithmeticOperator
-    : PLUS | MINUS | ASTERISK | SLASH | PERCENT | DIV | TILDE | AMPERSAND | PIPE | CONCAT_PIPE | HAT
-    ;
-
-predicateOperator
-    : OR | AND | IN | NOT
-    ;
-
 booleanValue
     : TRUE | FALSE
     ;
@@ -654,10 +408,6 @@ intervalField
 intervalValue
     : (PLUS | MINUS)? (INTEGER_VALUE | DECIMAL_VALUE)
     | STRING
-    ;
-
-colPosition
-    : FIRST | AFTER identifier
     ;
 
 dataType

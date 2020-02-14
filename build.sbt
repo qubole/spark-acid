@@ -53,7 +53,6 @@ libraryDependencies ++= Seq(
 	"com.qubole" %% "spark-acid-shaded-dependencies" % sys.props.getOrElse("package.version", "0.1")
 )
 
-
 // Remove shaded dependency jar from pom.
 import scala.xml.{Node => XmlNode, NodeSeq => XmlNodeSeq, _}
 import scala.xml.transform.{RewriteRule, RuleTransformer}

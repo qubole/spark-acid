@@ -19,7 +19,7 @@ import org.apache.spark.sql.types.{DataType, StructType}
 /**
  * Concrete parser for Hive SQL statements.
  */
-case class HiveSqlParser(session: SparkSession, sparkParser: ParserInterface) extends ParserInterface with Logging {
+case class SparkAcidSqlParser(session: SparkSession, sparkParser: ParserInterface) extends ParserInterface with Logging {
 
   override def parseExpression(sqlText: String): Expression = sparkParser.parseExpression(sqlText)
 
@@ -44,27 +44,13 @@ case class HiveSqlParser(session: SparkSession, sparkParser: ParserInterface) ex
     field.get(substitutor).asInstanceOf[SQLConf]
   }
 
-  private val hiveSqlPrefixes = Seq("DELETE", "UPDATE")
-  private val hiveAstBuilder = new HiveSqlAstBuilder(conf)
+  private val sparkAcidAstBuilder = new SparkSqlAstBuilder(conf)
 
   override def parsePlan(sqlText: String): LogicalPlan = {
-    val sqlTextTrim = stripStart(sqlText, null)
-    if (hiveSqlPrefixes.exists(startsWithIgnoreCase(sqlTextTrim, _))) {
-      return parsePlanHive(sqlText)
-    }
-    sparkParser.parsePlan(sqlText)
-  }
-
-  /**
-   *  An adaptation of [[org.apache.spark.sql.catalyst.parser.AbstractSqlParser#parsePlan]]
-   */
-  protected def parsePlanHive(sqlText: String): LogicalPlan = {
-    parseHive(sqlText) { parser =>
-      hiveAstBuilder.visitSingleStatement(parser.singleStatement()) match {
+    parse(sqlText) { parser =>
+      sparkAcidAstBuilder.visitSingleStatement(parser.singleStatement()) match {
         case plan: LogicalPlan => plan
-        case _ =>
-          val position = Origin(None, None)
-          throw new ParseException(Option(sqlText), "Unsupported SQL statement", position, position)
+        case _ => sparkParser.parsePlan(sqlText)
       }
     }
   }
@@ -73,7 +59,7 @@ case class HiveSqlParser(session: SparkSession, sparkParser: ParserInterface) ex
    *  An adaptation of [[org.apache.spark.sql.execution.SparkSqlParser#parse]]
    *  and [[org.apache.spark.sql.catalyst.parser.AbstractSqlParser#parse]]
    */
-  protected def parseHive[T](sqlText: String)(toResult: SqlHiveParser => T): T = {
+  protected def parse[T](sqlText: String)(toResult: SqlHiveParser => T): T = {
     val command = substitutor.substitute(sqlText)
     logDebug(s"Parsing command: $command")
 
@@ -97,7 +83,7 @@ case class HiveSqlParser(session: SparkSession, sparkParser: ParserInterface) ex
         toResult(parser)
       }
       catch {
-        case e: ParseCancellationException =>
+        case _: ParseCancellationException =>
           // if we fail, parse with LL mode
           tokenStream.seek(0) // rewind input stream
           parser.reset()

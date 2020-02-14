@@ -54,28 +54,6 @@ class AstBuilder(conf: SQLConf) extends SqlHiveBaseVisitor[AnyRef] with Logging 
     visit(ctx.statement).asInstanceOf[LogicalPlan]
   }
 
-  override def visitSingleExpression(ctx: SingleExpressionContext): Expression = withOrigin(ctx) {
-    visitNamedExpression(ctx.namedExpression)
-  }
-
-  override def visitSingleTableIdentifier(
-      ctx: SingleTableIdentifierContext): TableIdentifier = withOrigin(ctx) {
-    visitTableIdentifier(ctx.tableIdentifier)
-  }
-
-  override def visitSingleFunctionIdentifier(
-      ctx: SingleFunctionIdentifierContext): FunctionIdentifier = withOrigin(ctx) {
-    visitFunctionIdentifier(ctx.functionIdentifier)
-  }
-
-  override def visitSingleDataType(ctx: SingleDataTypeContext): DataType = withOrigin(ctx) {
-    visitSparkDataType(ctx.dataType)
-  }
-
-  override def visitSingleTableSchema(ctx: SingleTableSchemaContext): StructType = {
-    withOrigin(ctx)(StructType(visitColTypeList(ctx.colTypeList)))
-  }
-
   /* ********************************************************************************************
    * Plan parsing
    * ******************************************************************************************** */
@@ -908,14 +886,6 @@ class AstBuilder(conf: SQLConf) extends SqlHiveBaseVisitor[AnyRef] with Logging 
   override def visitTableIdentifier(
       ctx: TableIdentifierContext): TableIdentifier = withOrigin(ctx) {
     TableIdentifier(ctx.table.getText, Option(ctx.db).map(_.getText))
-  }
-
-  /**
-   * Create a [[FunctionIdentifier]] from a 'functionName' or 'databaseName'.'functionName' pattern.
-   */
-  override def visitFunctionIdentifier(
-      ctx: FunctionIdentifierContext): FunctionIdentifier = withOrigin(ctx) {
-    FunctionIdentifier(ctx.function.getText, Option(ctx.db).map(_.getText))
   }
 
   /* ********************************************************************************************
