@@ -23,6 +23,12 @@ import org.apache.spark.sql.SaveMode
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 
 object HiveAcidErrors {
+
+  def formatColumn(colName: String): String = s"`$colName`"
+
+  def formatColumnList(colNames: Seq[String]): String =
+    colNames.map(formatColumn).mkString("[", ", ", "]")
+
   def tableNotSpecifiedException(): Throwable = {
     new IllegalArgumentException("'table' is not specified in parameters")
   }
@@ -38,12 +44,17 @@ object HiveAcidErrors {
   def unsupportedSaveMode(saveMode: SaveMode): Throwable = {
     new RuntimeException(s"Unsupported save mode - $saveMode")
   }
-  def unsupportedOperationTypeInsertOnlyTable(operation: String): Throwable = {
-    new RuntimeException(s"Unsupported operation type - $operation for InsertOnly tables")
+
+  def unsupportedOperationTypeInsertOnlyTable(operation: String, tableName: String): Throwable = {
+    new RuntimeException(s"Unsupported operation type - $operation for InsertOnly table " + tableName)
+  }
+
+  def unsupportedOperationTypeBucketedTable(operation: String, tableName: String): Throwable = {
+    new RuntimeException(s"Unsupported operation type - $operation for Bucketed table " + tableName)
   }
 
   def tableNotAcidException(tableName: String): Throwable = {
-    new IllegalArgumentException(s"table $tableName is not an acid table")
+    new IllegalArgumentException(s"table $tableName is not an ACID table")
   }
 
   def couldNotAcquireLockException(exception: Exception = null): Throwable = {
@@ -79,20 +90,28 @@ object HiveAcidErrors {
   }
 
   def repeatedTxnId(txnId: Long, activeTxns: Seq[Long]): Throwable = {
-    new RuntimeException(s"Repeated transaction id $txnId," +
-      s"active transactions are [${activeTxns.mkString(",")}]")
+    new RuntimeException(
+      s"Repeated transaction id $txnId, active transactions are [${activeTxns.mkString(",")}]")
   }
 
   def unsupportedStreamingOutputMode(mode: String): Throwable = {
-    new AnalysisException(s"mode is $mode: Hive Acid Sink supports only Append as OutputMode")
+    new AnalysisException(
+      s"mode is $mode: Hive Acid Sink supports only Append as OutputMode")
   }
-  
+
+  def updateSetColumnNotFound(col: String, colList: Seq[String]): Throwable = {
+    new AnalysisException(
+      s"SET column ${formatColumn(col)} not found among columns: ${formatColumnList(colList)}.")
+  }
+
   def txnOutdated(txnId: Long, tableName: String): Throwable = {
-    new TransactionInvalidException(s"Transaction is $txnId is no longer valid for table $tableName", txnId, tableName)
+    new TransactionInvalidException(
+      s"Transaction is $txnId is no longer valid for table $tableName", txnId, tableName)
   }
 
   def unexpectedReadError(cause: String): Throwable = {
-    throw new RuntimeException("Unexpected error while reading the Hive Acid Data: " + cause)
+    throw new RuntimeException(
+      s"Unexpected error while reading the Hive Acid Data: $cause")
   }
 }
 

@@ -21,13 +21,13 @@ package com.qubole.spark.hiveacid
 
 import java.util.Locale
 
+import com.qubole.spark.datasources.hiveacid.sql.execution.SparkAcidSqlParser
 import org.apache.spark.sql.{SparkSession, SparkSessionExtensions}
 import org.apache.spark.sql.catalyst.catalog.HiveTableRelation
-import org.apache.spark.sql.catalyst.plans.logical.{InsertIntoTable, LogicalPlan, Filter}
+import org.apache.spark.sql.catalyst.plans.logical.{Filter, InsertIntoTable, LogicalPlan}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.command.DDLUtils
 import org.apache.spark.sql.execution.datasources.LogicalRelation
-
 import com.qubole.spark.hiveacid.datasource.HiveAcidDataSource
 
 
@@ -67,7 +67,10 @@ case class HiveAcidAutoConvert(spark: SparkSession) extends Rule[LogicalPlan] {
 }
 
 class HiveAcidAutoConvertExtension extends (SparkSessionExtensions => Unit) {
-  def apply(e: SparkSessionExtensions): Unit = {
-    e.injectResolutionRule(HiveAcidAutoConvert.apply)
+  def apply(extension: SparkSessionExtensions): Unit = {
+    extension.injectResolutionRule(HiveAcidAutoConvert.apply)
+    extension.injectParser { (session, parser) =>
+      SparkAcidSqlParser(session, parser)
+    }
   }
 }

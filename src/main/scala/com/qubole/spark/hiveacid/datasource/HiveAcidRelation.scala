@@ -21,12 +21,13 @@ package com.qubole.spark.hiveacid.datasource
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.{DataFrame, Row, SparkSession, SQLContext}
+import org.apache.spark.sql.{Column, DataFrame, Row, SQLContext, SparkSession}
 import org.apache.spark.sql.sources.{BaseRelation, Filter, InsertableRelation, PrunedFilteredScan}
 import org.apache.spark.sql.types._
-
-import com.qubole.spark.hiveacid.{HiveAcidTable, SparkAcidConf}
+import com.qubole.spark.hiveacid.{HiveAcidErrors, HiveAcidTable, SparkAcidConf}
 import com.qubole.spark.hiveacid.hive.HiveAcidMetadata
+
+import collection.JavaConversions._
 
 /**
   * Container for all metadata, configuration and schema to perform operations on
@@ -72,6 +73,13 @@ case class HiveAcidRelation(sparkSession: SparkSession,
     }
   }
 
+  def update(condition: Option[Column], newValues: Map[String, Column]): Unit = {
+    hiveAcidTable.update(condition, newValues)
+  }
+
+  def delete(condition: Column): Unit = {
+    hiveAcidTable.delete(condition)
+  }
   override def sizeInBytes: Long = {
     val compressionFactor = sparkSession.sessionState.conf.fileCompressionFactor
     (sparkSession.sessionState.conf.defaultSizeInBytes * compressionFactor).toLong

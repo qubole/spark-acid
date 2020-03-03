@@ -39,9 +39,11 @@ libraryDependencies ++= Seq(
 		ExclusionRule("org.apache", "hadoop-hdfs"))
 )
 
+lazy val scalatest = "org.scalatest" %% "scalatest" % "3.0.5"
 libraryDependencies ++= Seq(
 	"org.apache.hadoop" % "hadoop-common" % "2.8.1" % "provided",
 	"org.apache.hadoop" % "hadoop-hdfs" % "2.8.1" % "provided",
+	"org.apache.commons" % "commons-lang3" % "3.3.5" % "provided",
 	// Dependencies for tests
 	//
 	"org.scalatest" %% "scalatest" % "3.0.5" % "test"
@@ -142,3 +144,16 @@ releaseProcess := Seq[ReleaseStep](
   releaseStepTask(spDist),
   releaseStepTask(spPublish)
 )
+
+antlr4Settings
+antlr4PackageName in Antlr4 := Some("com.qubole.spark.datasources.hiveacid.sql.catalyst.parser")
+antlr4GenListener in Antlr4 := true
+antlr4GenVisitor in Antlr4 := true
+
+
+lazy val root = (project in file("."))
+  .configs(IntegrationTest)
+  .settings(
+    Defaults.itSettings,
+    libraryDependencies += scalatest % "it"
+  )

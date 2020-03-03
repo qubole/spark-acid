@@ -50,9 +50,8 @@ class HiveAcidSink(sparkSession: SparkSession,
 
   private def assertFullAcidTable(): Unit = {
     if(hiveAcidTable.isInsertOnlyTable()) {
-      throw HiveAcidErrors.unsupportedOperationTypeInsertOnlyTable("Streaming Write")
+      throw HiveAcidErrors.unsupportedOperationTypeInsertOnlyTable("Streaming Write", fullyQualifiedTableName)
     }
-
   }
 
   private def getMetaDataPath(): Path = {
