@@ -23,7 +23,7 @@ import com.qubole.spark.hiveacid.hive.HiveAcidMetadata
 import com.qubole.spark.hiveacid.datasource.HiveAcidDataSource
 import com.qubole.spark.hiveacid.rdd.EmptyRDD
 import com.qubole.spark.hiveacid.transaction._
-
+import org.apache.spark.annotation.InterfaceStability.Evolving
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.{DataFrame, _}
@@ -33,7 +33,10 @@ import org.apache.spark.sql.SqlUtils
 import org.apache.spark.sql.catalyst.expressions.{Alias, AttributeReference}
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.expressions.Expression
+import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.execution.datasources.LogicalRelation
+
+import scala.collection.JavaConverters._
 
 
 /**
@@ -42,6 +45,7 @@ import org.apache.spark.sql.execution.datasources.LogicalRelation
  * @param hiveAcidMetadata - metadata object
  * @param parameters - additional parameters
  */
+@Evolving
 class HiveAcidTable(sparkSession: SparkSession,
                     hiveAcidMetadata: HiveAcidMetadata,
                     parameters: Map[String, String]
@@ -145,36 +149,34 @@ class HiveAcidTable(sparkSession: SparkSession,
     * @param condition - condition string to identify rows which needs to be updated
     * @param newValues - Map of (column, value) to set
     */
-  private def updateDF(condition: String, newValues: Map[String, String]): DataFrame = {
+  private def updateDF(condition: Option[String], newValues: Map[String, String]): DataFrame = {
+    val conditionColumn = condition.map(functions.expr(_))
+    val newValMap = newValues.mapValues(value => functions.expr(value))
+    updateDFInternal(conditionColumn, newValMap)
+  }
 
-    val df= readDF
 
-    val plan = df.queryExecution.analyzed
-    val qualifiedPlan = plan match {
-      case p: LogicalRelation =>
-        p.copy(output = p.output
-          .map((x: AttributeReference) =>
-            x.withQualifier(hiveAcidMetadata.fullyQualifiedName.split('.').toSeq))
-        )
-      case _ => plan
-    }
-    val resolvedExpr = SqlUtils.resolveReferences(sparkSession,
-      functions.expr(condition).expr,
-      qualifiedPlan)
+  /**
+    * Return df after after applying update clause and filter clause. This df is used to
+    * update the table.
+    * @param condition - condition string to identify rows which needs to be updated
+    * @param newValues - Map of (column, value) to set
+    */
+  private def updateDFInternal(condition: Option[Column], newValues: Map[String, Column]): DataFrame = {
 
-    val newDf = SqlUtils.convertToDF(sparkSession, qualifiedPlan)
+    val (df: DataFrame, qualifiedPlan: LogicalPlan, resolvedDf: DataFrame) = getResolvedReadDF
 
-    def toStrColumnMap(map: Map[String, String]): Map[String, Column] = {
+    def toStrColumnMap(map: Map[String, Column]): Map[String, Column] = {
       map.toSeq.map { case (k, v) =>
-        k -> functions.expr(SqlUtils.resolveReferences(sparkSession, functions.expr(v).expr,
-        qualifiedPlan).sql)}.toMap
+        k.toLowerCase -> functions.expr(SqlUtils.resolveReferences(sparkSession, v.expr,
+          qualifiedPlan).sql)}.toMap
     }
 
     val strColumnMap = toStrColumnMap(newValues)
     val updateExpressions: Seq[Expression] =
-      newDf.queryExecution.optimizedPlan.output.map {
+      resolvedDf.queryExecution.optimizedPlan.output.map {
         attr =>
-          if (strColumnMap.contains(attr.name)) {
+          if (strColumnMap.contains(attr.name.toLowerCase())) {
             strColumnMap(attr.name).expr
           } else {
             attr
@@ -186,16 +188,46 @@ class HiveAcidTable(sparkSession: SparkSession,
         new Column(Alias(newExpr, origAttr.name)())
     }
 
-    newDf.filter(resolvedExpr.sql).select(newColumns: _*)
+    condition match {
+      case Some(cond) => {
+        val resolvedExpr = SqlUtils.resolveReferences(sparkSession,
+          cond.expr,
+          qualifiedPlan)
+        resolvedDf.filter(resolvedExpr.sql).select(newColumns: _*)
+      }
+      case None => {
+        resolvedDf.select(newColumns: _*)
+      }
+    }
+
+  }
+
+  private def getResolvedReadDF = {
+    val df = readDF
+
+    val plan = df.queryExecution.analyzed
+    val qualifiedPlan = plan match {
+      case p: LogicalRelation =>
+        p.copy(output = p.output
+          .map((x: AttributeReference) =>
+            x.withQualifier(hiveAcidMetadata.fullyQualifiedName.split('.').toSeq))
+        )
+      case _ => plan
+    }
+
+    val newDf = SqlUtils.convertToDF(sparkSession, qualifiedPlan)
+    (df, qualifiedPlan, newDf)
   }
 
   /**
     * Return an RDD on top of Hive ACID table
+    *
     * @param requiredColumns - columns needed
     * @param filters - filters that can be pushed down to file format
     * @param readConf - read conf
     * @return
     */
+  @Evolving
   def getRdd(requiredColumns: Array[String],
              filters: Array[Filter],
              readConf: SparkAcidConf): RDD[Row] = {
@@ -214,6 +246,8 @@ class HiveAcidTable(sparkSession: SparkSession,
 
   /**
     * Appends a given dataframe df into the hive acid table
+    *
+    * Note: This API is transactional in nature.
     * @param df - dataframe to insert
     */
   def insertInto(df: DataFrame): Unit = inTxn {
@@ -223,6 +257,8 @@ class HiveAcidTable(sparkSession: SparkSession,
 
   /**
     * Overwrites a given dataframe df onto the hive acid table
+    *
+    * Note: This API is transactional in nature.
     * @param df - dataframe to insert
     */
   def insertOverwrite(df: DataFrame): Unit = inTxn {
@@ -231,27 +267,66 @@ class HiveAcidTable(sparkSession: SparkSession,
   }
 
   /**
-    * Delete rows from the table based on condtional expression.
-    * @param condition - Conditional filter for delete
+    * Delete rows from the table based on `condtional` boolean expression.
+    *
+    * Note: This API is transactional in nature.
+    * @param condition - Boolean SQL Expression filtering rows to be deleted
     */
-  def delete(condition: String): Unit = inTxn {
-    val df = readDF
+  @Evolving
+  def delete(condition: String): Unit = {
+    delete(functions.expr(condition))
+  }
+
+  /**
+    * Delete rows from the table based on `condtional` expression.
+    *
+    * Note: This API is transactional in nature.
+    * @param condition - Boolean SQL Expression filtering rows to be deleted
+    */
+  @Evolving
+  def delete(condition: Column): Unit = inTxn {
+    val (_, qualifiedPlan: LogicalPlan, resolvedDf: DataFrame) = getResolvedReadDF
     val resolvedExpr= SqlUtils.resolveReferences(sparkSession,
-      functions.expr(condition).expr,
-      df.queryExecution.analyzed)
+      condition.expr,
+      qualifiedPlan)
     val tableWriter = new TableWriter(sparkSession, curTxn, hiveAcidMetadata)
-    tableWriter.process(HiveAcidOperation.DELETE, df.filter(resolvedExpr.sql))
+    tableWriter.process(HiveAcidOperation.DELETE, resolvedDf.filter(resolvedExpr.sql))
   }
 
   /**
     * Update rows in the hive acid table based on condition and newValues
+    *
+    * Note: This API is transactional in nature.
     * @param condition - condition string to identify rows which needs to be updated
     * @param newValues - Map of (column, value) to set
     */
-  def update(condition: String, newValues: Map[String, String]): Unit = inTxn {
+  @Evolving
+  def update(condition: Option[String], newValues: Map[String, String]): Unit = inTxn {
     val updateDf = updateDF(condition, newValues)
     val tableWriter = new TableWriter(sparkSession, curTxn, hiveAcidMetadata)
     tableWriter.process(HiveAcidOperation.UPDATE, updateDf)
+  }
+  /**
+    * Update rows in the hive acid table based on condition and newValues
+    *
+    * Note: This API is transactional in nature.
+    * @param condition - Optional condition string to identify rows which needs to be updated,
+    *                  if not specified then it means complete table.
+    * @param newValues - Map of (column, value) to set
+    */
+  @Evolving
+  def update(condition: Option[Column], newValues: java.util.Map[String, Column]): Unit = inTxn {
+    val updateDf = updateDFInternal(condition, newValues.asScala.toMap)
+    val tableWriter = new TableWriter(sparkSession, curTxn, hiveAcidMetadata)
+    tableWriter.process(HiveAcidOperation.UPDATE, updateDf)
+  }
+
+  def isFullAcidTable(): Boolean = {
+    hiveAcidMetadata.isFullAcidTable
+  }
+
+  def isBucketed(): Boolean = {
+    hiveAcidMetadata.isBucketed
   }
 }
 

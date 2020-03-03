@@ -44,7 +44,7 @@ statement
 
 delete
     : DELETE FROM tableIdentifier
-      (WHERE where=booleanExpression)?
+      WHERE where=booleanExpression
     ;
 
 update
@@ -65,31 +65,12 @@ query
     : ctes? queryNoWith
     ;
 
-insertInto
-    : INSERT OVERWRITE TABLE tableIdentifier (partitionSpec (IF NOT EXISTS)?)?                              #insertOverwriteTable
-    | INSERT INTO TABLE? tableIdentifier partitionSpec?                                                     #insertIntoTable
-    | INSERT OVERWRITE LOCAL? DIRECTORY path=STRING rowFormat? createFileFormat?                            #insertOverwriteHiveDir
-    | INSERT OVERWRITE LOCAL? DIRECTORY (path=STRING)? tableProvider (OPTIONS options=tablePropertyList)?   #insertOverwriteDir
-    ;
-
-partitionSpec
-    : PARTITION '(' partitionVal (',' partitionVal)* ')'
-    ;
-
-partitionVal
-    : identifier (EQ constant)?
-    ;
-
 ctes
     : WITH namedQuery (',' namedQuery)*
     ;
 
 namedQuery
     : name=identifier AS? '(' query ')'
-    ;
-
-tableProvider
-    : USING qualifiedName
     ;
 
 tablePropertyList
@@ -112,23 +93,10 @@ tablePropertyValue
     | STRING
     ;
 
-createFileFormat
-    : STORED AS fileFormat
-    | STORED BY storageHandler
-    ;
-
-fileFormat
-    : INPUTFORMAT inFmt=STRING OUTPUTFORMAT outFmt=STRING    #tableFileFormat
-    | identifier                                             #genericFileFormat
-    ;
-
-storageHandler
-    : STRING (WITH SERDEPROPERTIES tablePropertyList)?
-    ;
 
 queryNoWith
-    : insertInto? queryTerm queryOrganization                                              #singleInsertQuery
-    | fromClause multiInsertQueryBody+                                                     #multiInsertQuery
+    : queryTerm queryOrganization
+    | fromClause multiInsertQueryBody+
     ;
 
 queryOrganization
@@ -141,8 +109,7 @@ queryOrganization
     ;
 
 multiInsertQueryBody
-    : insertInto?
-      querySpecification
+    : querySpecification
       queryOrganization
     ;
 

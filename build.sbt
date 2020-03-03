@@ -39,13 +39,14 @@ libraryDependencies ++= Seq(
 		ExclusionRule("org.apache", "hadoop-hdfs"))
 )
 
+lazy val scalatest = "org.scalatest" %% "scalatest" % "3.0.5"
 libraryDependencies ++= Seq(
 	"org.apache.hadoop" % "hadoop-common" % "2.8.1" % "provided",
 	"org.apache.hadoop" % "hadoop-hdfs" % "2.8.1" % "provided",
 	"org.apache.commons" % "commons-lang3" % "3.3.5" % "provided",
 	// Dependencies for tests
 	//
-	"org.scalatest" %% "scalatest" % "3.0.5" % "test"
+  scalatest % "test"
 )
 
 // Shaded jar dependency
@@ -108,6 +109,11 @@ pomExtra :=
         </scm>
         <developers>
             <developer>
+                <id>amoghmargoor</id>
+                <name>Amogh Margoor</name>
+                <url>https://github.com/amoghmargoor</url>
+            </developer>
+            <developer>
                 <id>citrusraj</id>
                 <name>Rajkumar Iyer</name>
                 <url>https://github.com/citrusraj</url>
@@ -148,3 +154,10 @@ antlr4PackageName in Antlr4 := Some("com.qubole.spark.datasources.hiveacid.sql.c
 antlr4GenListener in Antlr4 := true
 antlr4GenVisitor in Antlr4 := true
 
+
+lazy val root = (project in file("."))
+  .configs(IntegrationTest)
+  .settings(
+    Defaults.itSettings,
+    libraryDependencies += scalatest % "it"
+  )

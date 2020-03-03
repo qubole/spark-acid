@@ -7,7 +7,7 @@ import com.qubole.spark.datasources.hiveacid.sql.catalyst.parser.SqlHiveParser._
 import com.qubole.spark.datasources.hiveacid.sql.catalyst.parser.{AstBuilder, SqlHiveParser}
 import com.qubole.spark.datasources.hiveacid.sql.catalyst.plans.logical.{Delete, Update}
 import org.antlr.v4.runtime.Token
-import org.apache.spark.sql.catalyst.analysis.{UnresolvedAttribute, UnresolvedRelation}
+import org.apache.spark.sql.catalyst.analysis.UnresolvedRelation
 import org.apache.spark.sql.catalyst.catalog._
 import org.apache.spark.sql.catalyst.expressions.{Expression, SubqueryExpression}
 import org.apache.spark.sql.catalyst.parser.ParseException
@@ -154,26 +154,20 @@ class SparkSqlAstBuilder(conf: SQLConf) extends AstBuilder(conf) {
   override def visitDelete(ctx: SqlHiveParser.DeleteContext): LogicalPlan = withOrigin(ctx) {
     val tableIdent = visitTableIdentifier(ctx.tableIdentifier)
     val relation = UnresolvedRelation(tableIdent)
-    val condition = Option(ctx.where).map(expression)
-    subqueryNotSupportedCheck(condition, "DELETE")
-    val filter = condition.map(Filter(_, relation))
-    Delete(relation, filter)
+    val condition = expression(ctx.where)
+    subqueryNotSupportedCheck(Option(condition), "DELETE")
+    Delete(relation, condition)
   }
 
   override def visitUpdateCommand(ctx: SqlHiveParser.UpdateCommandContext): LogicalPlan = visitUpdate(ctx.update)
 
   override def visitUpdate(ctx: SqlHiveParser.UpdateContext): LogicalPlan = withOrigin(ctx) {
     val fieldValues = visitUpdateFields(ctx.updateFieldList())
-    val expressions = fieldValues.toSeq.flatMap { case (field, value) =>
-      val fieldAttr = UnresolvedAttribute(field)
-      Seq(fieldAttr, value)
-    }
     val tableIdent = visitTableIdentifier(ctx.tableIdentifier)
     val relation = UnresolvedRelation(tableIdent)
     val condition = Option(ctx.where).map(expression)
     subqueryNotSupportedCheck(condition, "UPDATE")
-    val filter = condition.map(Filter(_, relation))
-    Update(relation, expressions, filter)
+    Update(relation, fieldValues, condition)
   }
 
   private def visitUpdateFields(ctx: UpdateFieldListContext): Map[String, Expression] = {

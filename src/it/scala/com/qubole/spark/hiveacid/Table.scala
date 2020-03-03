@@ -41,16 +41,17 @@ class Table (
       }
 
   // NB Add date column as well apparently always in the end
-  private def getRow(key: Int): String = colMap.map( x => {
+  private def getRow(key: Int): String = colMapWithPartitionedCols.map( x => {
     x._2 match {
       case "date" => s"'${(new DateTime(((key * 1000L) + 151502791900L))).toString}'"
       case _ => {
         x._1 match {
+          // Partitioned Column
           case "ptnCol" => (key % 3).toString
           case _ =>        key.toString
         }
     }
-  }}).mkString(", ") + {if (isPartitioned) s", '${(new DateTime(((key * 1000L) + 151502791900L))).toString}'" else ""}
+  }}).mkString(", ")
 
   private def getColDefString = colMap.map(x => x._1 + " " + x._2).mkString(",")
 
@@ -81,7 +82,10 @@ class Table (
   def sparkSelectWithPred(pred: String) =
     s"SELECT * FROM ${sparkTname} t1 where ${pred} ORDER BY ${sparkOrderBy("t1")}"
   def sparkSelectWithProj = s"SELECT intCol FROM ${sparkTname} ORDER BY intCol"
+  def selectUpdateCol(key: Int) = s"SELECT ${updateCol} from ${sparkTname} where key = ${key}"
+  def selectExpectedUpdateCol(key: Int) = s"SELECT ${updateCol} * 10 from ${sparkTname} where key = ${key}"
   def sparkDFProj = "intCol"
+  def updateCol = "intCol"
   def sparkDrop = s"DROP TABLE IF EXISTS ${sparkTname}"
 
 
@@ -103,8 +107,12 @@ class Table (
     s"INSERT INTO ${hiveTname} (${getCols}) VALUES (${getRow(key)})"
   def deleteFromHiveTableKey(key: Int): String =
     s"DELETE FROM ${hiveTname} where key = ${key}"
+  def deleteFromHiveTableGreaterThanKey(key: Int): String =
+    s"DELETE FROM ${hiveTname} where key > ${key}"
+  def deleteFromHiveTableLesserThanKey(key: Int): String =
+    s"DELETE FROM ${hiveTname} where key < ${key}"
   def updateInHiveTableKey(key: Int): String =
-    s"UPDATE ${hiveTname} set intCol = intCol * 10 where key = ${key}"
+    s"UPDATE ${hiveTname} set ${updateCol} = ${updateCol} * 10 where key = ${key}"
 
   def updateByMergeHiveTable =
     s" merge into ${hiveTname} t using (select distinct ${getCols} from ${hiveTname}) s on s.key=t.key " +
@@ -129,6 +137,8 @@ class Table (
     s"ALTER TABLE ${hiveTname} SET TBLPROPERTIES ('transactional'='true', 'transactional_properties'='insert_only')"
   def alterToTransactionalFullAcidTable =
     s"ALTER TABLE ${hiveTname} SET TBLPROPERTIES ('transactional'='true', 'transactional_properties'='default')"
+  def count =
+    s"select count(*) from ${hiveTname}"
 }
 
 object Table {

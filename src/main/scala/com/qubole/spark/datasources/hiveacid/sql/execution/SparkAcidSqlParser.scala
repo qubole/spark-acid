@@ -3,8 +3,6 @@ package com.qubole.spark.datasources.hiveacid.sql.execution
 import com.qubole.spark.datasources.hiveacid.sql.catalyst.parser._
 import org.antlr.v4.runtime._
 import org.antlr.v4.runtime.atn.PredictionMode
-import org.antlr.v4.runtime.misc.ParseCancellationException
-import org.apache.commons.lang3.StringUtils.{startsWithIgnoreCase, stripStart}
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.catalyst.{FunctionIdentifier, TableIdentifier}
@@ -47,11 +45,15 @@ case class SparkAcidSqlParser(session: SparkSession, sparkParser: ParserInterfac
   private val sparkAcidAstBuilder = new SparkSqlAstBuilder(conf)
 
   override def parsePlan(sqlText: String): LogicalPlan = {
-    parse(sqlText) { parser =>
-      sparkAcidAstBuilder.visitSingleStatement(parser.singleStatement()) match {
-        case plan: LogicalPlan => plan
-        case _ => sparkParser.parsePlan(sqlText)
+    try {
+      parse(sqlText) { parser =>
+        sparkAcidAstBuilder.visitSingleStatement(parser.singleStatement()) match {
+          case plan: LogicalPlan => plan
+          case _ => sparkParser.parsePlan(sqlText)
+        }
       }
+    } catch {
+      case _: ParseException => sparkParser.parsePlan(sqlText)
     }
   }
 
@@ -75,32 +77,17 @@ case class SparkAcidSqlParser(session: SparkSession, sparkParser: ParserInterfac
     parser.removeErrorListeners()
     parser.addErrorListener(ParseErrorListener)
     parser.legacy_setops_precedence_enbled = SQLConf.get.setOpsPrecedenceEnforced
-
     try {
-      try {
-        // first, try parsing with potentially faster SLL mode
-        parser.getInterpreter.setPredictionMode(PredictionMode.SLL)
+        parser.getInterpreter.setPredictionMode(PredictionMode.LL)
         toResult(parser)
-      }
-      catch {
-        case _: ParseCancellationException =>
-          // if we fail, parse with LL mode
-          tokenStream.seek(0) // rewind input stream
-          parser.reset()
-
-          // Try Again.
-          parser.getInterpreter.setPredictionMode(PredictionMode.LL)
-          toResult(parser)
+    } catch {
+        case e: ParseException if e.command.isDefined =>
+          throw e
+        case e: ParseException =>
+          throw e.withCommand(command)
+        case e: AnalysisException =>
+          val position = Origin(e.line, e.startPosition)
+          throw new ParseException(Option(command), e.message, position, position)
       }
     }
-    catch {
-      case e: ParseException if e.command.isDefined =>
-        throw e
-      case e: ParseException =>
-        throw e.withCommand(command)
-      case e: AnalysisException =>
-        val position = Origin(e.line, e.startPosition)
-        throw new ParseException(Option(command), e.message, position, position)
-    }
-  }
 }

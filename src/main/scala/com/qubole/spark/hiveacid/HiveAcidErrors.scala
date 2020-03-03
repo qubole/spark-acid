@@ -19,6 +19,7 @@
 
 package com.qubole.spark.hiveacid
 
+import org.apache.derby.impl.sql.compile.TableName
 import org.apache.spark.sql.SaveMode
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 
@@ -38,8 +39,17 @@ object HiveAcidErrors {
   def unsupportedSaveMode(saveMode: SaveMode): Throwable = {
     new RuntimeException(s"Unsupported save mode - $saveMode")
   }
-  def unsupportedOperationTypeInsertOnlyTable(operation: String): Throwable = {
-    new RuntimeException(s"Unsupported operation type - $operation for InsertOnly tables")
+
+  def unsupportedOperationTypeInsertOnlyTable(operation: String, tableName: String): Throwable = {
+    new RuntimeException(s"Unsupported operation type - $operation for InsertOnly table " + tableName)
+  }
+
+  def unsupportedOperationTypeBucketedTable(operation: String, tableName: String): Throwable = {
+    new RuntimeException(s"Unsupported operation type - $operation for Bucketed table " + tableName)
+  }
+
+  def unsupportedOperationTypeNonAcidTable(operation: String, tableName: String): Throwable = {
+    new RuntimeException(s"Unsupported operation type - $operation for non-ACID table " + tableName)
   }
 
   def tableNotAcidException(tableName: String): Throwable = {

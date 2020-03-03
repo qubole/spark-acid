@@ -68,6 +68,7 @@ class HiveAcidMetadata(sparkSession: SparkSession,
   val isFullAcidTable: Boolean = hTable.getParameters.containsKey("transactional_properties") &&
     !hTable.getParameters.get("transactional_properties").equals("insert_only")
   val isInsertOnlyTable: Boolean = !isFullAcidTable
+  val isBucketed: Boolean = hTable.getBucketCols() != null && hTable.getBucketCols.size() > 0
 
   // Table properties
   val isPartitioned: Boolean = hTable.isPartitioned
