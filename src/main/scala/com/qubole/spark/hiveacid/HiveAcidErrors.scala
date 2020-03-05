@@ -91,6 +91,9 @@ object HiveAcidErrors {
     new TransactionInvalidException(s"Transaction is $txnId is no longer valid for table $tableName", txnId, tableName)
   }
 
+  def unexpectedReadError(cause: String): Throwable = {
+    throw new RuntimeException("Unexpected error while reading the Hive Acid Data: " + cause)
+  }
 }
 
 class TransactionInvalidException(val message:String,

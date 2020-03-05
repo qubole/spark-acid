@@ -37,6 +37,7 @@ import com.qubole.shaded.hadoop.hive.ql.plan.TableDesc
 import com.qubole.shaded.hadoop.hive.serde2.Deserializer
 import com.qubole.shaded.hadoop.hive.serde2.objectinspector.{ObjectInspectorConverters, StructObjectInspector}
 import com.qubole.shaded.hadoop.hive.serde2.objectinspector.primitive._
+import com.qubole.spark.hiveacid.HiveAcidErrors
 import com.qubole.spark.hiveacid.hive.HiveAcidMetadata
 import com.qubole.spark.hiveacid.hive.HiveConverter
 import com.qubole.spark.hiveacid.reader.{Reader, ReaderOptions, ReaderPartition}
@@ -59,7 +60,7 @@ import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.sources.Filter
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types.{DataType, StructType}
 import org.apache.spark.sql.hive.Hive3Inspectors
 import org.apache.spark.unsafe.types.UTF8String
 
@@ -190,19 +191,16 @@ extends CastSupport with Reader with Logging {
     val broadcastedHadoopConf = _broadcastedHadoopConf
     val attrsWithIndex = readerOptions.requiredAttributes.zipWithIndex
     val localRowIdSchema: Option[StructType] = hiveAcidOptions.rowIdSchema
-    val outputRowDataTypes = (localRowIdSchema match {
-      case Some(schema) =>
-        Seq(schema)
-      case None =>
-        Seq()
-    }) ++ readerOptions.requiredAttributes.map(_.dataType)
+    val outputRowDataTypes = readerOptions.requiredAttributes.map(_.dataType)
     val mutableRow = new SpecificInternalRow(outputRowDataTypes)
 
+    // Assumption is that when includeRowId is set even localRowIdSchema will be set
     val mutableRowRecordIds = localRowIdSchema match {
       case Some(schema) => Some(new SpecificInternalRow(schema.fields.map(_.dataType)))
       case None => None
     }
 
+    // ReaderOptions cannot be serialized
     val deserializedHiveRDD = hiveRDD.mapPartitions { iter =>
       val hconf = broadcastedHadoopConf.value.value
       val deserializer = deserializerClass.newInstance()
@@ -278,12 +276,7 @@ extends CastSupport with Reader with Logging {
     val partProps = partition.getMetadataFromPartitionSchema
     val localTableDesc = hiveAcidOptions.tableDesc
     val localRowIdSchema: Option[StructType] = hiveAcidOptions.rowIdSchema
-    val outputRowDataTypes = (localRowIdSchema match {
-      case Some(schema) =>
-        Seq(schema)
-      case None =>
-        Seq()
-    }) ++ readerOptions.requiredAttributes.map(_.dataType)
+    val outputRowDataTypes = readerOptions.requiredAttributes.map(_.dataType)
     // Get partition field info
     val partSpec = partition.getSpec
     val partCols = partition.getTable.getPartitionKeys.asScala.map(_.getName)
@@ -307,22 +300,32 @@ extends CastSupport with Reader with Logging {
       readerOptions.partitionAttributes.contains(attr)
     }
 
-    def fillPartitionKeys(rawPartValues: Array[String], row: InternalRow): Unit = {
-      val offset = localRowIdSchema match {
-        case Some(_) =>
-          1
-        case None =>
-          0
-      }
-      partitionKeyAttrs.foreach { case (attr, ordinal) =>
-        val partOrdinal = readerOptions.partitionAttributes.indexOf(attr)
-        row(offset + ordinal) = cast(
-          Literal(rawPartValues(partOrdinal)), attr.dataType).eval(null)
+    def fillPartitionKeys(rawPartValues: Array[String], row: InternalRow, includeRowIds: Boolean): Unit = {
+      if (includeRowIds) {
+        partitionKeyAttrs.foreach { case (attr, ordinal) =>
+          val partOrdinal = readerOptions.partitionAttributes.indexOf(attr)
+          row(ordinal) = cast(
+            Literal(rawPartValues(partOrdinal)), attr.dataType).eval(null)
+        }
+      } else {
+        val offset = localRowIdSchema match {
+          case Some(_) =>
+            1
+          case None =>
+            0
+        }
+        partitionKeyAttrs.foreach { case (attr, ordinal) =>
+          val partOrdinal = readerOptions.partitionAttributes.indexOf(attr)
+          row(offset + ordinal) = cast(
+            Literal(rawPartValues(partOrdinal)), attr.dataType).eval(null)
+        }
       }
     }
 
+    val includeRowIds = readerOptions.readConf.includeRowIds
     // Fill all partition keys to the given MutableRow object
-    fillPartitionKeys(partValues, mutableRow)
+    fillPartitionKeys(partValues, mutableRow, includeRowIds)
+
 
     partitionRDD.mapPartitions { iter =>
       val hconf = broadcastedHadoopConf.value.value
@@ -515,6 +518,7 @@ private[reader] object HiveAcidReader extends Hive3Inspectors with Logging {
                   mutableRowRecordId: Option[InternalRow],
                   tableDeser: Deserializer): Iterator[InternalRow] = {
 
+    // Note mutableRowRecordId will be None when no rowIds needs to be included in the InternalRow.
     val soi = if (rawDeser.getObjectInspector.equals(tableDeser.getObjectInspector)) {
       rawDeser.getObjectInspector.asInstanceOf[StructObjectInspector]
     } else {
@@ -525,9 +529,16 @@ private[reader] object HiveAcidReader extends Hive3Inspectors with Logging {
 
     logDebug(soi.toString)
 
-    val (fieldRefs, fieldOrdinals) = nonPartitionKeyAttrs.map { case (attr, ordinal) =>
-      soi.getStructFieldRef(attr.name) -> ordinal
-    }.toArray.unzip
+    val (fieldRefs, fieldOrdinals) = if (!mutableRowRecordId.isEmpty) { // Check if we need to include rowIds
+      nonPartitionKeyAttrs.filterNot(x => isAttributeRowId(x._1)
+        && soi.getStructFieldRef(x._1.name) == null).map {
+        case (attr, ordinal) => soi.getStructFieldRef(attr.name) -> ordinal
+      }.toArray.unzip
+    } else {
+      nonPartitionKeyAttrs.map { case (attr, ordinal) =>
+        soi.getStructFieldRef(attr.name) -> ordinal
+      }.toArray.unzip
+    }
 
     // Builds specific unwrappers ahead of time according to object inspector
     // types to avoid pattern matching and branching costs per row.
@@ -578,33 +589,40 @@ private[reader] object HiveAcidReader extends Hive3Inspectors with Logging {
     val converter = ObjectInspectorConverters.getConverter(rawDeser.getObjectInspector, soi)
 
     // Map each tuple to a row object
+    // Find rowIdIndex
+    val rowIdIndex = nonPartitionKeyAttrs.find(attrIdx => isAttributeRowId(attrIdx._1))
+      .getOrElse((None, -1))._2
+    if (rowIdIndex < 0 && !mutableRowRecordId.isEmpty) {
+      HiveAcidErrors.unexpectedReadError("Error reading the ACID table" +
+        " as rowId is not present even when includeRowId is the parameter")
+    }
     iterator.map { value =>
-      val dataStartIndex = mutableRowRecordId match {
+      val raw = converter.convert(rawDeser.deserialize(value._2))
+      var i = 0
+      mutableRowRecordId match {
         case Some(record) =>
           val recordIdentifier = value._1
           record.setLong(0, recordIdentifier.getWriteId)
           record.setInt(1, recordIdentifier.getBucketProperty)
           record.setLong(2, recordIdentifier.getRowId)
-          mutableRow.update(0, record)
-          1
+          mutableRow.update(rowIdIndex, record)
         case None =>
-          0
       }
-
-      val raw = converter.convert(rawDeser.deserialize(value._2))
-      var i = 0
       val length = fieldRefs.length
       while (i < length) {
         val fieldValue = soi.getStructFieldData(raw, fieldRefs(i))
         if (fieldValue == null) {
-          mutableRow.setNullAt(fieldOrdinals(i) + dataStartIndex)
+          mutableRow.setNullAt(fieldOrdinals(i))
         } else {
-          unwrappers(i)(fieldValue, mutableRow, fieldOrdinals(i) + dataStartIndex)
+          unwrappers(i)(fieldValue, mutableRow, fieldOrdinals(i))
         }
         i += 1
       }
-
       mutableRow: InternalRow
     }
+  }
+
+  private def isAttributeRowId(attribute: Attribute): Boolean = {
+    attribute.dataType.typeName == "struct" && attribute.name == "rowId"
   }
 }

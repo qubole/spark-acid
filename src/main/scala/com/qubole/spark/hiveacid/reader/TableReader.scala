@@ -44,8 +44,6 @@ private[hiveacid] class TableReader(sparkSession: SparkSession,
   def getRdd(requiredColumns: Array[String],
              filters: Array[Filter],
              readConf: SparkAcidConf): RDD[Row] = {
-
-
     val rowIdColumnSet = hiveAcidMetadata.rowIdSchema.fields.map(_.name).toSet
     val requiredColumnsWithoutRowId = requiredColumns.filterNot(rowIdColumnSet.contains)
     val partitionColumnNames = hiveAcidMetadata.partitionSchema.fields.map(_.name)
@@ -55,10 +53,18 @@ private[hiveacid] class TableReader(sparkSession: SparkSession,
     val requiredNonPartitionedColumns = requiredColumnsWithoutRowId.filter(
       x => !partitionedColumnSet.contains(x))
 
-    val requiredAttributes = requiredColumnsWithoutRowId.map {
-      x =>
-        val field = hiveAcidMetadata.tableSchema.fields.find(_.name == x).get
-        PrettyAttribute(field.name, field.dataType)
+    val requiredAttributes = if (!readConf.includeRowIds) {
+      requiredColumnsWithoutRowId.map {
+        x =>
+          val field = hiveAcidMetadata.tableSchema.fields.find(_.name == x).get
+          PrettyAttribute(field.name, field.dataType)
+      }
+    } else {
+      requiredColumns.map {
+        x =>
+          val field = hiveAcidMetadata.tableSchemaWithRowId.fields.find(_.name == x).get
+          PrettyAttribute(field.name, field.dataType)
+      }
     }
     val partitionAttributes = hiveAcidMetadata.partitionSchema.fields.map { x =>
       PrettyAttribute(x.name, x.dataType)
