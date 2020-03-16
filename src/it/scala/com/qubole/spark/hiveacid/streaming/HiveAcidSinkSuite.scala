@@ -70,12 +70,12 @@ class HiveAcidSinkSuite extends HiveAcidStreamingFunSuite {
 
   }
 
-  test("table insert only acid table") {
+  test("table is bucketed") {
     val ds = new HiveAcidDataSource()
     val tableName = s"tempTable"
     val options = Map("table" -> s"$DEFAULT_DBNAME.$tableName")
 
-    val tType = Table.orcInsertOnlyTable
+    val tType = Table.orcBucketedFullACIDTable
     val cols = Map(
       ("value1","int"),
       ("value2", "int")
@@ -88,10 +88,11 @@ class HiveAcidSinkSuite extends HiveAcidStreamingFunSuite {
     val errorMessage = intercept[RuntimeException] {
       ds.createSink(helper.spark.sqlContext, options, Seq.empty, OutputMode.Append())
     }.getMessage()
-    val expectedMsg = s"""Unsupported operation type - Streaming Write for InsertOnly tables"""
+    val expectedMsg = s"""Unsupported operation type - Streaming Write for Bucketed table """
     assert(errorMessage.toLowerCase(Locale.ROOT).contains(expectedMsg.toLowerCase(Locale.ROOT)))
 
   }
+
   test("partitionBy is specified with Acid Streaming") {
     val ds = new HiveAcidDataSource()
     val options = Map("table" -> "dummyTable")
@@ -127,9 +128,10 @@ class HiveAcidSinkSuite extends HiveAcidStreamingFunSuite {
   }
 
   // Test Run
-  streamingTestForFullAcidTables(Table.allNonBucketedFullAcidTypes())
+  streamingTestForAcidTables(Table.allNonBucketedFullAcidTypes())
+  streamingTestForAcidTables(Table.allNonBucketedInsertOnlyTypes())
 
-  def streamingTestForFullAcidTables(tTypes: List[(String,Boolean)]): Unit = {
+  def streamingTestForAcidTables(tTypes: List[(String,Boolean)]): Unit = {
     tTypes.foreach { case (tType, isPartitioned) =>
       val tableNameHive = "tHive"
       val testName = s"Simple Streaming Query Append for $tableNameHive type $tType"

@@ -42,15 +42,15 @@ class HiveAcidSink(sparkSession: SparkSession,
     fullyQualifiedTableName,
     parameters)
 
-  assertFullAcidTable()
+  assertNonBucketedTable()
 
   private val logPath = getMetaDataPath()
   private val fileLog = new HiveAcidSinkLog(
     HiveAcidSinkLog.VERSION, sparkSession, logPath.toUri.toString, acidSinkOptions)
 
-  private def assertFullAcidTable(): Unit = {
-    if(hiveAcidTable.isInsertOnlyTable()) {
-      throw HiveAcidErrors.unsupportedOperationTypeInsertOnlyTable("Streaming Write", fullyQualifiedTableName)
+  private def assertNonBucketedTable(): Unit = {
+    if(hiveAcidTable.isBucketed()) {
+      throw HiveAcidErrors.unsupportedOperationTypeBucketedTable("Streaming Write", fullyQualifiedTableName)
     }
   }
 
