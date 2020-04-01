@@ -34,6 +34,7 @@ import org.apache.spark.sql.catalyst.{InternalRow, TableIdentifier}
 import org.apache.spark.sql.catalyst.catalog.CatalogTypes.TablePartitionSpec
 import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.execution.command.AlterTableAddPartitionCommand
+import org.apache.spark.sql.functions.col
 import org.apache.spark.sql.types.StructType
 
 /**
@@ -45,6 +46,8 @@ import org.apache.spark.sql.types.StructType
 private[hiveacid] class TableWriter(sparkSession: SparkSession,
                                     curTxn: HiveAcidTxn,
                                     hiveAcidMetadata: HiveAcidMetadata) extends Logging {
+
+  private val MAX_NUMBER_OF_BUCKETS = 4096
 
   private def getSchema(operationType: HiveAcidOperation.OperationType): StructType = {
     val expectRowIdsInDataFrame = operationType match {
@@ -140,12 +143,19 @@ private[hiveacid] class TableWriter(sparkSession: SparkSession,
 
       val resultRDD =
         operationType match {
-          // Deleted rowId needs to be in the same bucketed file name
-          // as original row. To achieve that repartition it based on
-          // the rowId.bucketId. After this shuffle partitionId maps
-          // 1-to-1 with bucketId.
+          // In order to read data from delete delts, hive uses mergesort, which requires
+          // originalWriteId, bucket, and rowId in ascending order, and currentWriteId in descending order.
+          // We take care of originalWriteId, bucket, and rowId in asc order here. We only write file per bucket-transaction,
+          // hence currentWriteId remains same throughout the file and doesn't need ordering.
+          //
+          // Deleted rowId needs to be in same bucketed file name as the original row. To achieve this,
+          // we repartition into 4096 partitions (i.e maximum number of buckets).
+          // This ensures all rows of one bucket goes to same partition.
+          //
+          // There is still a chance that rows from multiple buckets go to same partition as well, but this is expected to work!
           case HiveAcidOperation.DELETE | HiveAcidOperation.UPDATE =>
-            df.sort("rowId.bucketId")
+            df.repartition(MAX_NUMBER_OF_BUCKETS, col("rowId.bucketId"))
+              .toDF.sortWithinPartitions("rowId.bucketId", "rowId.writeId", "rowId.rowId")
               .toDF.queryExecution.executedPlan.execute()
           case HiveAcidOperation.INSERT_OVERWRITE | HiveAcidOperation.INSERT_INTO =>
             df.queryExecution.executedPlan.execute()

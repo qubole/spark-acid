@@ -374,7 +374,7 @@ class HiveAcidTable(sparkSession: SparkSession,
 
   private def checkForSupport(operation: HiveAcidOperation.OperationType): Unit = {
     operation match {
-      case HiveAcidOperation.UPDATE | HiveAcidOperation.UPDATE => {
+      case HiveAcidOperation.UPDATE | HiveAcidOperation.DELETE => {
         if (!this.isFullAcidTable() && !this.isInsertOnlyTable()) {
           throw HiveAcidErrors.tableNotAcidException(hiveAcidMetadata.fullyQualifiedName)
         }
