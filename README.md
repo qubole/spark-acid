@@ -8,17 +8,39 @@ functionality availability matrix
 
 Functionality | Full ACID table | Insert Only Table |
 ------------- | --------------- | ----------------- |
-READ | >= v0.4.0 | >= v0.4.0 |
-INSERT INTO / OVERWRITE | >= v0.4.3 | >=0.4.5 |
-CTAS  | >= v0.4.3 | >=0.4.5 |
-UPDATE  | >=0.4.5 | Not Supported |
-DELETE | >=0.4.5 | Not Supported |
+READ | ``>= v0.4.0`` | ``>= v0.4.0`` |
+INSERT INTO / OVERWRITE | ``>= v0.4.3`` |  ``>= v0.4.4`` |
+CTAS | ``>= v0.4.3`` |  ``>= v0.4.4`` |
+UPDATE | ``>= v0.5.0`` |  Not Supported |
+DELETE | ``>= v0.5.0`` |  Not Supported |
 MERGE | Not Supported | Not Supported |
+STREAMING INSERT | ``>= v0.5.0`` | ``>= v0.5.0`` |
 
 *Note: In case of insert only table for support of write operation compatibility check needs to be disabled*
 
 ## Quick Start
 
+- [QuickStart](#quickstart)
+    - [Prerequisite](#prerequisite)
+    - [Config](#config)
+    - [Run](#run)
+- [Usage](#usage)
+    - [Read ACID Table](#read-acid-table)
+    - [Batch Write into ACID Table](#batch-write-into-acid-table)
+    - [Stream Write into ACID Table](#stream-write-into-acid-table)
+    - [Update](#updates)
+    - [Delete](#deletes)
+- [Latest Binaries](#latest-binaries)
+- [Version Compatibility](#version-compatibility)
+- [Developer Resources](#developer-resources)
+- [Design Consideration](#design-constraints)
+- [Contributing](#contributing)
+- [Report Bugs](#reporting-bugs-or-feature-requests)
+    
+
+## QuickStart
+
+### Prerequisite
 These are the pre-requisites to using this library:
 
 1. You have Hive Metastore DB with version 3.1.2 or higher. Please refer to [Hive Metastore](https://cwiki.apache.org/confluence/display/Hive/Design#Design-MetastoreArchitecture) for details.
@@ -49,7 +71,7 @@ There are a few ways to use the library while running spark-shell
 
        spark-shell
 
-#### Scala/Python
+#### DataFrame API
 
 To operate on Hive ACID table from Scala / pySpark, the table can be directly accessed using this datasource. Note the short name of this datasource is `HiveAcid`. Hive ACID table are tables in HiveMetastore so any operation of read and/or write needs `format("HiveAcid").option("table", "<table name>"")`. _Direct read and write from the file is not supported_
 
@@ -60,7 +82,20 @@ To operate on Hive ACID table from Scala / pySpark, the table can be directly ac
 
 To read an existing Hive acid table through pure SQL, there are two ways:
 
-1. Create a dummy table that acts as a symlink to the original acid table. This symlink is required to instruct Spark to use this datasource against an existing table.
+1. Use SparkSession extensions framework to add a new Analyzer rule (HiveAcidAutoConvert) to Spark Analyser. This analyzer rule automatically converts an _HiveTableRelation_ representing acid table to _LogicalRelation_ backed by HiveAcidRelation.
+   
+   	To use this, initialize SparkSession with the extension builder as mentioned below:
+   
+            val spark = SparkSession.builder()
+              .appName("Hive-acid-test")
+              .config("spark.sql.extensions", "com.qubole.spark.hiveacid.HiveAcidAutoConvertExtension")
+              .enableHiveSupport()
+              .<OTHER OPTIONS>
+              .getOrCreate()
+   
+            spark.sql("select * from default.acidtbl")
+
+2. Create a dummy table that acts as a symlink to the original acid table. This symlink is required to instruct Spark to use this datasource against an existing table.
 
 	To create the symlink table:
 
@@ -69,88 +104,146 @@ To read an existing Hive acid table through pure SQL, there are two ways:
         spark.sql("select * from symlinkacidtable")
 
 
-	_NB: This will produce a warning indicating that Hive does not understand this format_
+   _Note: This will produce a warning indicating that Hive does not understand this format_
 
      WARN hive.HiveExternalCatalog: Couldn’t find corresponding Hive SerDe for data source provider com.qubole.spark.hiveacid.datasource.HiveAcidDataSource. Persisting data source table `default`.`sparkacidtbl` into Hive metastore in Spark SQL specific format, which is NOT compatible with Hive.
 
-_Please ignore it, as this is a sym table for Spark to operate with and no underlying storage._
+   _Please ignore it, as this is a sym table for Spark to operate with and no underlying storage._
 
-2. Use SparkSession extensions framework to add a new Analyzer rule (HiveAcidAutoConvert) to Spark Analyser. This analyzer rule automatically converts an _HiveTableRelation_ representing acid table to _LogicalRelation_ backed by HiveAcidRelation.
+## Usage
 
-	To use this, initialize SparkSession with the extension builder as mentioned below:
+This section talks about major functionality provided by the data source and example code snippets for them.
 
-         val spark = SparkSession.builder()
-           .appName("Hive-acid-test")
-           .config("spark.sql.extensions", "com.qubole.spark.hiveacid.HiveAcidAutoConvertExtension")
-           .enableHiveSupport()
-           .<OTHER OPTIONS>
-           .getOrCreate()
+### Create/Drop ACID Table
+#### SQL Syntax
+Same as CREATE and DROP supported by Spark SQL.
 
-         spark.sql("select * from default.acidtbl")
-
-#### Example
-
-##### Create Hive ACID Table
+##### Examples
 
 Drop Existing table
 
-	spark.sql("Drop table if exists aciddemo.t_scala_simple")
+	spark.sql("DROP TABLE if exists acid.acidtbl")
 
 Create table
 
-	spark.sql("CREATE TABLE aciddemo.t_scala_simple (status BOOLEAN, tweet ARRAY<STRING>, rank DOUBLE, username STRING) STORED AS ORC TBLPROPERTIES('TRANSACTIONAL' = 'true')")
+	spark.sql("CREATE TABLE acid.acidtbl (status BOOLEAN, tweet ARRAY<STRING>, rank DOUBLE, username STRING) STORED AS ORC TBLPROPERTIES('TRANSACTIONAL' = 'true')")
+
+_Note: Table property ``'TRANSACTIONAL' = 'true'`` is required to create ACID table_
 
 Check if it is transactional
 
-	spark.sql("DESCRIBE extended aciddemo.t_scala_simple").show()
+	spark.sql("DESCRIBE extended acid.acidtbl").show()
 
+### Read ACID Table
 
-##### Scala
-
-Read Existing table and insert into acid table
-
-	val df = spark.read.format("HiveAcid").options(Map("table" -> "aciddemo.acidtbl")).load()
-	df.write.format("HiveAcid").option("table", "aciddemo.t_scala_simple").mode("append").save()
-
-Read Existing table and insert overwrite acid table
-
-	val df = spark.read.format("HiveAcid").options(Map("table" -> "aciddemo.acidtbl")).load()
-	df.write.format("HiveAcid").option("table", "aciddemo.t_scala_simple").mode("overwrite").save()
-
-_Note: User cannot operate directly on file level data as table is required when reading and writing transactionally.
-`df.write.format("HiveAcid").mode("overwrite").save("s3n://aciddemo/api/warehouse/aciddemo.db/random")` won't work_
-
+#### DataFrame API
 Read acid table
 
-	val df = spark.read.format("HiveAcid").options(Map("table" -> "aciddemo.t_scala_simple")).load()
+	val df = spark.read.format("HiveAcid").options(Map("table" -> "acid.acidtbl")).load()
 	df.select("status", "rank").filter($"rank" > "20").show()
 
-Read and Write using implicit API
-     
-     import com.qubole.spark.hiveacid._
+Read acid via implicit API
+    
+    import com.qubole.spark.hiveacid._
+    
+    val df = spark.read.hiveacid("acid.acidtbl")
+    df.select("status", "rank").filter($"rank" > "20").show()
 
-     val df = spark.read.hiveacid("aciddemo.acidtbl")
-     df.write.hiveacid("aciddemo.t_scala_simple", "overwrite")
-     df.select("status", "rank").filter($"rank" > "20").show()
+#### SQL SYNTAX
+Same as SELECT supported by Spark SQL.
 
-##### SQL
+##### Example
 
+    spark.sql("SELECT status, rank from acid.acidtbl where rank > 20")
+
+_Note: ``com.qubole.spark.hiveacid.HiveAcidAutoConvertExtension`` has to be added to ``spark.sql.extensions`` for above._
+
+### Batch Write into ACID Table
+
+#### DataFrame API
+
+Insert into
+
+	val df = spark.read.parquet("tbldata.parquet")
+	df.write.format("HiveAcid").option("table", "acid.acidtbl").mode("append").save()
+
+Insert overwrite
+
+	val df = spark.read.parquet("tbldata.parquet")
+	df.write.format("HiveAcid").option("table", "acid.acidtbl").mode("overwrite").save()
+
+Insert into using implicit API
+
+    import com.qubole.spark.hiveacid._
+    
+    val df = spark.read.parquet("tbldata.parquet")
+    df.write.hiveacid("acid.acidtbl", "append")
+
+#### SQL Syntax
+Same as INSERT supported by Spark SQL
+
+##### Example
 Insert into the table select as
 
-	spark.sql("INSERT INTO aciddemo.t_sql_simple select * from aciddemo.acidtbl")
+	spark.sql("INSERT INTO acid.acidtbl select * from sample_data")
 
 Insert overwrite the table select as
 
-	spark.sql("INSERT OVERWRITE TABLE aciddemo.t_sql_simple select * from aciddemo.acidtbl")
+	spark.sql("INSERT OVERWRITE TABLE acid.acidtbl select * from sample_data")
 
 Insert into"
 
-	spark.sql("INSERT INTO aciddemo.t_sql_simple VALUES(false, array("test"), 11.2, 'qubole')")
+	spark.sql("INSERT INTO acid.acidtbl VALUES(false, array("test"), 11.2, 'qubole')")
 
-Read
+_Note: ``com.qubole.spark.hiveacid.HiveAcidAutoConvertExtension`` has to be added to ``spark.sql.extensions`` for above SQL statements._
+### Stream Write into ACID Table
+ACID table supports streaming writes and can also be used as a Streaming Sink. 
+Streaming write happens under transactional guarantees which allows other
+concurrent writes to the same table either streaming writes or batch writes.
+For exactly-once semantics, ``acid.streaming.metadataDir`` is specified to 
+store the latest batchId processed. Note, that concurrent streaming writes 
+to the same table should have different metadataDir specified.
 
-	spark.sql("SELECT status, rank from aciddemo.t_sql_simple where rank > 20")
+    val query = newDf
+      .writeStream
+      .format("HiveAcid")
+      .options(Map(
+        "table" ->"acid.acidtbl",
+        "acid.streaming.metadataDir"->"/tmp/_acid_streaming/_query_2"))
+      .outputMode(OutputMode.Append)
+      .option("checkpointLocation", "/tmp/attempt16")
+      .start()
 
+### Updates
+
+#### SQL Syntax
+
+    UPDATE tablename SET column = updateExp [, column = updateExp ...] [WHERE expression]
+    
+* ``column`` must be a column of the table being updated.
+* ``updateExp`` is an expression that Spark supports in the SELECT clause. Subqueries are not supported.
+* ``WHERE`` clause specifies the row to be updated.
+* Partitioning columns cannot be updated.
+* Bucketed table are not supported currently.
+
+#### Example
+    
+    spark.sql("UPDATE acid.acidtbl set rank = rank - 1, status = true where rank > 20 and rank < 25 and status = false")
+
+_Note: ``com.qubole.spark.hiveacid.HiveAcidAutoConvertExtension`` has to be added to ``spark.sql.extensions`` for above._
+### Deletes
+
+#### SQL syntax
+    DELETE FROM tablename [WHERE expression]
+
+* ``WHERE`` clause specifies rows to be deleted from ``tablename``.
+* Bucketed tables are not supported currently.
+
+##### Example
+
+    DELETE from acid.acidtbl where rank = 1000
+
+_Note: ``com.qubole.spark.hiveacid.HiveAcidAutoConvertExtension`` has to be added to ``spark.sql.extensions`` for above._
 
 ## Latest Binaries
 
