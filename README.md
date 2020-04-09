@@ -65,9 +65,9 @@ Change configuration in `$SPARK_HOME/conf/hive-site.xml` to point to already con
 
 There are a few ways to use the library while running spark-shell
 
-       `spark-shell --packages qubole:spark-acid:0.4.2-s_2.11
+       `spark-shell --packages qubole:spark-acid:0.5.0-s_2.11
 
-2. If you built the jar yourself, copy the `spark-acid-assembly-0.4.2.jar` jar into `$SPARK_HOME/assembly/target/scala.2_11/jars` and run
+2. If you built the jar yourself, copy the `spark-acid-assembly-0.5.0.jar` jar into `$SPARK_HOME/assembly/target/scala.2_11/jars` and run
 
        spark-shell
 
@@ -247,7 +247,7 @@ _Note: ``com.qubole.spark.hiveacid.HiveAcidAutoConvertExtension`` has to be adde
 
 ## Latest Binaries
 
-ACID datasource is published spark-packages.org. The latest version of the binary is `0.4.2`
+The latest version of the binary is `0.5.0` and can be found in release section here: https://github.com/qubole/spark-acid/releases/download/v0.5.0/spark-acid_2.11-0.5.0.jar
 
 ## Version Compatibility
 
@@ -275,7 +275,7 @@ _NB: Hive ACID V2 is supported in Hive 3.0.0 onwards and for that hive Metastore
 
 	sbt assembly
 
-This will create the `spark-acid-assembly-0.4.2.jar` which can be now used in your application.
+This will create the `spark-acid-assembly-0.5.0.jar` which can be now used in your application.
 
 ### Test
 Tests are run against a standalone docker setup. Please refer to [Docker setup] (docker/README.md) to build and start a container.
