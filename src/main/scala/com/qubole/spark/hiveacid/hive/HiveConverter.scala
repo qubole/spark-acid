@@ -111,8 +111,9 @@ private[hiveacid] object HiveConverter extends Logging {
     case GreaterThan(attr, value) => s"$attr > ${compileValue(value)}"
     case LessThanOrEqual(attr, value) => s"$attr <= ${compileValue(value)}"
     case GreaterThanOrEqual(attr, value) => s"$attr >= ${compileValue(value)}"
-    case IsNull(attr) => s"$attr = 'NULL'"
-    case IsNotNull(attr) => s"$attr != 'NULL'"
+    // These clauses throw in Hive MS when filtering the partitions
+    //case IsNull(attr) => s"$attr = 'NULL'"
+    //case IsNotNull(attr) => s"$attr != 'NULL'"
     case StringStartsWith(attr, value) => s"$attr LIKE '$value%'"
     case StringEndsWith(attr, value) => s"$attr LIKE '%$value'"
     case StringContains(attr, value) => s"$attr LIKE '%$value%'"

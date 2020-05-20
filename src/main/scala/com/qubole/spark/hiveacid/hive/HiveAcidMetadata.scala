@@ -17,11 +17,11 @@
 
 package com.qubole.spark.hiveacid.hive
 
+import java.lang.reflect.InvocationTargetException
 import java.util.Locale
 
 import scala.collection.JavaConversions._
 import scala.collection.mutable
-
 import com.qubole.shaded.hadoop.hive.conf.HiveConf
 import com.qubole.shaded.hadoop.hive.ql.io.RecordIdentifier
 import com.qubole.shaded.hadoop.hive.ql.metadata
@@ -30,9 +30,9 @@ import com.qubole.shaded.hadoop.hive.ql.plan.TableDesc
 import com.qubole.spark.hiveacid.util.Util
 import com.qubole.spark.hiveacid.HiveAcidErrors
 import org.apache.hadoop.fs.Path
+import org.apache.hadoop.hive.metastore.api.MetaException
 import org.apache.hadoop.io.Writable
 import org.apache.hadoop.mapred.{InputFormat, OutputFormat}
-
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql._
 import org.apache.spark.sql.types._
@@ -121,12 +121,24 @@ class HiveAcidMetadata(sparkSession: SparkSession,
     */
   def getRawPartitions(partitionFilters: Option[String] = None): Seq[metadata.Partition] = {
     val hive: Hive = Hive.get(hiveConf)
-    val prunedPartitions = partitionFilters match {
-      case Some(filter) => hive.getPartitionsByFilter(hTable, filter)
-      case None => hive.getPartitions(hTable)
+    val prunedPartitions = try {
+      partitionFilters match {
+        case Some(filter) => try {
+          hive.getPartitionsByFilter(hTable, filter)
+        } catch {
+          // TODO: Enable pruning results returned by getting all Partitions
+          case ex: com.qubole.shaded.hadoop.hive.metastore.api.MetaException => {
+            logWarning("Caught Hive MetaException attempting to get partition metadata by " +
+            "filter from Hive. Falling back to fetching all partition metadata, which will " +
+              "degrade performance. Filter: " + filter, ex)
+            hive.getPartitions(hTable)
+          }
+        }
+        case None => hive.getPartitions(hTable)
+      }
+    } finally {
+      Hive.closeCurrent()
     }
-    Hive.closeCurrent()
-
     logDebug(s"partition count = ${prunedPartitions.size()}")
     prunedPartitions.toSeq
   }
