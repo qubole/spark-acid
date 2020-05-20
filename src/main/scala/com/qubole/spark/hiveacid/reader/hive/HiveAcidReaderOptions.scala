@@ -24,16 +24,10 @@ import com.qubole.spark.hiveacid.hive.HiveAcidMetadata
 import org.apache.spark.sql.types.StructType
 
 private[reader] class HiveAcidReaderOptions(val tableDesc: TableDesc,
-                                            val rowIdSchema: Option[StructType],
                                             val isFullAcidTable: Boolean)
 
 private[reader] object HiveAcidReaderOptions {
-  def get(hiveAcidMetadata: HiveAcidMetadata, includeRowIds: Boolean): HiveAcidReaderOptions = {
-    val rowIdSchema = if (includeRowIds) {
-      Option(hiveAcidMetadata.rowIdSchema)
-    } else {
-      None
-    }
-    new HiveAcidReaderOptions(hiveAcidMetadata.tableDesc, rowIdSchema, hiveAcidMetadata.isFullAcidTable)
+  def get(hiveAcidMetadata: HiveAcidMetadata): HiveAcidReaderOptions = {
+    new HiveAcidReaderOptions(hiveAcidMetadata.tableDesc, hiveAcidMetadata.isFullAcidTable)
   }
 }

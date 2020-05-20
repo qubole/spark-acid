@@ -84,18 +84,6 @@ class HiveAcidMetadata(sparkSession: SparkSession,
   val partitionSchema = StructType(hTable.getPartitionKeys.toList.map(
     HiveConverter.getCatalystStructField).toArray)
 
-  val rowIdSchema: StructType = {
-    StructType(
-      RecordIdentifier.Field.values().map {
-        field =>
-          StructField(
-            name = field.name(),
-            dataType = HiveConverter.getCatalystType(field.fieldType.getTypeName),
-            nullable = true)
-      }
-    )
-  }
-
   val tableSchema: StructType = {
     val overlappedPartCols = mutable.Map.empty[String, StructField]
     partitionSchema.foreach { partitionField =>
@@ -110,7 +98,7 @@ class HiveAcidMetadata(sparkSession: SparkSession,
   val tableSchemaWithRowId: StructType = {
     StructType(
       Seq(
-        StructField("rowId", rowIdSchema)
+        StructField(HiveAcidMetadata.rowIdCol, HiveAcidMetadata.rowIdSchema)
       ) ++ tableSchema.fields)
   }
 
@@ -154,6 +142,19 @@ class HiveAcidMetadata(sparkSession: SparkSession,
 
 object HiveAcidMetadata {
   val DEFAULT_DATABASE = "default"
+
+  val rowIdCol = "rowId"
+  val rowIdSchema: StructType = {
+    StructType(
+      RecordIdentifier.Field.values().map {
+        field =>
+          StructField(
+            name = field.name(),
+            dataType = HiveConverter.getCatalystType(field.fieldType.getTypeName),
+            nullable = true)
+      }
+    )
+  }
 
   def fromSparkSession(sparkSession: SparkSession,
                        fullyQualifiedTableName: String): HiveAcidMetadata = {

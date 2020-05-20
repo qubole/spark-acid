@@ -190,14 +190,15 @@ extends CastSupport with Reader with Logging {
     val localTableDesc = hiveAcidOptions.tableDesc
     val broadcastedHadoopConf = _broadcastedHadoopConf
     val attrsWithIndex = readerOptions.requiredAttributes.zipWithIndex
-    val localRowIdSchema: Option[StructType] = hiveAcidOptions.rowIdSchema
     val outputRowDataTypes = readerOptions.requiredAttributes.map(_.dataType)
     val mutableRow = new SpecificInternalRow(outputRowDataTypes)
 
-    // Assumption is that when includeRowId is set even localRowIdSchema will be set
-    val mutableRowRecordIds = localRowIdSchema match {
-      case Some(schema) => Some(new SpecificInternalRow(schema.fields.map(_.dataType)))
-      case None => None
+    val shouldIncludeRowIds = readerOptions.readConf.includeRowIds &&
+      readerOptions.requiredAttributes.exists(HiveAcidReader.isAttributeRowId(_))
+    val mutableRowRecordIds = if (shouldIncludeRowIds) {
+      Some(new SpecificInternalRow(HiveAcidMetadata.rowIdSchema.fields.map(_.dataType)))
+    } else {
+      None
     }
 
     // ReaderOptions cannot be serialized
@@ -275,7 +276,6 @@ extends CastSupport with Reader with Logging {
     val tableProperties = hiveAcidOptions.tableDesc.getProperties
     val partProps = partition.getMetadataFromPartitionSchema
     val localTableDesc = hiveAcidOptions.tableDesc
-    val localRowIdSchema: Option[StructType] = hiveAcidOptions.rowIdSchema
     val outputRowDataTypes = readerOptions.requiredAttributes.map(_.dataType)
     // Get partition field info
     val partSpec = partition.getSpec
@@ -287,9 +287,12 @@ extends CastSupport with Reader with Logging {
       partCols.map(col => new String(partSpec.get(col))).toArray
     }
     val mutableRow = new SpecificInternalRow(outputRowDataTypes)
-    val mutableRowRecordIds = localRowIdSchema match {
-      case Some(schema) => Some(new SpecificInternalRow(schema.fields.map(_.dataType)))
-      case None => None
+    val shouldIncludeRowIds = readerOptions.readConf.includeRowIds &&
+      readerOptions.requiredAttributes.exists(HiveAcidReader.isAttributeRowId(_))
+    val mutableRowRecordIds = if (shouldIncludeRowIds) {
+      Some(new SpecificInternalRow(HiveAcidMetadata.rowIdSchema.fields.map(_.dataType)))
+    } else {
+      None
     }
 
     // Splits all attributes into two groups, partition key attributes and those
@@ -301,30 +304,15 @@ extends CastSupport with Reader with Logging {
     }
 
     def fillPartitionKeys(rawPartValues: Array[String], row: InternalRow, includeRowIds: Boolean): Unit = {
-      if (includeRowIds) {
-        partitionKeyAttrs.foreach { case (attr, ordinal) =>
-          val partOrdinal = readerOptions.partitionAttributes.indexOf(attr)
-          row(ordinal) = cast(
-            Literal(rawPartValues(partOrdinal)), attr.dataType).eval(null)
-        }
-      } else {
-        val offset = localRowIdSchema match {
-          case Some(_) =>
-            1
-          case None =>
-            0
-        }
-        partitionKeyAttrs.foreach { case (attr, ordinal) =>
-          val partOrdinal = readerOptions.partitionAttributes.indexOf(attr)
-          row(offset + ordinal) = cast(
-            Literal(rawPartValues(partOrdinal)), attr.dataType).eval(null)
-        }
+      partitionKeyAttrs.foreach { case (attr, ordinal) =>
+        val partOrdinal = readerOptions.partitionAttributes.indexOf(attr)
+        row(ordinal) = cast(
+          Literal(rawPartValues(partOrdinal)), attr.dataType).eval(null)
       }
     }
 
-    val includeRowIds = readerOptions.readConf.includeRowIds
     // Fill all partition keys to the given MutableRow object
-    fillPartitionKeys(partValues, mutableRow, includeRowIds)
+    fillPartitionKeys(partValues, mutableRow, shouldIncludeRowIds)
 
 
     partitionRDD.mapPartitions { iter =>
@@ -622,7 +610,7 @@ private[reader] object HiveAcidReader extends Hive3Inspectors with Logging {
     }
   }
 
-  private def isAttributeRowId(attribute: Attribute): Boolean = {
+  def isAttributeRowId(attribute: Attribute): Boolean = {
     attribute.dataType.typeName == "struct" && attribute.name == "rowId"
   }
 }
