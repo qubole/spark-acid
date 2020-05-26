@@ -27,13 +27,13 @@ import com.qubole.spark.hiveacid.hive.HiveAcidMetadata
 import com.qubole.spark.hiveacid.writer.hive.{HiveAcidFullAcidWriter, HiveAcidInsertOnlyWriter, HiveAcidWriterOptions}
 import com.qubole.spark.hiveacid.transaction._
 import com.qubole.spark.hiveacid.util.SerializableConfiguration
-
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.catalyst.{InternalRow, TableIdentifier}
 import org.apache.spark.sql.catalyst.catalog.CatalogTypes.TablePartitionSpec
 import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.execution.command.AlterTableAddPartitionCommand
+import org.apache.spark.sql.execution.datasources.PartitioningUtils
 import org.apache.spark.sql.functions.col
 import org.apache.spark.sql.types.StructType
 
@@ -183,12 +183,17 @@ private[hiveacid] class TableWriter(sparkSession: SparkSession,
           new TableIdentifier(hiveAcidMetadata.tableName, Option(hiveAcidMetadata.dbName)),
           newPartitions.toSeq.map(p => (p, None)),
           ifNotExists = true).run(sparkSession)
+        // FIXME: Add the notification events for replication et al.
+        //
+        logDebug("new partitions added successfully")
       }
+      if (touchedPartitions.size > 0) {
+        val touchedPartitionNames = touchedPartitions.map (
+          PartitioningUtils.getPathFragment(_, partitionColumns))
 
-      // FIXME: Add the notification events for replication et al.
-      //
-
-      logDebug("new partitions added successfully")
+        curTxn.addDynamicPartitions(curSnapshot.currentWriteId, hiveAcidMetadata.dbName,
+          hiveAcidMetadata.tableName, operationType, touchedPartitionNames)
+      }
 
     } catch {
       case e: Exception =>
