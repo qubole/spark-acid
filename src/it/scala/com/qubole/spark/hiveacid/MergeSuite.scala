@@ -107,7 +107,7 @@ class MergeSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll
     def getCreate(name: String) = s"create table $name (id int, " +
       "addr struct<AddressLine1:array<string>," +
       "City:array<string>,Country:array<string>," +
-      "StateProvince:array<string>,Zip:array<string>>) " +
+      "StateProvince:array<string>,Zip:array<string>>, prop map<int, string>) " +
       "stored as ORC tblproperties('transactional' = 'true')"
 
     val srcTblName = DEFAULT_DBNAME + ".srcTable"
@@ -117,10 +117,13 @@ class MergeSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll
     helper.hiveExecute(getCreate(srcTblName))
     helper.hiveExecute(getCreate(tgtTblName))
     helper.hiveExecute(s"insert into $tgtTblName values (1," +
-      s"named_struct('addressLine1', array('xyz', 'abc'), 'City', array('xyz', 'abc'), 'Country', array('xyz', 'abc'), 'StateProvince', array('xyz', 'abc'), 'Zip', array()))")
+      s"named_struct('addressLine1', array('xyz', 'abc'), 'City', array('xyz', 'abc'), 'Country', array('xyz', 'abc')," +
+      s" 'StateProvince', array('xyz', 'abc'), 'Zip', array()), map(1, 'test'))")
     helper.hiveExecute(s"insert into $srcTblName values (1," +
-      s"named_struct('addressLine1', array('u', 'abc'), 'City', array('xyz', 'abc'), 'Country', array('xyz', 'abc'), 'StateProvince', array('xyz', 'abc'), 'Zip', array()))," +
-      s"(2, named_struct('addressLine1', array('u', 'abc'), 'City', array('xyz', 'abc'), 'Country', array('xyz', 'abc'), 'StateProvince', array('xyz', 'abc'), 'Zip', array()))")
+      s"named_struct('addressLine1', array('u', 'abc'), 'City', array('xyz', 'abc'), 'Country', array('xyz', 'abc'), " +
+      s"'StateProvince', array('xyz', 'abc'), 'Zip', array()), map(1, 'test'))," +
+      s"(2, named_struct('addressLine1', array('u', 'abc'), 'City', array('xyz', 'abc'), 'Country', array('xyz', 'abc'), " +
+      s"'StateProvince', array('xyz', 'abc'), 'Zip', array()),map(1, 'test'))")
     val merge = s"""merge into $tgtTblName t using $srcTblName s on s.id=t.id
          | when matched  then update set addr=s.addr
          | when not matched then insert values(*)""".stripMargin
