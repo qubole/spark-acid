@@ -34,4 +34,5 @@ private[hiveacid] class WriterOptions(val currentWriteId: Long,
                                     val dataColumns: Seq[Attribute],
                                     val partitionColumns: Seq[Attribute],
                                     val allColumns: Seq[Attribute],
-                                    val timeZoneId: String) extends Serializable
+                                    val timeZoneId: String,
+                                    val statementId: Option[Int] = None) extends Serializable

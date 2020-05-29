@@ -19,7 +19,7 @@
 
 package com.qubole.spark.hiveacid
 
-import org.apache.spark.sql.SaveMode
+import org.apache.spark.sql.{SaveMode, SqlUtils}
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 
 object HiveAcidErrors {
@@ -112,6 +112,18 @@ object HiveAcidErrors {
   def unexpectedReadError(cause: String): Throwable = {
     throw new RuntimeException(
       s"Unexpected error while reading the Hive Acid Data: $cause")
+  }
+
+  def mergeValidationError(cause: String): Throwable = {
+    SqlUtils.analysisException(s"MERGE Validation Error: $cause")
+  }
+
+  def mergeResolutionError(cause: String): Throwable = {
+    SqlUtils.analysisException(cause)
+  }
+
+  def mergeUnsupportedError(cause: String): Throwable = {
+    throw new RuntimeException(cause)
   }
 }
 

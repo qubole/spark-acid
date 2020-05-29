@@ -81,8 +81,9 @@ class UpdateDeleteSuite extends FunSuite with BeforeAndAfterEach with BeforeAndA
       test(testName) {
         val tableSpark = new Table(DEFAULT_DBNAME, tableNameSpark, cols, tType, isPartitioned)
         def code(): Unit = {
-          helper.recreate(tableSpark)
+
           if (positiveTest) {
+            helper.recreate(tableSpark)
             helper.hiveExecute(tableSpark.insertIntoHiveTableKeyRange(11, 20))
             val expectedRows = 10
             helper.compareResult(expectedRows.toString, helper.sparkCollect(tableSpark.count))
@@ -92,6 +93,7 @@ class UpdateDeleteSuite extends FunSuite with BeforeAndAfterEach with BeforeAndA
             helper.compareResult(expectedUpdateValue, updatedVal)
           } else {
             intercept[RuntimeException] {
+              helper.recreate(tableSpark)
               helper.sparkSQL(tableSpark.updateInHiveTableKey(11))
             }
           }
@@ -109,8 +111,8 @@ class UpdateDeleteSuite extends FunSuite with BeforeAndAfterEach with BeforeAndA
       test(testName) {
         val tableSpark = new Table(DEFAULT_DBNAME, tableNameSpark, cols, tType, isPartitioned)
         def code(): Unit = {
-          helper.recreate(tableSpark)
           if (positiveTest) {
+            helper.recreate(tableSpark)
             helper.hiveExecute(tableSpark.insertIntoHiveTableKeyRange(11, 20))
             var expectedRows = 10
             helper.compareResult(expectedRows.toString, helper.sparkCollect(tableSpark.count))
@@ -131,6 +133,7 @@ class UpdateDeleteSuite extends FunSuite with BeforeAndAfterEach with BeforeAndA
             helper.compareResult(expectedRows.toString, helper.sparkCollect(tableSpark.count))
           } else {
             intercept[RuntimeException] {
+              helper.recreate(tableSpark)
               // delete 1 row
               helper.sparkSQL(tableSpark.deleteFromHiveTableKey(11))
             }

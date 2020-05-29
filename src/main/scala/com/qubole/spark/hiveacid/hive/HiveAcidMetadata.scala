@@ -134,11 +134,7 @@ class HiveAcidMetadata(sparkSession: SparkSession,
   }
 
   private def getColName(field: StructField): String = {
-    if (sparkSession.sessionState.conf.caseSensitiveAnalysis) {
-      field.name
-    } else {
-      field.name.toLowerCase(Locale.ROOT)
-    }
+    HiveAcidMetadata.getColName(sparkSession, field)
   }
 }
 
@@ -163,5 +159,17 @@ object HiveAcidMetadata {
     new HiveAcidMetadata(
       sparkSession,
       fullyQualifiedTableName)
+  }
+
+  def getColName(sparkSession: SparkSession, field: StructField): String = {
+    if (sparkSession.sessionState.conf.caseSensitiveAnalysis) {
+      field.name
+    } else {
+      field.name.toLowerCase(Locale.ROOT)
+    }
+  }
+
+  def getColNames(sparkSession: SparkSession, schema: StructType): Seq[String] = {
+    schema.map(getColName(sparkSession, _))
   }
 }

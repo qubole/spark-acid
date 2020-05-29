@@ -17,7 +17,7 @@ import org.apache.spark.sql.types.{DataType, StructType}
 /**
  * Concrete parser for Hive SQL statements.
  */
-case class SparkAcidSqlParser(session: SparkSession, sparkParser: ParserInterface) extends ParserInterface with Logging {
+case class SparkAcidSqlParser(sparkParser: ParserInterface) extends ParserInterface with Logging {
 
   override def parseExpression(sqlText: String): Expression = sparkParser.parseExpression(sqlText)
 
@@ -53,6 +53,7 @@ case class SparkAcidSqlParser(session: SparkSession, sparkParser: ParserInterfac
         }
       }
     } catch {
+      case e: AcidParseException => throw e.parseException
       case _: ParseException => sparkParser.parsePlan(sqlText)
     }
   }
@@ -72,6 +73,8 @@ case class SparkAcidSqlParser(session: SparkSession, sparkParser: ParserInterfac
     lexer.legacy_setops_precedence_enbled = SQLConf.get.setOpsPrecedenceEnforced
 
     val tokenStream = new CommonTokenStream(lexer)
+    val acidSpecific = checkIfAcidSpecific(tokenStream)
+    tokenStream.seek(0) //reset stream to first token
     val parser = new SqlHiveParser(tokenStream)
     parser.addParseListener(PostProcessor)
     parser.removeErrorListeners()
@@ -82,12 +85,33 @@ case class SparkAcidSqlParser(session: SparkSession, sparkParser: ParserInterfac
         toResult(parser)
     } catch {
         case e: ParseException if e.command.isDefined =>
-          throw e
+          throw wrapParseException(e, acidSpecific)
         case e: ParseException =>
-          throw e.withCommand(command)
+          throw wrapParseException(e.withCommand(command), acidSpecific)
         case e: AnalysisException =>
           val position = Origin(e.line, e.startPosition)
-          throw new ParseException(Option(command), e.message, position, position)
+          val pe = new ParseException(Option(command), e.message, position, position)
+          throw wrapParseException(pe, acidSpecific)
       }
     }
+
+  /**
+    * Denotes ACID Specific ParseException
+    * @param parseException
+    */
+  class AcidParseException(val parseException: ParseException) extends Exception
+
+  def wrapParseException(e: ParseException, acidSpecific: Boolean): Throwable = {
+    if (acidSpecific) {
+      new AcidParseException(e)
+    } else {
+      e
+    }
+  }
+  def checkIfAcidSpecific(tokStream: TokenStream): Boolean = {
+    tokStream.LA(1) match {
+      case SqlHiveParser.DELETE | SqlHiveParser.MERGE | SqlHiveParser.UPDATE => true
+      case _ => false
+    }
+  }
 }
