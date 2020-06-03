@@ -123,17 +123,7 @@ class HiveAcidMetadata(sparkSession: SparkSession,
     val hive: Hive = Hive.get(hiveConf)
     val prunedPartitions = try {
       partitionFilters match {
-        case Some(filter) => try {
-          hive.getPartitionsByFilter(hTable, filter)
-        } catch {
-          // TODO: Enable pruning results returned by getting all Partitions
-          case ex: com.qubole.shaded.hadoop.hive.metastore.api.MetaException => {
-            logWarning("Caught Hive MetaException attempting to get partition metadata by " +
-            "filter from Hive. Falling back to fetching all partition metadata, which will " +
-              "degrade performance. Filter: " + filter, ex)
-            hive.getPartitions(hTable)
-          }
-        }
+        case Some(filter) => hive.getPartitionsByFilter(hTable, filter)
         case None => hive.getPartitions(hTable)
       }
     } finally {

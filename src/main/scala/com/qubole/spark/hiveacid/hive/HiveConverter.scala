@@ -17,6 +17,7 @@
 
 package com.qubole.spark.hiveacid.hive
 
+import java.sql.{Date, Timestamp}
 import java.util.Locale
 
 import com.qubole.shaded.hadoop.hive.conf.HiveConf
@@ -93,6 +94,9 @@ private[hiveacid] object HiveConverter extends Logging {
     */
   private def compileValue(value: Any): Any = value match {
     case stringValue: String => s"'${escapeSql(stringValue)}'"
+    case timestampValue: Timestamp => "'" + timestampValue + "'"
+    case dateValue: Date => "'" + dateValue + "'"
+    case arrayValue: Array[Any] => arrayValue.map(compileValue).mkString(", ")
     case _ => value
   }
 
