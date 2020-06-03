@@ -27,13 +27,13 @@ import com.qubole.shaded.hadoop.hive.metastore.conf.MetastoreConf
 import com.qubole.shaded.hadoop.hive.metastore.txn.TxnUtils
 import com.qubole.shaded.hadoop.hive.metastore.{HiveMetaStoreClient, LockComponentBuilder, LockRequestBuilder}
 import com.qubole.spark.hiveacid.datasource.HiveAcidDataSource
-import com.qubole.spark.hiveacid.hive.HiveConverter
+import com.qubole.spark.hiveacid.hive.{HiveAcidMetadata, HiveConverter}
 import com.qubole.spark.hiveacid.{HiveAcidErrors, HiveAcidOperation}
-
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.SqlUtils
 import com.qubole.shaded.thrift.TException
+
 import scala.collection.JavaConversions._
 import scala.language.implicitConversions
 
@@ -203,19 +203,36 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession) extends L
     txnWriteIds.getTableValidWriteIdList(fullyQualifiedTableName)
   }
 
+  def convertToDataOperationType(operationType: HiveAcidOperation.OperationType):
+  DataOperationType = {
+    operationType match {
+      case HiveAcidOperation.INSERT_OVERWRITE => DataOperationType.UPDATE
+      case HiveAcidOperation.INSERT_INTO => DataOperationType.INSERT
+      case HiveAcidOperation.READ => DataOperationType.SELECT
+      case HiveAcidOperation.UPDATE => DataOperationType.UPDATE
+      case HiveAcidOperation.DELETE => DataOperationType.DELETE
+      case _ =>
+        throw HiveAcidErrors.invalidOperationType(operationType.toString)
+    }
+  }
+
   /**
     * API to acquire locks on partitions
     * @param txnId transaction id
-    * @param dbName: Database name
-    * @param tableName: Table name
+    * @param dbName name of database
+    *@param tableName name of table
     * @param operationType lock type
     * @param partitionNames partition names
+    *@param isPartitionedTable Whether the table is partitioned or not. For ex
+    *                            for dynamic partitions, isPartitionedTable will be true
+    *                            but partitionNames will be empty
     */
   def acquireLocks(txnId: Long,
                    dbName: String,
                    tableName: String,
                    operationType: HiveAcidOperation.OperationType,
-                   partitionNames: Seq[String]): Unit = synchronized {
+                   partitionNames: Seq[String],
+                   isPartitionedTable: Boolean): Unit = synchronized {
 
     // Consider following sequence of event
     //  T1:   R(x)
@@ -230,15 +247,15 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession) extends L
     def addLockType(lcb: LockComponentBuilder): LockComponentBuilder = {
       operationType match {
         case HiveAcidOperation.INSERT_OVERWRITE =>
-          lcb.setExclusive().setOperationType(DataOperationType.UPDATE)
+          lcb.setExclusive().setOperationType(convertToDataOperationType(operationType))
         case HiveAcidOperation.INSERT_INTO =>
-          lcb.setShared().setOperationType(DataOperationType.INSERT)
+          lcb.setShared().setOperationType(convertToDataOperationType(operationType))
         case HiveAcidOperation.READ =>
-          lcb.setShared().setOperationType(DataOperationType.SELECT)
+          lcb.setShared().setOperationType(convertToDataOperationType(operationType))
         case HiveAcidOperation.UPDATE =>
-          lcb.setSemiShared().setOperationType(DataOperationType.UPDATE)
+          lcb.setSemiShared().setOperationType(convertToDataOperationType(operationType))
         case HiveAcidOperation.DELETE =>
-          lcb.setSemiShared().setOperationType(DataOperationType.DELETE)
+          lcb.setSemiShared().setOperationType(convertToDataOperationType(operationType))
         case _ =>
           throw HiveAcidErrors.invalidOperationType(operationType.toString)
       }
@@ -249,11 +266,27 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession) extends L
       requestBuilder.setUser(user)
       requestBuilder.setTransactionId(txnId)
      if (partitionNames.isEmpty) {
+       def addDPInfoForWrites(lcb: LockComponentBuilder): LockComponentBuilder = {
+         if (operationType == HiveAcidOperation.INSERT_OVERWRITE ||
+           operationType == HiveAcidOperation.INSERT_INTO ||
+           operationType == HiveAcidOperation.UPDATE ||
+           operationType == HiveAcidOperation.DELETE) {
+           lcb.setIsDynamicPartitionWrite(true)
+         } else lcb
+       }
+
         val lockCompBuilder = new LockComponentBuilder()
           .setDbName(dbName)
           .setTableName(tableName)
-
-        requestBuilder.addLockComponent(addLockType(lockCompBuilder).build)
+        // if table is partitioned but no partition names are passed
+       // it means those partitions are dynamic
+        if (isPartitionedTable) {
+          requestBuilder.
+            addLockComponent(addLockType(addDPInfoForWrites(lockCompBuilder)).build)
+        }
+        else {
+          requestBuilder.addLockComponent(addLockType(lockCompBuilder).build)
+        }
       } else {
         partitionNames.foreach(partName => {
           val lockCompBuilder = new LockComponentBuilder()
@@ -307,6 +340,16 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession) extends L
     }
 
     lock(createLockRequest())
+  }
+
+  def addDynamicPartitions(txnId: Long, writeId: Long,
+                           dbName: String,
+                           tableName: String,
+                           partitionNames: Set[String],
+                           operationType: HiveAcidOperation.OperationType): Unit = {
+    client.addDynamicPartitions(txnId, writeId, dbName,
+      tableName, scala.collection.JavaConversions.seqAsJavaList(partitionNames.toSeq),
+      convertToDataOperationType(operationType))
   }
 
   private class HeartbeatRunnable() extends Runnable {
