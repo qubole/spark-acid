@@ -53,15 +53,16 @@ import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.deploy.SparkHadoopUtil
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.{Column, DataFrame, SparkSession}
+import org.apache.spark.sql.{SparkSession, functions}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.CastSupport
+import org.apache.spark.sql.catalyst.catalog.CatalogTablePartition
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.sources.Filter
 import org.apache.spark.sql.types.{DataType, StructType}
-import org.apache.spark.sql.hive.Hive3Inspectors
+import org.apache.spark.sql.hive.{Hive3Inspectors, HiveAcidUtils}
 import org.apache.spark.unsafe.types.UTF8String
 
 /**
@@ -423,12 +424,31 @@ private[reader] object HiveAcidReader extends Hive3Inspectors with Logging {
                     partitionFilters: Seq[Filter]): (Seq[ReaderPartition], Seq[String]) = {
 
     val partitions = if (hiveAcidMetadata.isPartitioned) {
-      val partitionPruiningFilters = if (readerOptions.readConf.metastorePartitionPruningEnabled) {
-        Option(HiveConverter.compileFilters(partitionFilters))
+      if (readerOptions.readConf.metastorePartitionPruningEnabled) {
+        val partitionPruningFiltering = Option(HiveConverter.compileFilters(partitionFilters))
+        try {
+          hiveAcidMetadata.getRawPartitions(partitionPruningFiltering)
+        } catch {
+          // TODO: Enable pruning results returned by getting all Partitions
+          case ex: com.qubole.shaded.hadoop.hive.metastore.api.MetaException => {
+            logWarning("Caught Hive MetaException attempting to get partition metadata by " +
+              "filter from Hive. Falling back to fetching all partition metadata and pruning them. " +
+              "Filter: " + partitionPruningFiltering)
+            logDebug("Exception: " + ex.getMessage, ex)
+            val allPartitions = hiveAcidMetadata.getRawPartitions()
+            try {
+              prunePartitions(allPartitions, hiveAcidMetadata, readerOptions, partitionPruningFiltering)
+            } catch {
+              case e: Exception =>
+                logWarning("Error while pruning the partitions. All the partitions will be returned" +
+                  " that can cause Performance impact", e)
+                allPartitions
+            }
+          }
+        }
       } else {
-        None
+        hiveAcidMetadata.getRawPartitions()
       }
-      hiveAcidMetadata.getRawPartitions(partitionPruiningFilters)
     } else {
       Seq()
     }
@@ -436,6 +456,43 @@ private[reader] object HiveAcidReader extends Hive3Inspectors with Logging {
     val partitionNames = partitions.map(_.getName())
 
     (partitions.map(p => ReaderPartition(p)), partitionNames)
+  }
+
+  /**
+    * This will try to fetch all Partitions and prune them according to filter specified
+    * @return prunedPartitions
+    */
+  private def prunePartitions(partitions: Seq[HiveJarPartition],
+                              hiveAcidMetadata: HiveAcidMetadata,
+                              readerOptions: ReaderOptions,
+                              partitionPruningFiltering: Option[String]): Seq[HiveJarPartition] = {
+    partitionPruningFiltering match {
+      case Some(filter) => {
+        val filterExp = functions.expr(filter).expr
+        val partitionMap: Map[CatalogTablePartition, HiveJarPartition] =
+          partitions.map(hp => (HiveAcidUtils.convertToCatalogTablePartition(hp), hp)).toMap
+        val catalogParts = HiveAcidUtils.prunePartitionsByFilter(hiveAcidMetadata,
+          partitionMap.keys.toSeq,
+          Some(filterExp),
+          readerOptions.sessionLocalTimeZone)
+        val partCols = hiveAcidMetadata.partitionSchema.fieldNames
+        catalogParts.map {
+          cPart =>
+            val partValues = partCols.map { hc =>
+              cPart.spec.get(hc).getOrElse {
+                throw new IllegalArgumentException(
+                  s"Partition spec is missing a value for column '${hc}': ${cPart.spec}")
+              }
+            }
+            partitionMap.get(cPart).getOrElse {
+              throw new IllegalArgumentException(
+                s"Partition values is missing from raw partitions ${partValues}"
+              )
+            }
+        }
+      }
+      case _ => partitions
+    }
   }
 
   // copied from PlanUtils.configureJobPropertiesForStorageHandler(tableDesc)

@@ -33,4 +33,5 @@ private[hiveacid] class ReaderOptions(val hadoopConf: Configuration,
                                       val requiredAttributes: Seq[Attribute],
                                       val dataFilters: Array[Filter],
                                       val requiredNonPartitionedColumns: Array[String],
+                                      val sessionLocalTimeZone: String,
                                       val readConf: SparkAcidConf) extends Serializable

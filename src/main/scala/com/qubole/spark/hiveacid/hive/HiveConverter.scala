@@ -17,6 +17,7 @@
 
 package com.qubole.spark.hiveacid.hive
 
+import java.sql.{Date, Timestamp}
 import java.util.Locale
 
 import com.qubole.shaded.hadoop.hive.conf.HiveConf
@@ -93,6 +94,9 @@ private[hiveacid] object HiveConverter extends Logging {
     */
   private def compileValue(value: Any): Any = value match {
     case stringValue: String => s"'${escapeSql(stringValue)}'"
+    case timestampValue: Timestamp => "'" + timestampValue + "'"
+    case dateValue: Date => "'" + dateValue + "'"
+    case arrayValue: Array[Any] => arrayValue.map(compileValue).mkString(", ")
     case _ => value
   }
 
@@ -111,8 +115,9 @@ private[hiveacid] object HiveConverter extends Logging {
     case GreaterThan(attr, value) => s"$attr > ${compileValue(value)}"
     case LessThanOrEqual(attr, value) => s"$attr <= ${compileValue(value)}"
     case GreaterThanOrEqual(attr, value) => s"$attr >= ${compileValue(value)}"
-    case IsNull(attr) => s"$attr = 'NULL'"
-    case IsNotNull(attr) => s"$attr != 'NULL'"
+    // These clauses throw in Hive MS when filtering the partitions
+    //case IsNull(attr) => s"$attr = 'NULL'"
+    //case IsNotNull(attr) => s"$attr != 'NULL'"
     case StringStartsWith(attr, value) => s"$attr LIKE '$value%'"
     case StringEndsWith(attr, value) => s"$attr LIKE '%$value'"
     case StringContains(attr, value) => s"$attr LIKE '%$value%'"

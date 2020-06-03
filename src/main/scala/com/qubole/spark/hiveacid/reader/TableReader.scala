@@ -94,6 +94,7 @@ private[hiveacid] class TableReader(sparkSession: SparkSession,
       requiredAttributes,
       dataFilters,
       requiredNonPartitionedColumns,
+      sparkSession.sessionState.conf.sessionLocalTimeZone,
       readConf)
 
     val hiveAcidReaderOptions= HiveAcidReaderOptions.get(hiveAcidMetadata)
