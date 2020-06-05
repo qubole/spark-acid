@@ -49,7 +49,7 @@ class HiveAcidSink(sparkSession: SparkSession,
     HiveAcidSinkLog.VERSION, sparkSession, logPath.toUri.toString, acidSinkOptions)
 
   private def assertNonBucketedTable(): Unit = {
-    if(hiveAcidTable.isBucketed()) {
+    if(hiveAcidTable.isBucketed) {
       throw HiveAcidErrors.unsupportedOperationTypeBucketedTable("Streaming Write", fullyQualifiedTableName)
     }
   }

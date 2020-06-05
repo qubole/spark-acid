@@ -70,7 +70,7 @@ class HiveAcidAutoConvertExtension extends (SparkSessionExtensions => Unit) {
   def apply(extension: SparkSessionExtensions): Unit = {
     extension.injectResolutionRule(HiveAcidAutoConvert.apply)
     extension.injectParser { (session, parser) =>
-      SparkAcidSqlParser(session, parser)
+      SparkAcidSqlParser(parser)
     }
   }
 }

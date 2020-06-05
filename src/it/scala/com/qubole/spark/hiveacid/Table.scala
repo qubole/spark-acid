@@ -123,6 +123,8 @@ class Table (
   def insertOverwriteSparkTableKeyRange(startKey: Int, endKey: Int): String =
     insertSparkTableKeyRange(startKey, endKey, "OVERWRITE")
 
+  def insertIntoHiveTableKeys(keys: Seq[Int]): String =
+    s"INSERT INTO TABLE $hiveTname " + keys.map { key => s" select ${getRow(key)} " }.mkString(" UNION ALL ")
   def insertIntoHiveTableKey(key: Int): String =
     s"INSERT INTO ${hiveTname} (${getCols}) VALUES (${getRow(key)})"
 
@@ -152,6 +154,22 @@ class Table (
 
   def majorCompaction = s"ALTER TABLE ${hiveTname} COMPACT 'major'"
 
+  def mergeCommand(sourceTable: String, updateCond: String, deleteCond: String, insertCols: String): String =
+    s" merge into $hiveTname t using $sourceTable s on s.key=t.key " +
+      s" when matched and $updateCond then update set intCol=s.intCol * 10 " +
+      s" when matched and $deleteCond then delete " +
+      s" when not matched then insert values($insertCols)"
+
+  def mergeCommandWithDeleteFirst(sourceTable: String, updateCond: String, deleteCond: String, insertCols: String): String =
+    s" merge into $hiveTname t using $sourceTable s on s.key=t.key " +
+      s" when matched and $deleteCond then delete " +
+      s" when matched and $updateCond then update set intCol=s.intCol * 10 " +
+      s" when not matched then insert values($insertCols)"
+
+  def mergeCommandWithInsertOnly(sourceTable: String, insertCols: String): String =
+    s" merge into $hiveTname t using $sourceTable s on s.key=t.key " +
+      s" when not matched then insert values($insertCols)"
+
   def minorPartitionCompaction(ptnid: Int): String = {
     s"ALTER TABLE ${hiveTname} PARTITION(ptnCol=${ptnid}) COMPACT 'minor'"
   }
@@ -168,6 +186,8 @@ class Table (
 
   def count =
     s"select count(*) from ${hiveTname}"
+  def countWithPred(pred: String) =
+    s"select count(*) from ${hiveTname} where ${pred}"
 }
 
 object Table {

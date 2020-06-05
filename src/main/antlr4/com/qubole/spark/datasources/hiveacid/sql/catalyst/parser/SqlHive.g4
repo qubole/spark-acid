@@ -40,6 +40,7 @@ singleStatement
 statement
     : delete                                                           #deleteCommand
     | update                                                           #updateCommand
+    | merge                                                             #mergeCommand
     ;
 
 delete
@@ -61,6 +62,23 @@ updateField
     : key=identifier EQ value=valueExpression
     ;
 
+merge
+    : MERGE INTO target=tableIdentifier (AS? targetAlias=strictIdentifier)? USING source=tableIdentifier (AS? sourceAlias=strictIdentifier)? ON booleanExpression merge_condition+
+    ;
+
+merge_condition
+     : WHEN NOT? MATCHED (AND booleanExpression)? THEN merge_action
+     | ELSE IGNORE
+     ;
+
+merge_action
+    : INSERT VALUES insertFieldList
+    | UPDATE SET updateFieldList
+    | DELETE
+    ;
+insertFieldList
+    : '(' valueExpression (',' valueExpression)* ')'
+    ;
 query
     : ctes? queryNoWith
     ;
@@ -523,6 +541,7 @@ OR: 'OR';
 AND: 'AND';
 IN: 'IN';
 NOT: 'NOT' | '!';
+MATCHED: 'MATCHED';
 NO: 'NO';
 EXISTS: 'EXISTS';
 BETWEEN: 'BETWEEN';
@@ -618,6 +637,7 @@ IGNORE: 'IGNORE';
 BOTH: 'BOTH';
 LEADING: 'LEADING';
 TRAILING: 'TRAILING';
+MERGE: 'MERGE';
 
 IF: 'IF';
 POSITION: 'POSITION';

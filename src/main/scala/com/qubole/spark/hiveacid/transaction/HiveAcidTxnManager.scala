@@ -279,7 +279,7 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession) extends L
           .setDbName(dbName)
           .setTableName(tableName)
         // if table is partitioned but no partition names are passed
-       // it means those partitions are dynamic
+        // it means those partitions are dynamic
         if (isPartitionedTable) {
           requestBuilder.
             addLockComponent(addLockType(addDPInfoForWrites(lockCompBuilder)).build)

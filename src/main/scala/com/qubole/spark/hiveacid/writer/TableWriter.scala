@@ -39,13 +39,19 @@ import org.apache.spark.sql.types.StructType
 
 /**
  * Performs eager write of a dataframe df to a hive acid table based on operationType
- * @param sparkSession  - Spark session
- * @param curTxn - Transaction object to acquire locks.
+ *
+ * @param sparkSession    - Spark session
+ * @param curTxn           - Transaction object to acquire locks.
  * @param hiveAcidMetadata - Hive acid table where we want to write dataframe
+ * @param statementId      - Optional. In a same transaction, multiple statements like INSERT/UPDATE/DELETE
+ *                           (like in case of MERGE) can be issued.
+ *                           [[statementId]] have to be different for them to ensure delta collision
+ *                           is avoided for them during writes.
  */
 private[hiveacid] class TableWriter(sparkSession: SparkSession,
                                     curTxn: HiveAcidTxn,
-                                    hiveAcidMetadata: HiveAcidMetadata) extends Logging {
+                                    hiveAcidMetadata: HiveAcidMetadata,
+                                    statementId: Option[Int] = None) extends Logging {
 
   private val MAX_NUMBER_OF_BUCKETS = 4096
 
@@ -118,7 +124,8 @@ private[hiveacid] class TableWriter(sparkSession: SparkSession,
         dataColumns,
         partitionColumns,
         allColumns,
-        sparkSession.sessionState.conf.sessionLocalTimeZone
+        sparkSession.sessionState.conf.sessionLocalTimeZone,
+        statementId
       )
 
       val isFullAcidTable = hiveAcidMetadata.isFullAcidTable
@@ -202,5 +209,3 @@ private[hiveacid] class TableWriter(sparkSession: SparkSession,
     }
   }
 }
-
-

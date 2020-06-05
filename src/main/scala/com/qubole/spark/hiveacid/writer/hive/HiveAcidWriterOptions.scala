@@ -43,6 +43,9 @@ private[writer] object HiveAcidWriterOptions {
       if (options.operationType == HiveAcidOperation.INSERT_OVERWRITE) {
         fileSinkDesc.setInsertOverwrite(true)
       }
+      if (options.statementId.isDefined) {
+        fileSinkDesc.setStatementId(options.statementId.get)
+      }
       fileSinkDesc
     }
     new HiveAcidWriterOptions(rootPath = hiveAcidMetadata.rootPath.toUri.toString,

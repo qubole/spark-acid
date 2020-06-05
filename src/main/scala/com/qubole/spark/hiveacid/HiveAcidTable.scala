@@ -21,20 +21,22 @@ import com.qubole.spark.hiveacid.reader.TableReader
 import com.qubole.spark.hiveacid.writer.TableWriter
 import com.qubole.spark.hiveacid.hive.HiveAcidMetadata
 import com.qubole.spark.hiveacid.datasource.HiveAcidDataSource
+import com.qubole.spark.hiveacid.merge.{MergeImpl, MergeWhenClause, MergeWhenNotInsert}
 import com.qubole.spark.hiveacid.rdd.EmptyRDD
 import com.qubole.spark.hiveacid.transaction._
-import org.apache.spark.annotation.InterfaceStability.Evolving
+import org.apache.spark.annotation.InterfaceStability.{Evolving, Unstable}
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.{DataFrame, _}
 import org.apache.spark.sql.sources.Filter
 import org.apache.spark.sql.Column
 import org.apache.spark.sql.SqlUtils
-import org.apache.spark.sql.catalyst.expressions.{Alias, AttributeReference}
+import org.apache.spark.sql.catalyst.expressions.Alias
 import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.catalyst.AliasIdentifier
 import org.apache.spark.sql.catalyst.expressions.Expression
-import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
-import org.apache.spark.sql.execution.datasources.LogicalRelation
+import org.apache.spark.sql.catalyst.parser.plans.logical.MergePlan
+import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, SubqueryAlias}
 
 import scala.collection.JavaConverters._
 
@@ -46,9 +48,9 @@ import scala.collection.JavaConverters._
  * @param parameters - additional parameters
  */
 @Evolving
-class HiveAcidTable(sparkSession: SparkSession,
-                    hiveAcidMetadata: HiveAcidMetadata,
-                    parameters: Map[String, String]
+class HiveAcidTable(val sparkSession: SparkSession,
+                    val hiveAcidMetadata: HiveAcidMetadata,
+                    val parameters: Map[String, String]
                    ) extends Logging {
 
   // Pulled from thin air
@@ -96,7 +98,7 @@ class HiveAcidTable(sparkSession: SparkSession,
     *  6. End the transaction
     *
     *  Note, if transaction was already existing for this thread, it will be respected.
-    * @param f
+    * @param f Code Block to be executed in transaction
     */
   private def inTxn(f: => Unit): Unit = synchronized {
     def inTxnRetry(retryRemaining: Int): Boolean = {
@@ -137,11 +139,15 @@ class HiveAcidTable(sparkSession: SparkSession,
     * Create dataframe to read based on hiveAcidTable and passed in filter.
     * @return Dataframe
     */
-  private def readDF: DataFrame = {
-    // Fetch row with rowID in it
+  def readDF(withRowId: Boolean): DataFrame = {
+    val options = if (withRowId) {
+      // Fetch row with rowID in it
+      parameters ++ Map("includeRowIds" -> "true", "table" -> hiveAcidMetadata.fullyQualifiedName)
+    } else {
+      parameters
+    }
     sparkSession.read.format(HiveAcidDataSource.NAME)
-      .options(parameters ++
-        Map("includeRowIds" -> "true", "table" -> hiveAcidMetadata.fullyQualifiedName))
+      .options(options)
       .load()
   }
 
@@ -152,7 +158,7 @@ class HiveAcidTable(sparkSession: SparkSession,
     * @param newValues - Map of (column, value) to set
     */
   private def updateDF(condition: Option[String], newValues: Map[String, String]): DataFrame = {
-    val conditionColumn = condition.map(functions.expr(_))
+    val conditionColumn = condition.map(functions.expr)
     val newValMap = newValues.mapValues(value => functions.expr(value))
     updateDFInternal(conditionColumn, newValMap)
   }
@@ -166,12 +172,14 @@ class HiveAcidTable(sparkSession: SparkSession,
     */
   private def updateDFInternal(condition: Option[Column], newValues: Map[String, Column]): DataFrame = {
 
-    val (df: DataFrame, qualifiedPlan: LogicalPlan, resolvedDf: DataFrame) = getResolvedReadDF
+    val df = readDF(true)
+    val (qualifiedPlan: LogicalPlan, resolvedDf: DataFrame) =
+      SqlUtils.getDFQualified(sparkSession, readDF(true), hiveAcidMetadata.fullyQualifiedName)
 
     def toStrColumnMap(map: Map[String, Column]): Map[String, Column] = {
       map.toSeq.map { case (k, v) =>
         k.toLowerCase -> functions.expr(SqlUtils.resolveReferences(sparkSession, v.expr,
-          qualifiedPlan).sql)}.toMap
+          qualifiedPlan, failIfUnresolved = false).sql)}.toMap
     }
 
     val strColumnMap = toStrColumnMap(newValues)
@@ -195,46 +203,27 @@ class HiveAcidTable(sparkSession: SparkSession,
           }
       }
 
-    val newColumns = updateExpressions.zip(df.queryExecution.optimizedPlan.output).map {
+    val outputColumns = updateExpressions.zip(df.queryExecution.optimizedPlan.output).map {
       case (newExpr, origAttr) =>
         new Column(Alias(newExpr, origAttr.name)())
     }
 
     condition match {
-      case Some(cond) => {
+      case Some(cond) =>
         val resolvedExpr = SqlUtils.resolveReferences(sparkSession,
           cond.expr,
-          qualifiedPlan)
-        resolvedDf.filter(resolvedExpr.sql).select(newColumns: _*)
-      }
-      case None => {
-        resolvedDf.select(newColumns: _*)
-      }
+          qualifiedPlan, failIfUnresolved = false)
+        resolvedDf.filter(resolvedExpr.sql).select(outputColumns: _*)
+      case None =>
+        resolvedDf.select(outputColumns: _*)
     }
 
-  }
-
-  private def getResolvedReadDF = {
-    val df = readDF
-
-    val plan = df.queryExecution.analyzed
-    val qualifiedPlan = plan match {
-      case p: LogicalRelation =>
-        p.copy(output = p.output
-          .map((x: AttributeReference) =>
-            x.withQualifier(hiveAcidMetadata.fullyQualifiedName.split('.').toSeq))
-        )
-      case _ => plan
-    }
-
-    val newDf = SqlUtils.convertToDF(sparkSession, qualifiedPlan)
-    (df, qualifiedPlan, newDf)
   }
 
   /**
     * Returns true if the table is an insert only table
     */
-  def isInsertOnlyTable(): Boolean = {
+  def isInsertOnlyTable: Boolean = {
     hiveAcidMetadata.isInsertOnlyTable
   }
 
@@ -283,9 +272,13 @@ class HiveAcidTable(sparkSession: SparkSession,
     *
     * Note: This API is transactional in nature.
     * @param df - dataframe to insert
+    * @param statementId Optional. In a same transaction, multiple statements like INSERT/UPDATE/DELETE
+    *                    (like in case of MERGE) can be issued.
+    *                    [[statementId]] has to be different for them to ensure delta collision
+    *                    is avoided for them during writes.
     */
-  def insertInto(df: DataFrame): Unit = inTxn {
-    val tableWriter = new TableWriter(sparkSession, curTxn, hiveAcidMetadata)
+  def insertInto(df: DataFrame, statementId: Option[Int] = None): Unit = inTxn {
+    val tableWriter = new TableWriter(sparkSession, curTxn, hiveAcidMetadata, statementId)
     tableWriter.process(HiveAcidOperation.INSERT_INTO, df)
   }
 
@@ -294,9 +287,13 @@ class HiveAcidTable(sparkSession: SparkSession,
     *
     * Note: This API is transactional in nature.
     * @param df - dataframe to insert
+    * @param statementId Optional. In a same transaction, multiple statements like INSERT/UPDATE/DELETE
+    *                    (like in case of MERGE) can be issued.
+    *                    [[statementId]] has to be different for them to ensure delta collision
+    *                    is avoided for them during writes.
     */
-  def insertOverwrite(df: DataFrame): Unit = inTxn {
-    val tableWriter = new TableWriter(sparkSession, curTxn, hiveAcidMetadata)
+  def insertOverwrite(df: DataFrame, statementId: Option[Int] = None): Unit = inTxn {
+    val tableWriter = new TableWriter(sparkSession, curTxn, hiveAcidMetadata, statementId)
     tableWriter.process(HiveAcidOperation.INSERT_OVERWRITE, df)
   }
 
@@ -321,13 +318,39 @@ class HiveAcidTable(sparkSession: SparkSession,
   def delete(condition: Column): Unit = {
     checkForSupport(HiveAcidOperation.DELETE)
     inTxn {
-      val (_, qualifiedPlan: LogicalPlan, resolvedDf: DataFrame) = getResolvedReadDF
+      val (qualifiedPlan: LogicalPlan, resolvedDf: DataFrame) =
+        SqlUtils.getDFQualified(sparkSession, readDF(true), hiveAcidMetadata.fullyQualifiedName)
       val resolvedExpr = SqlUtils.resolveReferences(sparkSession,
         condition.expr,
-        qualifiedPlan)
+        qualifiedPlan, failIfUnresolved = false)
       val tableWriter = new TableWriter(sparkSession, curTxn, hiveAcidMetadata)
       tableWriter.process(HiveAcidOperation.DELETE, resolvedDf.filter(resolvedExpr.sql))
     }
+  }
+
+  /**
+    * NOT TO BE USED EXTERNALLY
+    * Not protected by transactionality, it is assumed curTxn is already
+    * set before calling this
+    * @param deleteDf DataFrame to be used to update is supposed to have
+    *                 same schema as tableSchemaWithRowId
+    * @param statementId Optional. In a same transaction, multiple statements like INSERT/UPDATE/DELETE
+    *                    (like in case of MERGE) can be issued.
+    *                    [[statementId]] has to be different for them to ensure delta collision
+    *                    is avoided for them during writes.
+    */
+  @Unstable
+  def delete(deleteDf: DataFrame, statementId: Option[Int] = None): Unit = {
+    if (curTxn == null) {
+      throw new IllegalStateException("Transaction not set before invoking update on dataframe")
+    }
+    if (deleteDf.schema != hiveAcidMetadata.tableSchemaWithRowId) {
+      throw new UnsupportedOperationException("Delete Dataframe doesn't have expected schema. " +
+        "Provided: " + deleteDf.schema.mkString(",") +
+        "  Expected: " + hiveAcidMetadata.tableSchemaWithRowId.mkString(","))
+    }
+    val tableWriter = new TableWriter(sparkSession, curTxn, hiveAcidMetadata, statementId)
+    tableWriter.process(HiveAcidOperation.DELETE, deleteDf)
   }
 
   /**
@@ -364,27 +387,88 @@ class HiveAcidTable(sparkSession: SparkSession,
     }
   }
 
-  def isFullAcidTable(): Boolean = {
+  /**
+    * NOT TO BE USED EXTERNALLY
+    * Not protected by transactionality, it is assumed curTxn is already
+    * set before calling this
+    * @param updateDf DataFrame to be used to update is supposed to have same schema as tableSchemaWithRowId
+    * @param statementId Optional. In a same transaction, multiple statements like INSERT/UPDATE/DELETE
+    *                    (like in case of MERGE) can be issued.
+    *                    [[statementId]] has to be different for them to ensure delta collision
+    *                    is avoided for them during writes.
+    */
+  @Unstable
+  def update(updateDf : DataFrame, statementId: Option[Int] = None): Unit = {
+    if (curTxn == null) {
+      throw new IllegalStateException("Transaction not set before invoking update on dataframe")
+    }
+    if (updateDf.schema != hiveAcidMetadata.tableSchemaWithRowId) {
+      throw new UnsupportedOperationException("Update Dataframe doesn't have expected schema. " +
+        "Provided: " + updateDf.schema.mkString(",") +
+        "  Expected: " + hiveAcidMetadata.tableSchemaWithRowId.mkString(","))
+    }
+    val tableWriter = new TableWriter(sparkSession, curTxn, hiveAcidMetadata, statementId)
+    tableWriter.process(HiveAcidOperation.UPDATE, updateDf)
+  }
+
+
+  @Evolving
+  def merge(sourceDf: DataFrame,
+            mergeExpression: Expression,
+            matchedClause: Seq[MergeWhenClause],
+            notMatched: Option[MergeWhenNotInsert],
+            sourceAlias: Option[AliasIdentifier],
+            targetAlias: Option[AliasIdentifier]): Unit = {
+    def getPlan(df: DataFrame, alias: Option[AliasIdentifier], isTarget: Boolean) = {
+      val finalDf = if (isTarget) {
+        // Remove rowId from target as it's not visible to users
+        df.drop(HiveAcidMetadata.rowIdCol)
+      } else {
+        df
+      }
+      alias match {
+        case Some(alias) => SubqueryAlias(alias, finalDf.queryExecution.analyzed)
+        case _ => finalDf.queryExecution.analyzed
+      }
+    }
+    checkForSupport(HiveAcidOperation.MERGE)
+    MergeWhenClause.validate(matchedClause ++ notMatched)
+    inTxn {
+      // Take care of aliases for resolution.
+      // readDF will be used for the actual merge operation. So resolution of merge clauses should happen on `readDF().queryExecution.analyzed`
+      // As `readDF` has different attribute Ids assigned than `targetTable` we have to replace it
+      // and make sure we use same readDF for merge operation.
+      val targetDf = readDF(true)
+      val sourcePlan = getPlan(sourceDf, sourceAlias, isTarget = false)
+      val targetPlan = getPlan(targetDf, targetAlias, isTarget = true)
+      val mergeImpl = new MergeImpl(sparkSession, this, sourceDf, targetDf,
+        new MergePlan(sourcePlan, targetPlan, mergeExpression, matchedClause, notMatched))
+      mergeImpl.run()
+    }
+  }
+
+  def isFullAcidTable: Boolean = {
     hiveAcidMetadata.isFullAcidTable
   }
 
-  def isBucketed(): Boolean = {
+  def isBucketed: Boolean = {
     hiveAcidMetadata.isBucketed
   }
 
   private def checkForSupport(operation: HiveAcidOperation.OperationType): Unit = {
     operation match {
-      case HiveAcidOperation.UPDATE | HiveAcidOperation.DELETE => {
-        if (!this.isFullAcidTable() && !this.isInsertOnlyTable()) {
+      case HiveAcidOperation.UPDATE | HiveAcidOperation.DELETE | HiveAcidOperation.MERGE =>
+        if (!this.isFullAcidTable && !this.isInsertOnlyTable) {
           throw HiveAcidErrors.tableNotAcidException(hiveAcidMetadata.fullyQualifiedName)
         }
-        if (!this.isFullAcidTable() && this.isInsertOnlyTable()) {
-          throw HiveAcidErrors.unsupportedOperationTypeInsertOnlyTable(operation.toString, hiveAcidMetadata.fullyQualifiedName)
+        if (!this.isFullAcidTable && this.isInsertOnlyTable) {
+          throw HiveAcidErrors.unsupportedOperationTypeInsertOnlyTable(operation.toString,
+            hiveAcidMetadata.fullyQualifiedName)
         }
-        if (this.isBucketed()) {
-          throw HiveAcidErrors.unsupportedOperationTypeBucketedTable(operation.toString, hiveAcidMetadata.fullyQualifiedName)
+        if (this.isBucketed) {
+          throw HiveAcidErrors.unsupportedOperationTypeBucketedTable(operation.toString,
+            hiveAcidMetadata.fullyQualifiedName)
         }
-      }
     }
   }
 }

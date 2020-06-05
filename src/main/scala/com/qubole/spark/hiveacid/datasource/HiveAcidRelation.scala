@@ -26,6 +26,10 @@ import org.apache.spark.sql.sources.{BaseRelation, Filter, InsertableRelation, P
 import org.apache.spark.sql.types._
 import com.qubole.spark.hiveacid.{HiveAcidErrors, HiveAcidTable, SparkAcidConf}
 import com.qubole.spark.hiveacid.hive.HiveAcidMetadata
+import com.qubole.spark.hiveacid.merge.{MergeWhenClause, MergeWhenNotInsert}
+import org.apache.spark.sql.catalyst.AliasIdentifier
+import org.apache.spark.sql.catalyst.expressions.Expression
+import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 
 import collection.JavaConversions._
 
@@ -83,6 +87,16 @@ case class HiveAcidRelation(sparkSession: SparkSession,
   override def sizeInBytes: Long = {
     val compressionFactor = sparkSession.sessionState.conf.fileCompressionFactor
     (sparkSession.sessionState.conf.defaultSizeInBytes * compressionFactor).toLong
+  }
+
+  def merge(sourceDf: DataFrame,
+            mergeExpression: Expression,
+            matchedClause: Seq[MergeWhenClause],
+            notMatched: Option[MergeWhenNotInsert],
+            sourceAlias: Option[AliasIdentifier],
+            targetAlias: Option[AliasIdentifier]): Unit = {
+    hiveAcidTable.merge(sourceDf, mergeExpression, matchedClause,
+      notMatched, sourceAlias, targetAlias)
   }
 
   // FIXME: should it be true / false. Recommendation seems to

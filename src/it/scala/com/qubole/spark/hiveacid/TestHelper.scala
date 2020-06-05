@@ -241,6 +241,19 @@ class TestHelper extends SQLImplicits {
     df.orderBy(colSeq:_*)
   }
 
+  // Currently fails with java.lang.NoClassDefFoundError: org/apache/orc/TypeDescription
+  // TODO: Fix this so that tests can be run faster.
+  def recreateSpark(table: Table, createSymlinkSparkTables: Boolean = true): Unit = {
+    log.info("++ Recreate Table via Spark")
+    sparkCollect(table.sparkDrop)
+    sparkCollect(table.hiveDrop)
+    sparkCollect(table.hiveCreate)
+    if (createSymlinkSparkTables) {
+      sparkCollect(table.sparkCreate)
+    }
+    sparkCollect(table.disableCompaction)
+  }
+
   def recreate(table: Table, createSymlinkSparkTables: Boolean = true): Unit = {
     log.info("++ Recreate Table")
     sparkCollect(table.sparkDrop)
