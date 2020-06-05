@@ -170,6 +170,8 @@ private[hiveacid] class TableWriter(sparkSession: SparkSession,
             throw HiveAcidErrors.invalidOperationType(unknownOperation.toString)
         }
 
+      logInfo(s"Write Operation being performed to table ${hiveAcidMetadata.tableName}: $operationType")
+
       val touchedPartitions = sparkSession.sparkContext.runJob(
         resultRDD, processRddPartition
       ).flatten.toSet

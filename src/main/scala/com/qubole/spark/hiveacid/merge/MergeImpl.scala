@@ -18,11 +18,13 @@
  */
 
 package com.qubole.spark.hiveacid.merge
+
 import com.qubole.spark.hiveacid.hive.HiveAcidMetadata
 import com.qubole.spark.hiveacid.{HiveAcidErrors, HiveAcidOperation, HiveAcidTable}
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, Expression, Literal, Not}
 import org.apache.spark.sql.{Column, DataFrame, SparkSession, SqlUtils, functions}
 import org.apache.spark.sql.catalyst.parser.plans.logical.MergePlan
+import org.apache.spark.internal.Logging
 
 /**
   * Implements Algorithm to do Merge
@@ -58,7 +60,9 @@ import org.apache.spark.sql.catalyst.parser.plans.logical.MergePlan
   * @param mergePlan
   */
 class MergeImpl(val sparkSession: SparkSession, val targetAcidTable: HiveAcidTable,
-                val sourceDf: DataFrame, val targetDf: DataFrame, mergePlan: MergePlan) {
+                val sourceDf: DataFrame, val targetDf: DataFrame, mergePlan: MergePlan)
+  extends Logging {
+
   private val resolvedMergePlan = MergePlan.resolve(sparkSession, mergePlan)
   // Condition for finding matching rows from Merge Join: target right Outer Join source
   // target.rowIds != null
@@ -135,6 +139,7 @@ class MergeImpl(val sparkSession: SparkSession, val targetAcidTable: HiveAcidTab
   }
 
   def run(): Unit = {
+    logInfo(s"MERGE operation being done on table ${targetAcidTable.hiveAcidMetadata.tableName}")
     if (resolvedMergePlan.matched.isEmpty) {
       // it should have been validated that at least one merge clause is present
       runForJustInsertClause(resolvedMergePlan)
@@ -167,6 +172,8 @@ class MergeImpl(val sparkSession: SparkSession, val targetAcidTable: HiveAcidTab
         // SQL Standard says to error out when multiple source columns match with 1 target column
         // So after right outer join, we can group by rowIds (which are unique for every partition)
         // to figure that out
+        logInfo("Cardinality Check for Merge being Performed to check one " +
+          "row of target matches with utmost one source row. Note this check requires Join and can take time.")
         val targetRowsWithMultipleMatch = joinedDf
           .filter(new Column(matchedCond))
           .groupBy(targetPartColsWithRowId.map(new Column(_)) :_*)
@@ -193,15 +200,18 @@ class MergeImpl(val sparkSession: SparkSession, val targetAcidTable: HiveAcidTab
         Some(i)
       }
     }
-
+    logInfo("MERGE requires right outer join between Target and Source.")
     operationDfs.view.zipWithIndex.foreach {
       case (op: MergeDFOperation, index: Int) => {
         op match {
           case MergeDFOperation(df, HiveAcidOperation.DELETE) =>
+            logInfo(s"MERGE Clause ${index+1}: DELETE being executed")
             targetAcidTable.delete(df, getStatementId(index))
           case MergeDFOperation(df, HiveAcidOperation.UPDATE) =>
+            logInfo(s"MERGE Clause ${index+1}: UPDATE being executed")
             targetAcidTable.update(df, getStatementId(index))
           case MergeDFOperation(df, HiveAcidOperation.INSERT_INTO) =>
+            logInfo(s"MERGE Clause ${index+1}: INSERT being executed")
             targetAcidTable.insertInto(df, getStatementId(index))
           case MergeDFOperation(_, operationType) =>
             HiveAcidErrors.mergeValidationError(s"Operation type $operationType is not supported in MERGE")
@@ -209,6 +219,7 @@ class MergeImpl(val sparkSession: SparkSession, val targetAcidTable: HiveAcidTab
       }
       case _ => throw HiveAcidErrors.mergeUnsupportedError("Invalid MergeOperation while executing MERGE")
     }
+    logInfo("All MERGE Clauses were executed")
   }
 
   private def getMatchedOperations(joinedDf: DataFrame,
@@ -264,7 +275,9 @@ class MergeImpl(val sparkSession: SparkSession, val targetAcidTable: HiveAcidTab
     }
 
     val resolvedCondition = notMatched.condition.getOrElse(functions.lit(true).expr)
-
+    logInfo(s"MERGE Clause ${1}: INSERT being executed")
+    logInfo(s"Note, only MERGE operation specified is INSERT hence, LeftAntiJoin " +
+      s"between source and target will be performed")
     // As only notMatched Clauses are present, we can do left-anti join to find the rows to be inserted
     val insertDf = sourceDf.join(targetDf, new Column(mergePlan.condition), "leftanti")
       .filter(new Column(resolvedCondition)).select(outputCols :_*)

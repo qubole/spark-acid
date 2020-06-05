@@ -13,7 +13,7 @@ INSERT INTO / OVERWRITE | ``>= v0.4.3`` |  ``>= v0.4.4`` |
 CTAS | ``>= v0.4.3`` |  ``>= v0.4.4`` |
 UPDATE | ``>= v0.5.0`` |  Not Supported |
 DELETE | ``>= v0.5.0`` |  Not Supported |
-MERGE | Not Supported | Not Supported |
+MERGE | ``> v0.5.0`` | Not Supported |
 STREAMING INSERT | ``>= v0.5.0`` | ``>= v0.5.0`` |
 
 *Note: In case of insert only table for support of write operation compatibility check needs to be disabled*
@@ -30,7 +30,7 @@ STREAMING INSERT | ``>= v0.5.0`` | ``>= v0.5.0`` |
     - [Stream Write into ACID Table](#stream-write-into-acid-table)
     - [Update](#updates)
     - [Delete](#deletes)
-- [Latest Binaries](#latest-binaries)
+    - [Merge](#merge)
 - [Version Compatibility](#version-compatibility)
 - [Developer Resources](#developer-resources)
 - [Design Consideration](#design-constraints)
@@ -245,9 +245,65 @@ _Note: ``com.qubole.spark.hiveacid.HiveAcidAutoConvertExtension`` has to be adde
 
 _Note: ``com.qubole.spark.hiveacid.HiveAcidAutoConvertExtension`` has to be added to ``spark.sql.extensions`` for above._
 
-## Latest Binaries
+### Merge
 
-The latest version of the binary is `0.5.0` and can be found in release section here: https://github.com/qubole/spark-acid/releases/download/v0.5.0/spark-acid_2.11-0.5.0.jar
+#### SQL syntax
+    MERGE INTO <target table> [AS T] USING <source table> [AS S]
+    ON <boolean merge expression>
+    WHEN MATCHED [AND <boolean expression1>] THEN <match_clause>
+    WHEN MATCHED [AND <boolean expression2>] THEN <match_clause>
+    WHEN NOT MATCHED [AND <boolean expression3>] THEN INSERT VALUES ( <insert value list> )
+
+    <match_clause> ::
+                        UPDATE SET <set clause list>
+                        DELETE
+    
+    <insert value list> :: 
+                        value 1 [, value 2, value 3, ...]
+                        [value 1, value 2, ...] * [, value n, value n+1, ...]
+    
+    <update set list> ::
+                        target_col1 = value 1 [, target_col2 = value 2 ...]
+                    
+
+* ``<target table>`` needs to be Full ACID table. ``T`` is optional placeholder for target alias. 
+* ``<source table>`` needs to be a table defined. You can use functions like ``createOrReplaceTempView`` to store source DataFrames as tables.
+``S`` is optional placeholder for source alias.
+* ``<merge expression>`` are the join expressions used as merge condition
+* Match clauses (UPDATE and DELETE)
+    * At most 2 match clauses are allowed i.e., minimum 0 and maximum 2.
+    * Only UPDATE and DELETE operations are supported in match clause.
+    * ``<boolean expression1> `` and ``<boolean expression2>`` are optional match conditions. 
+    * If 2 match clauses are specified:
+        * Both should be different operations.
+        * First match clause should have a match condition.
+        * If a target row qualifies for both match clauses as their match conditions overlap, 
+          then only the first clause will be executed on them.
+* INSERT clause 
+    * is only supported for non-matched clause.
+    * supports ``*`` to be used anywhere in value list and it resolves into source table columns.
+    * values to be inserted should exactly match the number of target columns after ``*`` resolution and 
+      also match corresponding data type.
+* Cardinality Check: SQL standard enforces that one row of target doesn't match multiple rows of source.
+  This check is enforced and runtime exception is thrown if it is violated.
+
+#### Example
+
+    MERGE INTO target as t USING source as s
+    ON t.id = s.id
+    WHEN MATCHED AND t.city = 'Bangalore' THEN UPDATE t.city = s.city
+    WHEN MATCHED AND t.dept = 'closed' THEN DELETE
+    WHEN NOT MATCHED AND t.city = ('Bangalore', 'San Jose') THEN INSERT VALUES (*, '07', '2020')
+
+#### Performance consideration
+* MERGE operation is a pretty loaded statement and can be expensive in nature.
+* MERGE operation will perform ``Right Outer Join`` between target and source. 
+  This can lead to full table scan of the target table. 
+  Please consider partitioning the target table and only mentioning required partitions in merge condition for MERGE operations.
+* When only INSERT clause is present, ``Left Anti Join`` between source and target will be performed. It will be 
+  cheaper than ``Right Outer Join`` between target and source.
+* Cardinality check (as described above) also requires Join. We reuse the same ``Right Outer Join`` done for MERGE operation 
+  to avoid extra Join for this check. When only INSERT clause is present this check is not done as it is not required.
 
 ## Version Compatibility
 
@@ -316,10 +372,13 @@ Read more about [sbt release](https://github.com/sbt/sbt-release)
 
 4. Note that even though reads are protected admin operation like `TRUNCATE` `ALTER TABLE DROP COLUMN` and `DROP` have no protection as they clean files with intevention from cleaner. These operations should be performed when Spark is not using the table.
 
-
 ## Contributing
 
-We use [Github Issues](https://github.com/qubole/spark-acid/issues) to track issues.
+1. We use [Github Issues](https://github.com/qubole/spark-acid/issues) to track issues.
+Please feel free to open an issue for any queries, bugs and feature requests.
+
+2. Pull Request can be raised against any open issues and are most welcome. 
+   Processes or guidelines for the same is not formal currently.
 
 ## Reporting bugs or feature requests
 
