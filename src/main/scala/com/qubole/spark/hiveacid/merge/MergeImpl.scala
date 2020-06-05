@@ -150,7 +150,13 @@ class MergeImpl(val sparkSession: SparkSession, val targetAcidTable: HiveAcidTab
       val nonMatchedCond = functions.col(HiveAcidMetadata.rowIdCol).isNull.expr
       resolvedNonMatchedCond = Some(SqlUtils.resolveReferences(sparkSession,
         nonMatchedCond, joinedPlan, failIfUnresolved = false))
-      val targetColumnsWithRowId = targetDf.queryExecution.analyzed.output
+      val targetPlan = targetDf.queryExecution.analyzed
+      val targetColumnsWithRowId = targetPlan.output
+
+      val targetPartColsWithRowId = (Seq(HiveAcidMetadata.rowIdCol) ++
+        targetAcidTable.hiveAcidMetadata.partitionSchema.fieldNames).map( col =>
+        SqlUtils.resolveReferences(sparkSession, functions.col(col).expr,
+          targetPlan, failIfUnresolved = true))
 
       // Get MergeOperations that needs to be executed in different statements
       val operationDfs: Seq[MergeDFOperation] =
@@ -159,10 +165,11 @@ class MergeImpl(val sparkSession: SparkSession, val targetAcidTable: HiveAcidTab
 
       if (!operationDfs.isEmpty) {
         // SQL Standard says to error out when multiple source columns match with 1 target column
-        // So after right outer join, we can group by rowIds (which are unique) to figure that out
+        // So after right outer join, we can group by rowIds (which are unique for every partition)
+        // to figure that out
         val targetRowsWithMultipleMatch = joinedDf
           .filter(new Column(matchedCond))
-          .groupBy(targetColumnsWithRowId.map(new Column(_)) :_*)
+          .groupBy(targetPartColsWithRowId.map(new Column(_)) :_*)
           .count()
           .filter("count > 1")
           .count()
