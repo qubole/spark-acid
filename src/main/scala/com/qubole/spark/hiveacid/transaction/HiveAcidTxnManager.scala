@@ -95,7 +95,7 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession) extends L
       // NB: Remove it from tracking before making HMS call
       // which can potentially fail.
       HiveAcidTxnManager.activeTxns.remove(txnId)
-      logDebug(s"Removing txnId: $txnId from tracker")
+      logInfo(s"Removing txnId: $txnId from tracker")
       if (abort) {
         client.abortTxns(scala.collection.JavaConversions.seqAsJavaList(Seq(txnId)))
       } else {
@@ -361,7 +361,7 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession) extends L
           logError(s"Heartbeat failure for transaction id: ${txn.txnId} : ${resp.toString}." +
             s"Aborting...")
         } else {
-          logDebug(s"Heartbeat sent for txnId: ${txn.txnId}")
+          logInfo(s"Heartbeat sent for txnId: ${txn.txnId}")
         }
       } catch {
         // No action required because if heartbeat doesn't go for some time, transaction will be
