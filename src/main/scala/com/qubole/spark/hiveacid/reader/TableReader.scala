@@ -106,7 +106,7 @@ private[hiveacid] class TableReader(sparkSession: SparkSession,
     // Acquire lock on all the partition and then create snapshot. Every time getRDD is called
     // it creates a new snapshot.
     // NB: partitionList is Seq if partition pruning is not enabled
-    curTxn.acquireLocks(hiveAcidMetadata, HiveAcidOperation.READ, partitionList)
+    curTxn.acquireLocks(hiveAcidMetadata, HiveAcidOperation.READ, partitionList, readConf)
 
     // Create Snapshot !!!
     val curSnapshot = HiveAcidTxn.createSnapshot(curTxn, hiveAcidMetadata)

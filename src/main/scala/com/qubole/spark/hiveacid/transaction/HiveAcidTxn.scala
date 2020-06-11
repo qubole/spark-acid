@@ -20,8 +20,7 @@ package com.qubole.spark.hiveacid.transaction
 import java.util.concurrent.atomic.AtomicBoolean
 
 import com.qubole.shaded.hadoop.hive.common.{ValidTxnList, ValidWriteIdList}
-import com.qubole.spark.hiveacid.HiveAcidOperation.OperationType
-import com.qubole.spark.hiveacid.{HiveAcidErrors, HiveAcidOperation}
+import com.qubole.spark.hiveacid.{HiveAcidErrors, HiveAcidOperation, SparkAcidConf}
 import com.qubole.spark.hiveacid.hive.HiveAcidMetadata
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.SparkSession
@@ -87,13 +86,14 @@ class HiveAcidTxn(sparkSession: SparkSession) extends Logging {
 
   private[hiveacid] def acquireLocks(hiveAcidMetadata: HiveAcidMetadata,
                                      operationType: HiveAcidOperation.OperationType,
-                                     partitionNames: Seq[String]): Unit = {
+                                     partitionNames: Seq[String],
+                                     conf: SparkAcidConf): Unit = {
     if (isClosed.get()) {
       logError(s"Transaction already closed $this")
       throw HiveAcidErrors.txnAlreadyClosed(id)
     }
     HiveAcidTxn.txnManager.acquireLocks(id, hiveAcidMetadata.dbName,
-      hiveAcidMetadata.tableName, operationType, partitionNames, hiveAcidMetadata.isPartitioned)
+      hiveAcidMetadata.tableName, operationType, partitionNames, hiveAcidMetadata.isPartitioned, conf)
   }
 
   private[hiveacid] def addDynamicPartitions(writeId: Long,
