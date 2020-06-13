@@ -207,6 +207,8 @@ antlr4GenVisitor in Antlr4 := true
 	*  Test settings
 	*/
 
+parallelExecution in IntegrationTest := false
+
 // do not run test at assembly
 test in assembly := {}
 
