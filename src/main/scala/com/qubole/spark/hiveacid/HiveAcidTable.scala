@@ -367,6 +367,12 @@ class HiveAcidTable(val sparkSession: SparkSession,
   @Evolving
   def update(condition: Option[String], newValues: Map[String, String]): Unit = {
     checkForSupport(HiveAcidOperation.UPDATE)
+    val partCols = hiveAcidMetadata.partitionSchema.fieldNames.map(_.toLowerCase)
+    val partUpdateCols = newValues.keys.map(_.toLowerCase).filter(partCols.contains(_))
+    if (!partUpdateCols.isEmpty) {
+      throw HiveAcidErrors.updateOnPartition(partUpdateCols.toSeq, hiveAcidMetadata.fullyQualifiedName)
+    }
+
     inTxn {
       val updateDf = updateDF(condition, newValues)
       val tableWriter = new TableWriter(sparkSession, curTxn, hiveAcidMetadata, sparkAcidConfig)
@@ -384,6 +390,12 @@ class HiveAcidTable(val sparkSession: SparkSession,
   @Evolving
   def update(condition: Option[Column], newValues: java.util.Map[String, Column]): Unit = {
     checkForSupport(HiveAcidOperation.UPDATE)
+    val partCols = hiveAcidMetadata.partitionSchema.fieldNames.map(_.toLowerCase)
+    val partUpdateCols = newValues.keySet().asScala.map(_.toLowerCase).filter(partCols.contains(_))
+    if (!partUpdateCols.isEmpty) {
+      throw HiveAcidErrors.updateOnPartition(partUpdateCols.toSeq,
+        hiveAcidMetadata.fullyQualifiedName)
+    }
     inTxn {
       val updateDf = updateDFInternal(condition, newValues.asScala.toMap)
       val tableWriter = new TableWriter(sparkSession, curTxn, hiveAcidMetadata, sparkAcidConfig)
