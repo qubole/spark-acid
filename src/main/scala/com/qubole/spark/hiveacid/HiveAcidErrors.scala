@@ -104,6 +104,17 @@ object HiveAcidErrors {
       s"SET column ${formatColumn(col)} not found among columns: ${formatColumnList(colList)}.")
   }
 
+  def updateOnPartition(cols: Seq[String], table: String): Throwable = {
+    val message = if (cols.length == 1) {
+      s"SET column: ${cols.head} is partition column in table: ${table}"
+    } else {
+      s"SET columns: ${cols.mkString(",")} are partition columns in table: ${table}"
+    }
+    new AnalysisException(
+      s"UPDATE on the partition columns are not allowed. $message"
+    )
+  }
+
   def txnOutdated(txnId: Long, tableName: String): Throwable = {
     new TransactionInvalidException(
       s"Transaction is $txnId is no longer valid for table $tableName", txnId, tableName)

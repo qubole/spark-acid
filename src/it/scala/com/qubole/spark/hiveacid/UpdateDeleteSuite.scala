@@ -143,4 +143,15 @@ class UpdateDeleteSuite extends FunSuite with BeforeAndAfterEach with BeforeAndA
       }
     }
   }
+
+  test("Test Update on Partition Columns is not allowed") {
+    val tableNameSpark = "tUpdateNeg"
+    val tableSpark = new Table(DEFAULT_DBNAME, tableNameSpark, cols,
+      Table.orcPartitionedFullACIDTable, true)
+    helper.recreate(tableSpark,false)
+    val thrown = intercept[AnalysisException] {
+      helper.sparkSQL(s"UPDATE ${DEFAULT_DBNAME}.${tableNameSpark} set ptnCol = 2 where intCol > 10")
+    }
+    assert(thrown.getMessage.contains("UPDATE on the partition columns are not allowed"))
+  }
 }
