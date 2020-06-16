@@ -20,6 +20,7 @@ package com.qubole.spark.hiveacid
 import com.qubole.spark.hiveacid.hive.HiveAcidMetadata
 import com.qubole.spark.hiveacid.transaction.HiveAcidTxn
 import org.apache.log4j.{Level, LogManager, Logger}
+import org.apache.spark.sql.SparkSession
 import org.scalatest.{BeforeAndAfterAll, BeforeAndAfterEach, FunSuite}
 
 import scala.util.control.NonFatal
@@ -42,9 +43,10 @@ class LockSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll 
     cols, Table.orcPartitionedFullACIDTable, true)
   val normalTable = new Table(DEFAULT_DBNAME, "nonPartitioned",
     cols, Table.orcFullACIDTable, false)
+
   override def beforeAll() {
     try {
-      helper = new TestHelper
+      helper = new TestLockHelper
       if (isDebug) {
         log.setLevel(Level.DEBUG)
       }
@@ -153,5 +155,35 @@ class LockSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll 
       hTxn1.end(true)
       hTxn2.end(true)
     }
+  }
+
+  test("test HeartBeatRunner is running") {
+    val hTxn1 = new HiveAcidTxn(helper.spark)
+    hTxn1.begin()
+    // Sleep for 4 seconds
+    Thread.sleep(4 * 1000)
+    val txn = HiveAcidTxn.txnManager.showOpenTrans().find(ti => ti.getId == hTxn1.txnId)
+    assert(txn.isDefined, "Transaction is expected to be open")
+    val seconds = (txn.get.getLastHeartbeatTime() - txn.get.getStartedTime()) / 1000
+    assert(seconds >= 2, "getLastHeartBeatTime should " +
+      "be at least 2 seconds after transaction was opened")
+    hTxn1.end(true)
+  }
+}
+
+class TestLockHelper extends TestHelper {
+  // Create spark session with txn timeout config as that needs to be set
+  // before the start of spark session
+  override def getSparkSession(): SparkSession = {
+    SparkSession.builder().appName("Hive-acid-test")
+      .master("local[*]")
+      .config("spark.hadoop.hive.metastore.uris", "thrift://0.0.0.0:10000")
+      .config("spark.sql.warehouse.dir", "/tmp")
+      .config("spark.sql.extensions", "com.qubole.spark.hiveacid.HiveAcidAutoConvertExtension")
+      .config("spark.hadoop.hive.txn.timeout", "6")
+      //.config("spark.ui.enabled", "true")
+      //.config("spark.ui.port", "4041")
+      .enableHiveSupport()
+      .getOrCreate()
   }
 }

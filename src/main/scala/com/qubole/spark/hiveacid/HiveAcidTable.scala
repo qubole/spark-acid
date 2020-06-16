@@ -66,11 +66,13 @@ class HiveAcidTable(val sparkSession: SparkSession,
     curTxn match {
       case null =>
         // create local txn
+        logInfo("Creating new transaction")
         curTxn = HiveAcidTxn.createTransaction(sparkSession)
         curTxn.begin()
         isLocalTxn = true
+        logInfo(s"Transaction created: ${curTxn.txnId}")
       case txn =>
-        logDebug(s"Existing Transactions $txn")
+        logInfo(s"Using existing transaction:  ${curTxn.txnId}")
     }
   }
 
@@ -78,8 +80,10 @@ class HiveAcidTable(val sparkSession: SparkSession,
   // if locally started
   private def unsetOrEndTxn(abort: Boolean = false): Unit = {
     if (! isLocalTxn) {
+      logInfo(s"Not ending the transaction ${curTxn.txnId} as it's not Local")
       return
     }
+    logInfo(s"Ending Transaction ${curTxn.txnId} with abort flag: $abort")
     curTxn.end(abort)
     curTxn = null
     isLocalTxn = false
