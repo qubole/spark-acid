@@ -59,6 +59,7 @@ class HiveAcidTable(val sparkSession: SparkSession,
   private var isLocalTxn: Boolean = false
   private var curTxn: HiveAcidTxn = _
 
+  private val sparkAcidConfig = SparkAcidConf(sparkSession, parameters)
   // Start local transaction if not passed.
   private def getOrCreateTxn(): Unit = {
     curTxn = HiveAcidTxn.currentTxn()
@@ -260,7 +261,7 @@ class HiveAcidTable(val sparkSession: SparkSession,
   def addBatch(df: DataFrame): Long = {
     var txnId = -1L
     inTxn {
-      val tableWriter = new TableWriter(sparkSession, curTxn, hiveAcidMetadata)
+      val tableWriter = new TableWriter(sparkSession, curTxn, hiveAcidMetadata, sparkAcidConfig)
       tableWriter.process(HiveAcidOperation.INSERT_INTO, df)
       txnId = HiveAcidTxn.currentTxn().txnId
     }
@@ -278,7 +279,8 @@ class HiveAcidTable(val sparkSession: SparkSession,
     *                    is avoided for them during writes.
     */
   def insertInto(df: DataFrame, statementId: Option[Int] = None): Unit = inTxn {
-    val tableWriter = new TableWriter(sparkSession, curTxn, hiveAcidMetadata, statementId)
+    val tableWriter = new TableWriter(sparkSession, curTxn, hiveAcidMetadata,
+      sparkAcidConfig, statementId)
     tableWriter.process(HiveAcidOperation.INSERT_INTO, df)
   }
 
@@ -293,7 +295,8 @@ class HiveAcidTable(val sparkSession: SparkSession,
     *                    is avoided for them during writes.
     */
   def insertOverwrite(df: DataFrame, statementId: Option[Int] = None): Unit = inTxn {
-    val tableWriter = new TableWriter(sparkSession, curTxn, hiveAcidMetadata, statementId)
+    val tableWriter = new TableWriter(sparkSession, curTxn, hiveAcidMetadata,
+      sparkAcidConfig, statementId)
     tableWriter.process(HiveAcidOperation.INSERT_OVERWRITE, df)
   }
 
@@ -323,7 +326,7 @@ class HiveAcidTable(val sparkSession: SparkSession,
       val resolvedExpr = SqlUtils.resolveReferences(sparkSession,
         condition.expr,
         qualifiedPlan, failIfUnresolved = false)
-      val tableWriter = new TableWriter(sparkSession, curTxn, hiveAcidMetadata)
+      val tableWriter = new TableWriter(sparkSession, curTxn, hiveAcidMetadata, sparkAcidConfig)
       tableWriter.process(HiveAcidOperation.DELETE, resolvedDf.filter(resolvedExpr.sql))
     }
   }
@@ -349,7 +352,8 @@ class HiveAcidTable(val sparkSession: SparkSession,
         "Provided: " + deleteDf.schema.mkString(",") +
         "  Expected: " + hiveAcidMetadata.tableSchemaWithRowId.mkString(","))
     }
-    val tableWriter = new TableWriter(sparkSession, curTxn, hiveAcidMetadata, statementId)
+    val tableWriter = new TableWriter(sparkSession, curTxn, hiveAcidMetadata,
+      sparkAcidConfig, statementId)
     tableWriter.process(HiveAcidOperation.DELETE, deleteDf)
   }
 
@@ -365,7 +369,7 @@ class HiveAcidTable(val sparkSession: SparkSession,
     checkForSupport(HiveAcidOperation.UPDATE)
     inTxn {
       val updateDf = updateDF(condition, newValues)
-      val tableWriter = new TableWriter(sparkSession, curTxn, hiveAcidMetadata)
+      val tableWriter = new TableWriter(sparkSession, curTxn, hiveAcidMetadata, sparkAcidConfig)
       tableWriter.process(HiveAcidOperation.UPDATE, updateDf)
     }
   }
@@ -382,7 +386,7 @@ class HiveAcidTable(val sparkSession: SparkSession,
     checkForSupport(HiveAcidOperation.UPDATE)
     inTxn {
       val updateDf = updateDFInternal(condition, newValues.asScala.toMap)
-      val tableWriter = new TableWriter(sparkSession, curTxn, hiveAcidMetadata)
+      val tableWriter = new TableWriter(sparkSession, curTxn, hiveAcidMetadata, sparkAcidConfig)
       tableWriter.process(HiveAcidOperation.UPDATE, updateDf)
     }
   }
@@ -407,7 +411,8 @@ class HiveAcidTable(val sparkSession: SparkSession,
         "Provided: " + updateDf.schema.mkString(",") +
         "  Expected: " + hiveAcidMetadata.tableSchemaWithRowId.mkString(","))
     }
-    val tableWriter = new TableWriter(sparkSession, curTxn, hiveAcidMetadata, statementId)
+    val tableWriter = new TableWriter(sparkSession, curTxn, hiveAcidMetadata,
+      sparkAcidConfig, statementId)
     tableWriter.process(HiveAcidOperation.UPDATE, updateDf)
   }
 

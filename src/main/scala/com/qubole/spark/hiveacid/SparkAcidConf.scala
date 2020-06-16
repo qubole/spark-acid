@@ -59,6 +59,8 @@ case class SparkAcidConf(@transient sparkSession: SparkSession, @transient param
   @transient val configMap = sparkSession.sessionState.conf.getAllConfs
 
   val predicatePushdownEnabled = getConf(SparkAcidConf.PREDICATE_PUSHDOWN_CONF)
+  val maxSleepBetweenLockRetries = getConf(SparkAcidConf.MAX_SLEEP_BETWEEN_LOCK_RETRIES)
+  val lockNumRetries = getConf(SparkAcidConf.LOCK_NUM_RETRIES)
   val metastorePartitionPruningEnabled = sparkSession.sessionState.conf.metastorePartitionPruning
   val includeRowIds = parameters.getOrElse("includeRowIds", "false").toBoolean
 
@@ -78,12 +80,55 @@ object SparkAcidConf {
     .description("Configuration to enable Predicate PushDown for Hive Acid Reader")
     .create()
 
+  val SPARK_READER = SparkAcidConfigBuilder[Boolean]("spark.sql.hiveAcid.enableSparkReader")
+    .defaultValue("false")
+    .converter(toBoolean)
+    .description("Configuration to enable the Spark readers." +
+      " When disabled, Hive Acid Readers in this DataSource are used." +
+      " On enabling Spark readers will be used to read the Hive Table readers")
+    .create()
+
+  val MAX_SLEEP_BETWEEN_LOCK_RETRIES = SparkAcidConfigBuilder[Long]("spark.hiveAcid.lock.max.sleep.between.retries")
+    .defaultValue("60000")
+    .converter(toLong)
+    .description("Maximum sleep time between lock retries in milliseconds; " +
+      "Lock retries are based on exponential backoff" +
+      " and start with 50 milliseconds and increases to the maximum time defined by this configuration")
+    .create()
+
+  // Retry exponential backoff that starts with 50 millisec
+  // Default 13 is set to make total wait around 5 minutes with max sleep being 60 seconds
+  val LOCK_NUM_RETRIES = SparkAcidConfigBuilder[Int]("spark.hiveAcid.lock.max.retries")
+    .defaultValue("13")
+    .converter(toInt)
+    .description("Maximum retries to acquire a lock; Lock retries are based on exponential backoff " +
+      "that start with 50 milliseconds")
+    .create()
+
   def toBoolean(s: String, key: String): Boolean = {
     try {
       s.trim.toBoolean
     } catch {
       case _: IllegalArgumentException =>
         throw new IllegalArgumentException(s"$key should be boolean, but was $s")
+    }
+  }
+
+  def toLong(s: String, key: String): Long = {
+    try {
+      s.trim.toLong
+    } catch {
+      case _: IllegalArgumentException =>
+        throw new IllegalArgumentException(s"$key should be Long, but was $s")
+    }
+  }
+
+  def toInt(s: String, key: String): Int = {
+    try {
+      s.trim.toInt
+    } catch {
+      case _: IllegalArgumentException =>
+        throw new IllegalArgumentException(s"$key should be Int, but was $s")
     }
   }
 }

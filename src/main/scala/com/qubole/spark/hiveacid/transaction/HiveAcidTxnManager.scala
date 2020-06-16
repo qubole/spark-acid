@@ -21,14 +21,13 @@ import java.util.concurrent.{Executors, ScheduledExecutorService, ThreadFactory,
 import java.util.concurrent.atomic.AtomicBoolean
 
 import com.qubole.shaded.hadoop.hive.common.{ValidTxnList, ValidTxnWriteIdList, ValidWriteIdList}
-import com.qubole.shaded.hadoop.hive.conf.HiveConf
 import com.qubole.shaded.hadoop.hive.metastore.api.{DataOperationType, LockRequest, LockResponse, LockState}
 import com.qubole.shaded.hadoop.hive.metastore.conf.MetastoreConf
 import com.qubole.shaded.hadoop.hive.metastore.txn.TxnUtils
 import com.qubole.shaded.hadoop.hive.metastore.{HiveMetaStoreClient, LockComponentBuilder, LockRequestBuilder}
 import com.qubole.spark.hiveacid.datasource.HiveAcidDataSource
-import com.qubole.spark.hiveacid.hive.{HiveAcidMetadata, HiveConverter}
-import com.qubole.spark.hiveacid.{HiveAcidErrors, HiveAcidOperation}
+import com.qubole.spark.hiveacid.hive.HiveConverter
+import com.qubole.spark.hiveacid.{HiveAcidErrors, HiveAcidOperation, SparkAcidConf}
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.SqlUtils
@@ -232,7 +231,8 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession) extends L
                    tableName: String,
                    operationType: HiveAcidOperation.OperationType,
                    partitionNames: Seq[String],
-                   isPartitionedTable: Boolean): Unit = synchronized {
+                   isPartitionedTable: Boolean,
+                   conf: SparkAcidConf): Unit = synchronized {
 
     // Consider following sequence of event
     //  T1:   R(x)
@@ -301,15 +301,11 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession) extends L
 
     def lock(lockReq: LockRequest): Unit = {
       var nextSleep = 50L
-
-      // FIXME: This is crazy long wait for locks. Sleep starts from 50ms and
-      //  exponentially in power of 2 backs off to MAX_SLEEP the maximum sleep
-      //  for unsuccessful lock acquisition time is maxNumWaits * MAX_SLEEP,
-      //  which defaults to 60s * 100 that is 6000s that is 2hours.
-      val defaultMaxSleep = hiveConf.getTimeVar(
-        HiveConf.ConfVars.HIVE_LOCK_SLEEP_BETWEEN_RETRIES, TimeUnit.MILLISECONDS)
+      // Exponential backoff that starts with 50 milliseconds to the max of conf.maxSleepBetweenLockRetries
+      // Max retries allowed are conf.lockNumRetries
+      val defaultMaxSleep = conf.maxSleepBetweenLockRetries
       val MAX_SLEEP = Math.max(15000, defaultMaxSleep)
-      val maxNumWaits: Int = Math.max(0, hiveConf.getIntVar(HiveConf.ConfVars.HIVE_LOCK_NUMRETRIES))
+      val maxNumWaits: Int = Math.max(0, conf.lockNumRetries)
       def backoff(): Unit = {
         nextSleep *= 2
         if (nextSleep > MAX_SLEEP) nextSleep = MAX_SLEEP
@@ -330,6 +326,8 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession) extends L
           res = client.checkLock(res.getLockid)
         }
         if (res.getState != LockState.ACQUIRED) {
+          // Release lock in WAITING state
+          client.unlock(res.getLockid)
           throw HiveAcidErrors.couldNotAcquireLockException(state = res.getState.name())
         }
       } catch {

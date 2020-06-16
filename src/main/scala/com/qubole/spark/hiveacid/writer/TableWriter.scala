@@ -51,6 +51,7 @@ import org.apache.spark.sql.types.StructType
 private[hiveacid] class TableWriter(sparkSession: SparkSession,
                                     curTxn: HiveAcidTxn,
                                     hiveAcidMetadata: HiveAcidMetadata,
+                                    sparkAcidConf: SparkAcidConf,
                                     statementId: Option[Int] = None) extends Logging {
 
   private val MAX_NUMBER_OF_BUCKETS = 4096
@@ -106,7 +107,7 @@ private[hiveacid] class TableWriter(sparkSession: SparkSession,
 
       // FIXME: IF we knew the partition then we should
       //   only lock that partition.
-      curTxn.acquireLocks(hiveAcidMetadata, operationType, Seq())
+      curTxn.acquireLocks(hiveAcidMetadata, operationType, Seq(), sparkAcidConf)
 
       if (!HiveAcidTxn.IsTxnStillValid(curTxn, hiveAcidMetadata.fullyQualifiedName)) {
         logInfo(s"Transaction ${curTxn.txnId} is no more valid for table ${hiveAcidMetadata.fullyQualifiedName} as other" +
