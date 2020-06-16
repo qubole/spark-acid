@@ -327,7 +327,9 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession) extends L
         }
         if (res.getState != LockState.ACQUIRED) {
           // Release lock in WAITING state
-          client.unlock(res.getLockid)
+          if (res.getState == LockState.WAITING) {
+            client.unlock(res.getLockid)
+          }
           throw HiveAcidErrors.couldNotAcquireLockException(state = res.getState.name())
         }
       } catch {
