@@ -43,11 +43,17 @@ class TestHelper extends SQLImplicits {
   def init(isDebug: Boolean) {
     verbose = isDebug
     // Clients
-    spark = TestSparkSession.getSession
+    spark = getSparkSession()
     if (verbose) {
       log.setLevel(Level.DEBUG)
     }
     hiveClient = new TestHiveClient()
+  }
+
+  // this function can be overridden by the derived classes
+  // to create their own Spark Session for test
+  protected def getSparkSession(): SparkSession = {
+    TestSparkSession.getSession
   }
 
   def destroy(): Unit = {

@@ -21,7 +21,7 @@ import java.util.concurrent.{Executors, ScheduledExecutorService, ThreadFactory,
 import java.util.concurrent.atomic.AtomicBoolean
 
 import com.qubole.shaded.hadoop.hive.common.{ValidTxnList, ValidTxnWriteIdList, ValidWriteIdList}
-import com.qubole.shaded.hadoop.hive.metastore.api.{DataOperationType, LockRequest, LockResponse, LockState}
+import com.qubole.shaded.hadoop.hive.metastore.api.{DataOperationType, LockRequest, LockResponse, LockState, TxnInfo}
 import com.qubole.shaded.hadoop.hive.metastore.conf.MetastoreConf
 import com.qubole.shaded.hadoop.hive.metastore.txn.TxnUtils
 import com.qubole.shaded.hadoop.hive.metastore.{HiveMetaStoreClient, LockComponentBuilder, LockRequestBuilder}
@@ -46,7 +46,7 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession) extends L
   private val hiveConf = HiveConverter.getHiveConf(sparkSession.sparkContext)
 
   private val heartbeatInterval = MetastoreConf.getTimeVar(hiveConf,
-    MetastoreConf.ConfVars.TXN_TIMEOUT, TimeUnit.MILLISECONDS) / 2
+    MetastoreConf.ConfVars.TXN_TIMEOUT, TimeUnit.MILLISECONDS) / 3
 
   private lazy val client: HiveMetaStoreClient = new HiveMetaStoreClient(
     hiveConf, null, false)
@@ -67,7 +67,7 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession) extends L
 
   private val user: String = sparkSession.sparkContext.sparkUser
 
-  private val shutdownInitiated: AtomicBoolean = new AtomicBoolean(true)
+  private val shutdownInitiated: AtomicBoolean = new AtomicBoolean(false)
 
   /**
     * Register transactions with Hive Metastore and tracks it under HiveAcidTxnManager.activeTxns
@@ -213,6 +213,10 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession) extends L
       case _ =>
         throw HiveAcidErrors.invalidOperationType(operationType.toString)
     }
+  }
+
+  def showOpenTrans(): Seq[TxnInfo] = {
+    client.showTxns().getOpen_txns.toSeq
   }
 
   /**
