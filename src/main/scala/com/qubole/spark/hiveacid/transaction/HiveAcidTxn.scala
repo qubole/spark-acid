@@ -105,7 +105,7 @@ class HiveAcidTxn(sparkSession: SparkSession) extends Logging {
       logError(s"Transaction already closed $this")
       throw HiveAcidErrors.txnAlreadyClosed(id)
     }
-    logInfo(s"Adding dynamic partition txnId: $id writeId: $writeId dbName: $dbName" +
+    logDebug(s"Adding dynamic partition txnId: $id writeId: $writeId dbName: $dbName" +
       s" tableName: $tableName partitions: ${partitions.mkString(",")}")
     HiveAcidTxn.txnManager.addDynamicPartitions(id, writeId, dbName,
       tableName, partitions, operationType)
