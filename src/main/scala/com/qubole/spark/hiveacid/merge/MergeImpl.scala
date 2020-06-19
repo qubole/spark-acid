@@ -20,7 +20,8 @@
 package com.qubole.spark.hiveacid.merge
 
 import com.qubole.spark.hiveacid.hive.HiveAcidMetadata
-import com.qubole.spark.hiveacid.{HiveAcidErrors, HiveAcidOperation, HiveAcidTable}
+import com.qubole.spark.hiveacid.transaction.HiveAcidTxn
+import com.qubole.spark.hiveacid.{AcidOperationDelegate, HiveAcidErrors, HiveAcidOperation, HiveAcidTable}
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, Expression, Literal, Not}
 import org.apache.spark.sql.{Column, DataFrame, SparkSession, SqlUtils, functions}
 import org.apache.spark.sql.catalyst.parser.plans.logical.MergePlan
@@ -54,13 +55,18 @@ import org.apache.spark.internal.Logging
   * other operations to figure that out instead of running more joins.
   *
   * @param sparkSession
-  * @param targetAcidTable
+  * @param hiveAcidMetadata
   * @param sourceDf
   * @param targetDf
   * @param mergePlan
   */
-class MergeImpl(val sparkSession: SparkSession, val targetAcidTable: HiveAcidTable,
-                val sourceDf: DataFrame, val targetDf: DataFrame, mergePlan: MergePlan)
+class MergeImpl(val sparkSession: SparkSession,
+                val hiveAcidMetadata: HiveAcidMetadata,
+                val operationDelegate: AcidOperationDelegate,
+                val sourceDf: DataFrame,
+                val targetDf: DataFrame,
+                mergePlan: MergePlan,
+                val txn: HiveAcidTxn)
   extends Logging {
 
   private val resolvedMergePlan = MergePlan.resolve(sparkSession, mergePlan)
@@ -72,7 +78,7 @@ class MergeImpl(val sparkSession: SparkSession, val targetAcidTable: HiveAcidTab
   var resolvedNonMatchedCond: Option[Expression] = None
 
   private def getNonMatchedOperation(joinedDf: DataFrame): Option[MergeDFOperation] = {
-    if (!resolvedNonMatchedCond.isDefined) {
+    if (resolvedNonMatchedCond.isEmpty) {
       throw new IllegalArgumentException("Invalid state during Merge execution: " +
         "nonMatchCondition should be resolved by now")
     }
@@ -95,7 +101,7 @@ class MergeImpl(val sparkSession: SparkSession, val targetAcidTable: HiveAcidTab
 
   private def getMatchedDf(joinedDf: DataFrame, matchClause: MergeWhenClause,
                            targetColumnsWithRowId: Seq[Attribute]): MergeDFOperation = {
-    if (!resolvedMatchedCond.isDefined) {
+    if (resolvedMatchedCond.isEmpty) {
       throw new IllegalArgumentException("Invalid state during Merge execution: " +
         "matchCondition should be resolved by now")
     }
@@ -139,7 +145,7 @@ class MergeImpl(val sparkSession: SparkSession, val targetAcidTable: HiveAcidTab
   }
 
   def run(): Unit = {
-    logInfo(s"MERGE operation being done on table ${targetAcidTable.hiveAcidMetadata.tableName}")
+    logInfo(s"MERGE operation being done on table ${hiveAcidMetadata.tableName}")
     if (resolvedMergePlan.matched.isEmpty) {
       // it should have been validated that at least one merge clause is present
       runForJustInsertClause(resolvedMergePlan)
@@ -159,7 +165,7 @@ class MergeImpl(val sparkSession: SparkSession, val targetAcidTable: HiveAcidTab
       val targetColumnsWithRowId = targetPlan.output
 
       val targetPartColsWithRowId = (Seq(HiveAcidMetadata.rowIdCol) ++
-        targetAcidTable.hiveAcidMetadata.partitionSchema.fieldNames).map( col =>
+        hiveAcidMetadata.partitionSchema.fieldNames).map( col =>
         SqlUtils.resolveReferences(sparkSession, functions.col(col).expr,
           targetPlan, failIfUnresolved = true))
 
@@ -168,7 +174,7 @@ class MergeImpl(val sparkSession: SparkSession, val targetAcidTable: HiveAcidTab
         getMatchedOperations(joinedDf, targetColumnsWithRowId) ++ getNonMatchedOperation(joinedDf)
 
 
-      if (!operationDfs.isEmpty) {
+      if (operationDfs.nonEmpty) {
         // SQL Standard says to error out when multiple source columns match with 1 target column
         // So after right outer join, we can group by rowIds (which are unique for every partition)
         // to figure that out
@@ -192,7 +198,7 @@ class MergeImpl(val sparkSession: SparkSession, val targetAcidTable: HiveAcidTab
     }
   }
 
-  private def runMergeOperations(operationDfs: Seq[MergeDFOperation]) = {
+  private def runMergeOperations(operationDfs: Seq[MergeDFOperation]): Unit = {
     def getStatementId(i: Int): Option[Int] = {
       if (operationDfs.size == 1) {
         None
@@ -206,13 +212,13 @@ class MergeImpl(val sparkSession: SparkSession, val targetAcidTable: HiveAcidTab
         op match {
           case MergeDFOperation(df, HiveAcidOperation.DELETE) =>
             logInfo(s"MERGE Clause ${index+1}: DELETE being executed")
-            targetAcidTable.delete(df, getStatementId(index))
+            operationDelegate.mergeDelete(df, txn, getStatementId(index))
           case MergeDFOperation(df, HiveAcidOperation.UPDATE) =>
             logInfo(s"MERGE Clause ${index+1}: UPDATE being executed")
-            targetAcidTable.update(df, getStatementId(index))
+            operationDelegate.mergeUpdate(df, txn, getStatementId(index))
           case MergeDFOperation(df, HiveAcidOperation.INSERT_INTO) =>
             logInfo(s"MERGE Clause ${index+1}: INSERT being executed")
-            targetAcidTable.insertInto(df, getStatementId(index))
+            operationDelegate.insertInto(df, txn, getStatementId(index))
           case MergeDFOperation(_, operationType) =>
             HiveAcidErrors.mergeValidationError(s"Operation type $operationType is not supported in MERGE")
         }
@@ -281,7 +287,7 @@ class MergeImpl(val sparkSession: SparkSession, val targetAcidTable: HiveAcidTab
     // As only notMatched Clauses are present, we can do left-anti join to find the rows to be inserted
     val insertDf = sourceDf.join(targetDf, new Column(mergePlan.condition), "leftanti")
       .filter(new Column(resolvedCondition)).select(outputCols :_*)
-    targetAcidTable.insertInto(insertDf)
+    operationDelegate.insertInto(insertDf, txn)
   }
   private case class MergeDFOperation(dataFrame: DataFrame, operationType: HiveAcidOperation.OperationType)
 }
