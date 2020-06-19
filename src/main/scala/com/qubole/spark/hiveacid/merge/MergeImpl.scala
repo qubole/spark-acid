@@ -21,7 +21,7 @@ package com.qubole.spark.hiveacid.merge
 
 import com.qubole.spark.hiveacid.hive.HiveAcidMetadata
 import com.qubole.spark.hiveacid.transaction.HiveAcidTxn
-import com.qubole.spark.hiveacid.{AcidOperationDelegate, HiveAcidErrors, HiveAcidOperation, HiveAcidTable}
+import com.qubole.spark.hiveacid.{AcidOperationDelegate, HiveAcidErrors, HiveAcidOperation}
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, Expression, Literal, Not}
 import org.apache.spark.sql.{Column, DataFrame, SparkSession, SqlUtils, functions}
 import org.apache.spark.sql.catalyst.parser.plans.logical.MergePlan

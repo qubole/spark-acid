@@ -154,9 +154,10 @@ class Table (
 
   def majorCompaction = s"ALTER TABLE ${hiveTname} COMPACT 'major'"
 
-  def mergeCommand(sourceTable: String, updateCond: String, deleteCond: String, insertCols: String): String =
+  def mergeCommand(sourceTable: String, updateCond: String, deleteCond: String,
+                   insertCols: String, updateSet: String = "intCol=s.intCol * 10"): String =
     s" merge into $hiveTname t using $sourceTable s on s.key=t.key " +
-      s" when matched and $updateCond then update set intCol=s.intCol * 10 " +
+      s" when matched and $updateCond then update set $updateSet " +
       s" when matched and $deleteCond then delete " +
       s" when not matched then insert values($insertCols)"
 
