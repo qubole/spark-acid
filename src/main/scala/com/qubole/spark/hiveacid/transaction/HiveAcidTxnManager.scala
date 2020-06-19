@@ -24,7 +24,7 @@ import com.qubole.shaded.hadoop.hive.common.{ValidTxnList, ValidTxnWriteIdList, 
 import com.qubole.shaded.hadoop.hive.metastore.api.{DataOperationType, LockRequest, LockResponse, LockState, TxnInfo}
 import com.qubole.shaded.hadoop.hive.metastore.conf.MetastoreConf
 import com.qubole.shaded.hadoop.hive.metastore.txn.TxnUtils
-import com.qubole.shaded.hadoop.hive.metastore.{HiveMetaStoreClient, LockComponentBuilder, LockRequestBuilder}
+import com.qubole.shaded.hadoop.hive.metastore.{IMetaStoreClient, LockComponentBuilder, LockRequestBuilder, RetryingMetaStoreClient}
 import com.qubole.spark.hiveacid.datasource.HiveAcidDataSource
 import com.qubole.spark.hiveacid.hive.HiveConverter
 import com.qubole.spark.hiveacid.{HiveAcidErrors, HiveAcidOperation, SparkAcidConf}
@@ -48,11 +48,11 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession) extends L
   private val heartbeatInterval = MetastoreConf.getTimeVar(hiveConf,
     MetastoreConf.ConfVars.TXN_TIMEOUT, TimeUnit.MILLISECONDS) / 3
 
-  private lazy val client: HiveMetaStoreClient = new HiveMetaStoreClient(
-    hiveConf, null, false)
+  private lazy val client: IMetaStoreClient =
+    RetryingMetaStoreClient.getProxy(hiveConf, false)
 
-  private lazy val heartBeaterClient: HiveMetaStoreClient =
-    new HiveMetaStoreClient(hiveConf, null, false)
+  private lazy val heartBeaterClient: IMetaStoreClient =
+    RetryingMetaStoreClient.getProxy(hiveConf, false)
 
   // FIXME: Use thread pool so that we don't create multiple threads
   private val heartBeater: ScheduledExecutorService =
