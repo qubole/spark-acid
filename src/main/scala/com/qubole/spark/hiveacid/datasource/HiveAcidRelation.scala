@@ -99,6 +99,10 @@ case class HiveAcidRelation(sparkSession: SparkSession,
       notMatched, sourceAlias, targetAlias)
   }
 
+  def getHiveAcidTable(): HiveAcidTable = {
+    hiveAcidTable
+  }
+
   // FIXME: should it be true / false. Recommendation seems to
   //  be to leave it as true
   override val needConversion: Boolean = false

@@ -22,7 +22,7 @@ import com.qubole.spark.hiveacid.datasource.HiveAcidDataSource
 import com.qubole.spark.hiveacid.merge.{MergeWhenClause, MergeWhenNotInsert}
 import com.qubole.spark.hiveacid.rdd.EmptyRDD
 import com.qubole.spark.hiveacid.transaction._
-import org.apache.spark.annotation.InterfaceStability.{Evolving}
+import org.apache.spark.annotation.InterfaceStability.Evolving
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.{DataFrame, _}
@@ -206,6 +206,10 @@ class HiveAcidTable(val sparkSession: SparkSession,
 
   def isBucketed: Boolean = {
     hiveAcidMetadata.isBucketed
+  }
+
+  def isPartitioned: Boolean = {
+    hiveAcidMetadata.isPartitioned
   }
 }
 

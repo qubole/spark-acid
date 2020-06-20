@@ -19,11 +19,13 @@
 
 package com.qubole.spark.hiveacid.merge
 
+import com.qubole.spark.hiveacid.datasource.HiveAcidRelation
 import com.qubole.spark.hiveacid.{AnalysisException, HiveAcidErrors}
 import org.apache.spark.sql.catalyst.analysis.{Star, UnresolvedAttribute, UnresolvedStar}
 import org.apache.spark.sql.{SparkSession, SqlUtils}
 import org.apache.spark.sql.catalyst.expressions.{Alias, AttributeReference, Expression, ExtractValue, GetStructField}
 import org.apache.spark.sql.catalyst.parser.plans.logical.MergePlan
+import org.apache.spark.sql.execution.datasources.LogicalRelation
 
 case class MergeCondition (expression: Expression)
 
@@ -92,8 +94,9 @@ case class MergeWhenUpdateClause(matchCondition: Option[Expression], setExpressi
   override def resolve(sparkSession: SparkSession, mergePlan: MergePlan): MergeWhenClause = {
     val resolveCondition = matchCondition.map(SqlUtils.
       resolveReferences(sparkSession, _, mergePlan.children, failIfUnresolved = true, Some("mergeUpdateClause")))
+    val resolver = sparkSession.sessionState.conf.resolver
     val resolvedSetExpression: Map[String, Expression] = if (isStar) {
-      // Represents UPDATE *. This is denoted by sequence of `sourceColumnName = targetColumnNames`
+      // Represents UPDATE *. This is denoted by sequence of `targetColumnNames = sourceColumnName`
       // which are expected to be present in source too.
       // Hence, they will be resolved by sourceTable.
       var resolvedSetExpression: Map[String, Expression] = Map()
@@ -104,7 +107,6 @@ case class MergeWhenUpdateClause(matchCondition: Option[Expression], setExpressi
       }
       resolvedSetExpression
     } else {
-      val resolver = sparkSession.sessionState.conf.resolver
       setExpression.toList.map {
         entry => {
           val col = entry._1
@@ -128,6 +130,21 @@ case class MergeWhenUpdateClause(matchCondition: Option[Expression], setExpressi
         }
       }.toMap
     }
+
+    // Validate that resolvedSetExpression is not updating the partitioned column
+    mergePlan.targetPlan.collectLeaves().head match {
+      case LogicalRelation(hiveAcidRelation: HiveAcidRelation, _, _ , _) => if (hiveAcidRelation.getHiveAcidTable().isPartitioned) {
+        val hiveAcidMetadata = hiveAcidRelation.getHiveAcidTable().hiveAcidMetadata
+        val partitionCols = hiveAcidMetadata.partitionSchema.fieldNames
+        val partitionColUpdated = resolvedSetExpression.keys.find(setCol =>
+          partitionCols.find(resolver.apply(_, setCol)).nonEmpty)
+        if (partitionColUpdated.nonEmpty) {
+          throw HiveAcidErrors.updateOnPartition(partitionColUpdated.toSeq, hiveAcidMetadata.fullyQualifiedName)
+        }
+      }
+      case _ =>
+    }
+
     MergeWhenUpdateClause(resolveCondition, resolvedSetExpression, isStar)
   }
 

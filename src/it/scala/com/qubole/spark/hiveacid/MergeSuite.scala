@@ -150,6 +150,18 @@ class MergeSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll
       "Please check MERGE match condition and try again"))
   }
 
+  test("Merge Test on Partitioned ORC with Update on Columns") {
+    val tableNameSpark = "tSparkUpdatePartitionColumned"
+    val tableSpark = new Table(DEFAULT_DBNAME, tableNameSpark, cols,
+      Table.orcPartitionedFullACIDTable, true)
+    helper.recreate(tableSpark, false)
+    val thrown = intercept[com.qubole.spark.hiveacid.AnalysisException] {
+      helper.sparkSQL(tableSpark.mergeCommand(sourcePartitioned.hiveTname, "t.key >= 11 and t.key < 17",
+        "t.key > 16", "*", "intCol=s.intCol * 10, ptnCol=s.ptnCol"))
+    }
+    assert(thrown.getMessage().contains("UPDATE on the partition columns are not allowed"))
+  }
+
   // Merge test for full acid tables
   def mergeTestWithJustInsert(tType: String, isPartitioned: Boolean): Unit = {
     val tableNameSpark = if (isPartitioned) {
