@@ -17,128 +17,36 @@
 
 package com.qubole.spark.hiveacid
 
-import com.qubole.spark.hiveacid.reader.TableReader
-import com.qubole.spark.hiveacid.writer.TableWriter
 import com.qubole.spark.hiveacid.hive.HiveAcidMetadata
 import com.qubole.spark.hiveacid.datasource.HiveAcidDataSource
-import com.qubole.spark.hiveacid.merge.{MergeImpl, MergeWhenClause, MergeWhenNotInsert}
+import com.qubole.spark.hiveacid.merge.{MergeWhenClause, MergeWhenNotInsert}
 import com.qubole.spark.hiveacid.rdd.EmptyRDD
 import com.qubole.spark.hiveacid.transaction._
-import org.apache.spark.annotation.InterfaceStability.{Evolving, Unstable}
+import org.apache.spark.annotation.InterfaceStability.{Evolving}
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.{DataFrame, _}
 import org.apache.spark.sql.sources.Filter
 import org.apache.spark.sql.Column
-import org.apache.spark.sql.SqlUtils
-import org.apache.spark.sql.catalyst.expressions.Alias
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.AliasIdentifier
 import org.apache.spark.sql.catalyst.expressions.Expression
-import org.apache.spark.sql.catalyst.parser.plans.logical.MergePlan
-import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, SubqueryAlias}
-
-import scala.collection.JavaConverters._
 
 
 /**
- * Represents a hive acid table and exposes API to perform operations on top of it
- * @param sparkSession - spark session object
- * @param hiveAcidMetadata - metadata object
- * @param parameters - additional parameters
- */
+  * Represents a hive acid table and exposes API to perform operations on top of it
+  * @param sparkSession - spark session object
+  * @param hiveAcidMetadata - metadata object
+  * @param parameters - additional parameters
+  */
 @Evolving
 class HiveAcidTable(val sparkSession: SparkSession,
                     val hiveAcidMetadata: HiveAcidMetadata,
                     val parameters: Map[String, String]
                    ) extends Logging {
 
-  // Pulled from thin air
-  private val maxInvalidTxnRetry = 5
-
-  private var isLocalTxn: Boolean = false
-  private var curTxn: HiveAcidTxn = _
-
-  private val sparkAcidConfig = SparkAcidConf(sparkSession, parameters)
-  // Start local transaction if not passed.
-  private def getOrCreateTxn(): Unit = {
-    curTxn = HiveAcidTxn.currentTxn()
-    curTxn match {
-      case null =>
-        // create local txn
-        logInfo("Creating new transaction")
-        curTxn = HiveAcidTxn.createTransaction(sparkSession)
-        curTxn.begin()
-        isLocalTxn = true
-        logInfo(s"Transaction created: ${curTxn.txnId}")
-      case txn =>
-        logInfo(s"Using existing transaction:  ${curTxn.txnId}")
-    }
-  }
-
-  // End and reset transaction and snapshot
-  // if locally started
-  private def unsetOrEndTxn(abort: Boolean = false): Unit = {
-    if (! isLocalTxn) {
-      logInfo(s"Not ending the transaction ${curTxn.txnId} as it's not Local")
-      return
-    }
-    logInfo(s"Ending Transaction ${curTxn.txnId} with abort flag: $abort")
-    curTxn.end(abort)
-    curTxn = null
-    isLocalTxn = false
-  }
-
-  /**
-    * Executes function `f` under transaction protection.
-    * Following is the lifecycle of the Transaction here:
-    *
-    *  1. Create Transaction
-    *  2. While creating valid transaction, also store the valid Transactions (`validTxns`) at that point.
-    *  3. Acquire Locks
-    *  4. `validTxns` could have changed at this point due to
-    *      transactions getting committed between Step 2 and 3 above.
-    *      Abort the transaction if it happened and Retry from step 1.
-    *  5. Execute `f`
-    *  6. End the transaction
-    *
-    *  Note, if transaction was already existing for this thread, it will be respected.
-    * @param f Code Block to be executed in transaction
-    */
-  private def inTxn(f: => Unit): Unit = synchronized {
-    def inTxnRetry(retryRemaining: Int): Boolean = {
-      getOrCreateTxn()
-      var abort = false
-      var retry = false
-      try {
-        f
-      }
-      catch {
-        case tie: TransactionInvalidException =>
-          abort = true
-          if (isLocalTxn && retryRemaining > 0) {
-            logError(s"Transaction ${curTxn.txnId} was aborted as it became invalid before the locks were acquired ... Retrying", tie)
-            retry = true
-          } else {
-            logError(s"Transaction ${curTxn.txnId} was aborted as it became invalid before the locks were acquired. Max retries reached", tie)
-            throw tie
-          }
-        case e: Exception =>
-          logError("Unable to execute in transactions due to: " + e.getMessage)
-          abort = true
-          throw e
-      }
-      finally {
-        unsetOrEndTxn(abort)
-      }
-      retry
-    }
-
-    var retryRemaining = maxInvalidTxnRetry - 1
-    while (inTxnRetry(retryRemaining)) {
-      retryRemaining = retryRemaining - 1
-    }
-  }
+  private val delegate: AcidOperationDelegate =
+    new HiveAcidOperationDelegate(sparkSession, hiveAcidMetadata, parameters)
 
   /**
     * Create dataframe to read based on hiveAcidTable and passed in filter.
@@ -154,75 +62,6 @@ class HiveAcidTable(val sparkSession: SparkSession,
     sparkSession.read.format(HiveAcidDataSource.NAME)
       .options(options)
       .load()
-  }
-
-  /**
-    * Return df after after applying update clause and filter clause. This df is used to
-    * update the table.
-    * @param condition - condition string to identify rows which needs to be updated
-    * @param newValues - Map of (column, value) to set
-    */
-  private def updateDF(condition: Option[String], newValues: Map[String, String]): DataFrame = {
-    val conditionColumn = condition.map(functions.expr)
-    val newValMap = newValues.mapValues(value => functions.expr(value))
-    updateDFInternal(conditionColumn, newValMap)
-  }
-
-
-  /**
-    * Return df after after applying update clause and filter clause. This df is used to
-    * update the table.
-    * @param condition - condition string to identify rows which needs to be updated
-    * @param newValues - Map of (column, value) to set
-    */
-  private def updateDFInternal(condition: Option[Column], newValues: Map[String, Column]): DataFrame = {
-
-    val df = readDF(true)
-    val (qualifiedPlan: LogicalPlan, resolvedDf: DataFrame) =
-      SqlUtils.getDFQualified(sparkSession, readDF(true), hiveAcidMetadata.fullyQualifiedName)
-
-    def toStrColumnMap(map: Map[String, Column]): Map[String, Column] = {
-      map.toSeq.map { case (k, v) =>
-        k.toLowerCase -> functions.expr(SqlUtils.resolveReferences(sparkSession, v.expr,
-          qualifiedPlan, failIfUnresolved = false).sql)}.toMap
-    }
-
-    val strColumnMap = toStrColumnMap(newValues)
-    val updateColumns = strColumnMap.keys
-    val resolver = sparkSession.sessionState.conf.resolver
-    val resolvedOutput = resolvedDf.queryExecution.optimizedPlan.output.map(_.name)
-
-    // Check if updateColumns are present
-    val updateColumnNotFound = updateColumns.find(uc => !resolvedOutput.exists(o => resolver(o, uc)))
-    updateColumnNotFound.map {
-      u => throw HiveAcidErrors.updateSetColumnNotFound(u, resolvedOutput)
-    }
-
-    val updateExpressions: Seq[Expression] =
-      resolvedDf.queryExecution.optimizedPlan.output.map {
-        attr =>
-          val updateColOpt = updateColumns.find(uc => resolver(uc, attr.name))
-           updateColOpt match {
-             case Some(updateCol) => strColumnMap(updateCol).expr
-             case None => attr
-          }
-      }
-
-    val outputColumns = updateExpressions.zip(df.queryExecution.optimizedPlan.output).map {
-      case (newExpr, origAttr) =>
-        new Column(Alias(newExpr, origAttr.name)())
-    }
-
-    condition match {
-      case Some(cond) =>
-        val resolvedExpr = SqlUtils.resolveReferences(sparkSession,
-          cond.expr,
-          qualifiedPlan, failIfUnresolved = false)
-        resolvedDf.filter(resolvedExpr.sql).select(outputColumns: _*)
-      case None =>
-        resolvedDf.select(outputColumns: _*)
-    }
-
   }
 
   /**
@@ -250,9 +89,8 @@ class HiveAcidTable(val sparkSession: SparkSession,
     //  outside this function. For transactional guarantees, the transaction
     //  boundary needs to span getRDD call. Currently we return the RDD
     //  without any protection.
-    inTxn {
-      val tableReader = new TableReader(sparkSession, curTxn, hiveAcidMetadata)
-      res = tableReader.getRdd(requiredColumns, filters, readConf)
+    inTxn { txn =>
+      res = delegate.getRdd(requiredColumns, filters, readConf, txn)
     }
     res
   }
@@ -265,11 +103,16 @@ class HiveAcidTable(val sparkSession: SparkSession,
   def addBatch(df: DataFrame): Long = {
     var txnId = -1L
     inTxn {
-      val tableWriter = new TableWriter(sparkSession, curTxn, hiveAcidMetadata, sparkAcidConfig)
-      tableWriter.process(HiveAcidOperation.INSERT_INTO, df)
-      txnId = HiveAcidTxn.currentTxn().txnId
+      txn: HiveAcidTxn => {
+        delegate.addBatch(df, txn)
+        txnId = HiveAcidTxn.currentTxn().txnId
+      }
     }
     txnId
+  }
+
+  private def inTxn(f: HiveAcidTxn =>  Unit): Unit = {
+    new HiveTxnWrapper(sparkSession).inTxn(f)
   }
 
   /**
@@ -283,9 +126,7 @@ class HiveAcidTable(val sparkSession: SparkSession,
     *                    is avoided for them during writes.
     */
   def insertInto(df: DataFrame, statementId: Option[Int] = None): Unit = inTxn {
-    val tableWriter = new TableWriter(sparkSession, curTxn, hiveAcidMetadata,
-      sparkAcidConfig, statementId)
-    tableWriter.process(HiveAcidOperation.INSERT_INTO, df)
+    curTxn => delegate.insertInto(df, curTxn, statementId)
   }
 
   /**
@@ -299,9 +140,7 @@ class HiveAcidTable(val sparkSession: SparkSession,
     *                    is avoided for them during writes.
     */
   def insertOverwrite(df: DataFrame, statementId: Option[Int] = None): Unit = inTxn {
-    val tableWriter = new TableWriter(sparkSession, curTxn, hiveAcidMetadata,
-      sparkAcidConfig, statementId)
-    tableWriter.process(HiveAcidOperation.INSERT_OVERWRITE, df)
+    curTxn => delegate.insertOverwrite(df, curTxn, statementId)
   }
 
   /**
@@ -322,43 +161,8 @@ class HiveAcidTable(val sparkSession: SparkSession,
     * @param condition - Boolean SQL Expression filtering rows to be deleted
     */
   @Evolving
-  def delete(condition: Column): Unit = {
-    checkForSupport(HiveAcidOperation.DELETE)
-    inTxn {
-      val (qualifiedPlan: LogicalPlan, resolvedDf: DataFrame) =
-        SqlUtils.getDFQualified(sparkSession, readDF(true), hiveAcidMetadata.fullyQualifiedName)
-      val resolvedExpr = SqlUtils.resolveReferences(sparkSession,
-        condition.expr,
-        qualifiedPlan, failIfUnresolved = false)
-      val tableWriter = new TableWriter(sparkSession, curTxn, hiveAcidMetadata, sparkAcidConfig)
-      tableWriter.process(HiveAcidOperation.DELETE, resolvedDf.filter(resolvedExpr.sql))
-    }
-  }
-
-  /**
-    * NOT TO BE USED EXTERNALLY
-    * Not protected by transactionality, it is assumed curTxn is already
-    * set before calling this
-    * @param deleteDf DataFrame to be used to update is supposed to have
-    *                 same schema as tableSchemaWithRowId
-    * @param statementId Optional. In a same transaction, multiple statements like INSERT/UPDATE/DELETE
-    *                    (like in case of MERGE) can be issued.
-    *                    [[statementId]] has to be different for them to ensure delta collision
-    *                    is avoided for them during writes.
-    */
-  @Unstable
-  def delete(deleteDf: DataFrame, statementId: Option[Int] = None): Unit = {
-    if (curTxn == null) {
-      throw new IllegalStateException("Transaction not set before invoking update on dataframe")
-    }
-    if (deleteDf.schema != hiveAcidMetadata.tableSchemaWithRowId) {
-      throw new UnsupportedOperationException("Delete Dataframe doesn't have expected schema. " +
-        "Provided: " + deleteDf.schema.mkString(",") +
-        "  Expected: " + hiveAcidMetadata.tableSchemaWithRowId.mkString(","))
-    }
-    val tableWriter = new TableWriter(sparkSession, curTxn, hiveAcidMetadata,
-      sparkAcidConfig, statementId)
-    tableWriter.process(HiveAcidOperation.DELETE, deleteDf)
+  def delete(condition: Column): Unit = inTxn {
+    curTxn => delegate.delete(condition, curTxn)
   }
 
   /**
@@ -369,19 +173,8 @@ class HiveAcidTable(val sparkSession: SparkSession,
     * @param newValues - Map of (column, value) to set
     */
   @Evolving
-  def update(condition: Option[String], newValues: Map[String, String]): Unit = {
-    checkForSupport(HiveAcidOperation.UPDATE)
-    val partCols = hiveAcidMetadata.partitionSchema.fieldNames.map(_.toLowerCase)
-    val partUpdateCols = newValues.keys.map(_.toLowerCase).filter(partCols.contains(_))
-    if (!partUpdateCols.isEmpty) {
-      throw HiveAcidErrors.updateOnPartition(partUpdateCols.toSeq, hiveAcidMetadata.fullyQualifiedName)
-    }
-
-    inTxn {
-      val updateDf = updateDF(condition, newValues)
-      val tableWriter = new TableWriter(sparkSession, curTxn, hiveAcidMetadata, sparkAcidConfig)
-      tableWriter.process(HiveAcidOperation.UPDATE, updateDf)
-    }
+  def update(condition: Option[String], newValues: Map[String, String]): Unit = inTxn {
+    curTxn => delegate.update(condition, newValues, curTxn)
   }
   /**
     * Update rows in the hive acid table based on condition and newValues
@@ -392,46 +185,9 @@ class HiveAcidTable(val sparkSession: SparkSession,
     * @param newValues - Map of (column, value) to set
     */
   @Evolving
-  def update(condition: Option[Column], newValues: java.util.Map[String, Column]): Unit = {
-    checkForSupport(HiveAcidOperation.UPDATE)
-    val partCols = hiveAcidMetadata.partitionSchema.fieldNames.map(_.toLowerCase)
-    val partUpdateCols = newValues.keySet().asScala.map(_.toLowerCase).filter(partCols.contains(_))
-    if (!partUpdateCols.isEmpty) {
-      throw HiveAcidErrors.updateOnPartition(partUpdateCols.toSeq,
-        hiveAcidMetadata.fullyQualifiedName)
-    }
-    inTxn {
-      val updateDf = updateDFInternal(condition, newValues.asScala.toMap)
-      val tableWriter = new TableWriter(sparkSession, curTxn, hiveAcidMetadata, sparkAcidConfig)
-      tableWriter.process(HiveAcidOperation.UPDATE, updateDf)
-    }
+  def update(condition: Option[Column], newValues: java.util.Map[String, Column]): Unit = inTxn {
+    curTxn => delegate.update(condition, newValues, curTxn)
   }
-
-  /**
-    * NOT TO BE USED EXTERNALLY
-    * Not protected by transactionality, it is assumed curTxn is already
-    * set before calling this
-    * @param updateDf DataFrame to be used to update is supposed to have same schema as tableSchemaWithRowId
-    * @param statementId Optional. In a same transaction, multiple statements like INSERT/UPDATE/DELETE
-    *                    (like in case of MERGE) can be issued.
-    *                    [[statementId]] has to be different for them to ensure delta collision
-    *                    is avoided for them during writes.
-    */
-  @Unstable
-  def update(updateDf : DataFrame, statementId: Option[Int] = None): Unit = {
-    if (curTxn == null) {
-      throw new IllegalStateException("Transaction not set before invoking update on dataframe")
-    }
-    if (updateDf.schema != hiveAcidMetadata.tableSchemaWithRowId) {
-      throw new UnsupportedOperationException("Update Dataframe doesn't have expected schema. " +
-        "Provided: " + updateDf.schema.mkString(",") +
-        "  Expected: " + hiveAcidMetadata.tableSchemaWithRowId.mkString(","))
-    }
-    val tableWriter = new TableWriter(sparkSession, curTxn, hiveAcidMetadata,
-      sparkAcidConfig, statementId)
-    tableWriter.process(HiveAcidOperation.UPDATE, updateDf)
-  }
-
 
   @Evolving
   def merge(sourceDf: DataFrame,
@@ -439,33 +195,9 @@ class HiveAcidTable(val sparkSession: SparkSession,
             matchedClause: Seq[MergeWhenClause],
             notMatched: Option[MergeWhenNotInsert],
             sourceAlias: Option[AliasIdentifier],
-            targetAlias: Option[AliasIdentifier]): Unit = {
-    def getPlan(df: DataFrame, alias: Option[AliasIdentifier], isTarget: Boolean) = {
-      val finalDf = if (isTarget) {
-        // Remove rowId from target as it's not visible to users
-        df.drop(HiveAcidMetadata.rowIdCol)
-      } else {
-        df
-      }
-      alias match {
-        case Some(alias) => SubqueryAlias(alias, finalDf.queryExecution.analyzed)
-        case _ => finalDf.queryExecution.analyzed
-      }
-    }
-    checkForSupport(HiveAcidOperation.MERGE)
-    MergeWhenClause.validate(matchedClause ++ notMatched)
-    inTxn {
-      // Take care of aliases for resolution.
-      // readDF will be used for the actual merge operation. So resolution of merge clauses should happen on `readDF().queryExecution.analyzed`
-      // As `readDF` has different attribute Ids assigned than `targetTable` we have to replace it
-      // and make sure we use same readDF for merge operation.
-      val targetDf = readDF(true)
-      val sourcePlan = getPlan(sourceDf, sourceAlias, isTarget = false)
-      val targetPlan = getPlan(targetDf, targetAlias, isTarget = true)
-      val mergeImpl = new MergeImpl(sparkSession, this, sourceDf, targetDf,
-        new MergePlan(sourcePlan, targetPlan, mergeExpression, matchedClause, notMatched))
-      mergeImpl.run()
-    }
+            targetAlias: Option[AliasIdentifier]): Unit = inTxn {
+    txn => delegate.merge(sourceDf, hiveAcidMetadata, mergeExpression, matchedClause,
+      notMatched, sourceAlias, targetAlias, txn)
   }
 
   def isFullAcidTable: Boolean = {
@@ -474,23 +206,6 @@ class HiveAcidTable(val sparkSession: SparkSession,
 
   def isBucketed: Boolean = {
     hiveAcidMetadata.isBucketed
-  }
-
-  private def checkForSupport(operation: HiveAcidOperation.OperationType): Unit = {
-    operation match {
-      case HiveAcidOperation.UPDATE | HiveAcidOperation.DELETE | HiveAcidOperation.MERGE =>
-        if (!this.isFullAcidTable && !this.isInsertOnlyTable) {
-          throw HiveAcidErrors.tableNotAcidException(hiveAcidMetadata.fullyQualifiedName)
-        }
-        if (!this.isFullAcidTable && this.isInsertOnlyTable) {
-          throw HiveAcidErrors.unsupportedOperationTypeInsertOnlyTable(operation.toString,
-            hiveAcidMetadata.fullyQualifiedName)
-        }
-        if (this.isBucketed) {
-          throw HiveAcidErrors.unsupportedOperationTypeBucketedTable(operation.toString,
-            hiveAcidMetadata.fullyQualifiedName)
-        }
-    }
   }
 }
 
@@ -505,3 +220,137 @@ object HiveAcidTable {
     new HiveAcidTable(sparkSession, hiveAcidMetadata, parameters)
   }
 }
+
+/**
+  * Wrapper over [[HiveAcidTxn]] which ensures running operations within transaction boundary
+  *
+  * This wrapper can be used just once for running an operation. That operation is not allowed to recursively call this again
+  * @param sparkSession
+  */
+private class HiveTxnWrapper(sparkSession: SparkSession) extends Logging {
+
+  private var isLocalTxn: Boolean = _
+  private var curTxn: HiveAcidTxn = _
+  private object TxnWrapperState extends Enumeration {
+    type state = Value
+    val INIT, OPEN, CLOSE = Value
+  }
+  private var currentState: TxnWrapperState.state = TxnWrapperState.INIT
+
+  private def isValidStateTransition(newState: TxnWrapperState.state): Boolean = {
+    if (currentState == newState) {
+      true
+    } else {
+      currentState match {
+        case TxnWrapperState.INIT => newState == TxnWrapperState.OPEN
+        case TxnWrapperState.OPEN => newState == TxnWrapperState.CLOSE
+        case TxnWrapperState.CLOSE => newState == TxnWrapperState.CLOSE
+      }
+    }
+  }
+
+  private def transitionTo(newState: TxnWrapperState.state): Unit = {
+    currentState match {
+      case TxnWrapperState.INIT if newState == TxnWrapperState.OPEN =>
+        currentState = TxnWrapperState.OPEN
+      case TxnWrapperState.OPEN if newState == TxnWrapperState.CLOSE =>
+        currentState = TxnWrapperState.CLOSE
+      case _ if currentState != newState =>
+        throw new IllegalArgumentException(s"Transition from $currentState to $newState is not allowed")
+    }
+  }
+
+  // Start local transaction if not passed.
+  private def getOrCreateTxn(): Unit = {
+    if (!isValidStateTransition(TxnWrapperState.OPEN)) {
+      throw new IllegalArgumentException(s"Transition from $currentState to ${TxnWrapperState.OPEN} is not allowed")
+    }
+
+    curTxn = HiveAcidTxn.currentTxn()
+    curTxn match {
+      case null =>
+        // create local txn
+        logInfo("Creating new transaction")
+        curTxn = HiveAcidTxn.createTransaction(sparkSession)
+        curTxn.begin()
+        isLocalTxn = true
+        logInfo(s"Transaction created: ${curTxn.txnId}")
+      case txn =>
+        logInfo(s"Using existing transaction:  ${curTxn.txnId}")
+    }
+    transitionTo(TxnWrapperState.OPEN)
+  }
+
+  // End and reset transaction and snapshot
+  // if locally started
+  private def unsetOrEndTxn(abort: Boolean = false): Unit = {
+    if (!isValidStateTransition(TxnWrapperState.CLOSE)) {
+      throw new IllegalArgumentException(s"Transition from $currentState to ${TxnWrapperState.CLOSE} is not allowed")
+    }
+    if (!isLocalTxn) {
+      logInfo(s"Not ending the transaction ${curTxn.txnId} as it's not Local")
+      return
+    }
+    logInfo(s"Ending Transaction ${curTxn.txnId} with abort flag: $abort")
+    curTxn.end(abort)
+    curTxn = null
+    isLocalTxn = false
+  }
+
+  /**
+    * Executes function `f` under transaction protection.
+    * Following is the lifecycle of the Transaction here:
+    *
+    *  1. Create Transaction
+    *  2. While creating valid transaction, also store the valid Transactions (`validTxns`) at that point.
+    *  3. Acquire Locks
+    *  4. `validTxns` could have changed at this point due to
+    *      transactions getting committed between Step 2 and 3 above.
+    *      Abort the transaction if it happened and Retry from step 1.
+    *  5. Execute `f`
+    *  6. End the transaction
+    *
+    *  Note, if transaction was already existing for this thread, it will be respected.
+    * @param f Code Block to be executed in transaction
+    */
+  def inTxn(f: HiveAcidTxn => Unit): Unit = synchronized {
+
+    // Pulled from thin air
+    val maxInvalidTxnRetry = 2
+
+    def inTxnRetry(retryRemaining: Int, f: HiveAcidTxn => Unit): Boolean = {
+      getOrCreateTxn()
+      var abort = false
+      var retry = false
+      try {
+        f.apply(curTxn)
+      }
+      catch {
+        case tie: TransactionInvalidException =>
+          abort = true
+          if (isLocalTxn && retryRemaining > 0) {
+            logError(s"Transaction ${curTxn.txnId} was aborted as " +
+              s"it became invalid before the locks were acquired ... Retrying", tie)
+            retry = true
+          } else {
+            logError(s"Transaction ${curTxn.txnId} was aborted " +
+              s"as it became invalid before the locks were acquired", tie)
+            throw tie
+          }
+        case e: Exception =>
+          logError("Unable to execute in transactions due to: " + e.getMessage)
+          abort = true
+          throw e
+      }
+      finally {
+        unsetOrEndTxn(abort)
+      }
+      retry
+    }
+    var retryRemaining = maxInvalidTxnRetry - 1
+    while (inTxnRetry(retryRemaining, f)) {
+      retryRemaining = retryRemaining - 1
+    }
+  }
+}
+
