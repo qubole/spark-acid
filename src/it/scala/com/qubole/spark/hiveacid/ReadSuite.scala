@@ -26,6 +26,7 @@ import org.scalatest._
 
 import scala.util.control.NonFatal
 
+@Ignore
 class ReadSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll {
 
   val log: Logger = LogManager.getLogger(this.getClass)

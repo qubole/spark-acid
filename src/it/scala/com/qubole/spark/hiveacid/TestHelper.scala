@@ -58,7 +58,7 @@ class TestHelper extends SQLImplicits {
 
   def destroy(): Unit = {
     hiveClient.teardown()
-    spark.stop()
+    TestSparkSession.close(spark)
   }
 
   /*
