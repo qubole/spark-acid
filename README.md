@@ -374,12 +374,16 @@ Read more about [sbt release](https://github.com/sbt/sbt-release)
 
 ## Contributing
 
-1. We use [Github Issues](https://github.com/qubole/spark-acid/issues) to track issues.
-Please feel free to open an issue for any queries, bugs and feature requests.
+1. You can join the group for queries and discussions by sending email to: spark-acid+subscribe@googlegroups.com
+   On subscribing, you will be sent email to confirm joining the group.
 
-2. Pull Request can be raised against any open issues and are most welcome. 
+2. We use [Github Issues](https://github.com/qubole/spark-acid/issues) to track issues.
+   Please feel free to open an issue for any queries, bugs and feature requests.
+
+3. Pull Request can be raised against any open issues and are most welcome. 
    Processes or guidelines for the same is not formal currently.
 
 ## Reporting bugs or feature requests
 
-Please use the github issues for the acid-ds project to report issues or raise feature requests.
+Please use the github issues for the acid-ds project to report issues or raise feature requests. 
+You can also join this group to discuss them: spark-acid+subscribe@googlegroups.com
