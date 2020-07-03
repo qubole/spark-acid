@@ -436,7 +436,7 @@ class HiveAcidOperationDelegate(val sparkSession: SparkSession,
     // readDF will be used for the actual merge operation. So resolution of merge clauses should happen on `readDF().queryExecution.analyzed`
     // As `readDF` has different attribute Ids assigned than `targetTable` we have to replace it
     // and make sure we use same readDF for merge operation.
-    val targetDf = readDF(true)
+    val targetDf = SqlUtils.getDFQualified(sparkSession, readDF(true), hiveAcidMetadata.fullyQualifiedName)._2
     val sourcePlan = getPlan(sourceDf, sourceAlias, isTarget = false)
     val targetPlan = getPlan(targetDf, targetAlias, isTarget = true)
     val mergeImpl = new MergeImpl(sparkSession, hiveAcidMetadata, this, sourceDf, targetDf,
