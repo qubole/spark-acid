@@ -28,7 +28,9 @@ import org.apache.spark.sql.catalyst.plans.logical.{Filter, InsertIntoTable, Log
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.command.DDLUtils
 import org.apache.spark.sql.execution.datasources.LogicalRelation
-import com.qubole.spark.hiveacid.datasource.HiveAcidDataSource
+import com.qubole.spark.hiveacid.datasource.{HiveAcidDataSource, HiveAcidDataSourceV2}
+import org.apache.spark.sql.execution.datasources.v2.DataSourceV2Relation
+import org.apache.spark.SparkContext
 
 
 /**
@@ -43,12 +45,24 @@ case class HiveAcidAutoConvert(spark: SparkSession) extends Rule[LogicalPlan] {
     relation.tableMeta.properties.getOrElse("transactional", "false").toBoolean
   }
 
-  private def convert(relation: HiveTableRelation): LogicalRelation = {
+  private def convert(relation: HiveTableRelation): LogicalPlan = {
     val options = relation.tableMeta.properties ++
       relation.tableMeta.storage.properties ++ Map("table" -> relation.tableMeta.qualifiedName)
-
     val newRelation = new HiveAcidDataSource().createRelation(spark.sqlContext, options)
     LogicalRelation(newRelation, isStreaming = false)
+  }
+
+  private def convertV2(relation: HiveTableRelation): LogicalPlan = {
+    val serde = relation.tableMeta.storage.serde.getOrElse("").toLowerCase(Locale.ROOT)
+    if (!serde.equals("org.apache.hadoop.hive.ql.io.orc.orcserde")) {
+      // Only ORC formatted is supported as of now. If its not ORC, then fallback to
+      // datasource V1.
+      return convert(relation)
+    }
+    val dbName = relation.tableMeta.identifier.database.getOrElse("default")
+    val tableName = relation.tableMeta.identifier.table
+    val tableOpts = Map("database" -> dbName, "table" -> tableName)
+    DataSourceV2Relation.create(new HiveAcidDataSourceV2, tableOpts, None, None)
   }
 
   override def apply(plan: LogicalPlan): LogicalPlan = {
@@ -61,7 +75,11 @@ case class HiveAcidAutoConvert(spark: SparkSession) extends Rule[LogicalPlan] {
       // Read path
       case relation: HiveTableRelation
         if DDLUtils.isHiveTable(relation.tableMeta) && isConvertible(relation) =>
-        convert(relation)
+          if (spark.conf.get("spark.acid.use.datasource.v2", "false").toBoolean) {
+            convertV2(relation)
+          } else {
+            convert(relation)
+          }
     }
   }
 }

@@ -30,6 +30,8 @@ private[hiveacid] object TestSparkSession {
       .config("spark.sql.extensions", "com.qubole.spark.hiveacid.HiveAcidAutoConvertExtension")
       //.config("spark.ui.enabled", "true")
       //.config("spark.ui.port", "4041")
+      // All V1 tests are executed USING HiveAcid
+      .config("spark.acid.use.datasource.v2", "true")
       .enableHiveSupport()
       .getOrCreate()
     spark.sparkContext.setLogLevel("WARN")

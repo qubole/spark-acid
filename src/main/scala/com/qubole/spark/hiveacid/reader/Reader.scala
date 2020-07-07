@@ -20,14 +20,15 @@
 package com.qubole.spark.hiveacid.reader
 
 import com.qubole.spark.hiveacid.hive.HiveAcidMetadata
-
+import org.apache.spark.sql.sources.v2.reader.InputPartition
+import org.apache.spark.sql.vectorized.ColumnarBatch
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
 
 private[reader] trait Reader {
   def makeRDDForTable(hiveAcidMetadata: HiveAcidMetadata): RDD[InternalRow]
-  def makeRDDForPartitionedTable(hiveAcidMetadata: HiveAcidMetadata,
-                                 partitions: Seq[ReaderPartition]):  RDD[InternalRow]
+  def makeRDDForPartitionedTable(hiveAcidMetadata: HiveAcidMetadata):  RDD[InternalRow]
+  def makeV2ReaderForTable(hiveAcidMetadata: HiveAcidMetadata): java.util.List[InputPartition[ColumnarBatch]]
 }
 
 private[reader] case class ReaderPartition(ptn: Any)
