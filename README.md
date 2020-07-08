@@ -391,7 +391,7 @@ You can also join this group to discuss them: spark-acid+subscribe@googlegroups.
 
 ## Known Issues
 
-1. Insert in static partitions don't work currently. For example query like "insert into tbl partition (p1=1) ...." will not work. It is because spark currently does not support partitioned datasources. It only supports partitions in Hive table relation or a file based relation. But spark acid relation is neither of them.
+1. Insert in static partitions is not supported via spark acid. For example query like "insert into tbl partition (p1=1) ...." will not work. It is because spark currently does not support partitioned datasources. It only supports partitions in Hive table relation or a file based relation. But spark acid relation is neither of them.
 2. Because of an open source issue [HIVE-21052](https://issues.apache.org/jira/browse/HIVE-21052), users started hitting the issue described by [@amoghmargoor](https://github.com/amoghmargoor) in [this](https://issues.apache.org/jira/browse/HIVE-21052?focusedCommentId=17152785&page=com.atlassian.jira.plugin.system.issuetabpanels%3Acomment-tabpanel#comment-17152785) comment.
 The workaround of the issue HIVE-21052 is that we don't set dynamic partition flag when making lock request. With this workaround, we have observed the following:
 
