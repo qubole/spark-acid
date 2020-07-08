@@ -36,6 +36,7 @@ STREAMING INSERT | ``>= v0.5.0`` | ``>= v0.5.0`` |
 - [Design Consideration](#design-constraints)
 - [Contributing](#contributing)
 - [Report Bugs](#reporting-bugs-or-feature-requests)
+- [Known Issues](#known-issues)
     
 
 ## QuickStart
@@ -387,3 +388,25 @@ Read more about [sbt release](https://github.com/sbt/sbt-release)
 
 Please use the github issues for the acid-ds project to report issues or raise feature requests. 
 You can also join this group to discuss them: spark-acid+subscribe@googlegroups.com
+
+## Known Issues
+
+1. Insert in static partitions don't work currently. For example query like "insert into tbl partition (p1=1) ...." will not work. It is because spark currently does not support partitioned datasources. It only supports partitions in Hive table relation or a file based relation. But spark acid relation is neither of them.
+2. Because of an open source issue [HIVE-21052](https://issues.apache.org/jira/browse/HIVE-21052), users started hitting the issue described by [@amoghmargoor](https://github.com/amoghmargoor) in [this](https://issues.apache.org/jira/browse/HIVE-21052?focusedCommentId=17152785&page=com.atlassian.jira.plugin.system.issuetabpanels%3Acomment-tabpanel#comment-17152785) comment.
+The workaround of the issue HIVE-21052 is that we don't set dynamic partition flag when making lock request. With this workaround, we have observed the following:
+
+- If transaction is successful
+
+   - It is moved to COMPLETED_TXN_COMPONENTS table and has all the partitions information which were touched in the transaction. Compaction (whenever gets kicked in) happens correctly. The entry in COMPLETED_TXN_COMPONENTS gets cleaned up after the compaction runs successfully.
+   - One **cavaet** is that when transaction is moved from TXN_COMPONENTS table to COMPLETED_TXN_COMPONENTS table, then hive metastore server also creates one more entry in COMPLETED_TXN_COMPONENTS table which is similar to the transaction moved except that CTC_PARTITION column is null. This entry with null value never gets removed from COMPLETED_TXN_COMPONENTS table resulting into a leak. For now it can be removed manually. Example of such entry (and actual transaction) in COMPLETED_TXN_COMPONENTS is: 
+   
+           +-----------+--------------+-----------+---------------+---------------------+-------------+-------------------+
+           | CTC_TXNID | CTC_DATABASE | CTC_TABLE | CTC_PARTITION | CTC_TIMESTAMP       | CTC_WRITEID | CTC_UPDATE_DELETE |
+           +-----------+--------------+-----------+---------------+---------------------+-------------+-------------------+
+           |         2 | default      | test_emp1 | NULL          | 2020-07-08 19:40:36 |        NULL | N                 |
+           |         2 | default      | test_emp1 | id=1          | 2020-07-08 19:40:36 |           2 | N                 |
+           +-----------+--------------+-----------+---------------+---------------------+-------------+-------------------+
+   
+- If transaction is aborted
+
+   - Transaction now remains in TXN_COMPONENTS and TXNS tables. Any future reads don't read the data written by this transaction. Initiator (which is a part of compactor) does not remove this transaction from TXN_COMPONENTS resulting into a leak. For now this needs to be handled manually (i.e remove the files written by this transaction and then delete entry from these tables) if required.

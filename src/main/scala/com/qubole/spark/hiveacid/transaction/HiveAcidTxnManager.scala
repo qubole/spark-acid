@@ -275,7 +275,9 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession) extends L
            operationType == HiveAcidOperation.INSERT_INTO ||
            operationType == HiveAcidOperation.UPDATE ||
            operationType == HiveAcidOperation.DELETE) {
-           lcb.setIsDynamicPartitionWrite(true)
+           // setting isDynamicPartitionWrite flag to false.
+           // Check https://github.com/qubole/spark-acid/issues/76 for more details
+           lcb.setIsDynamicPartitionWrite(false)
          } else lcb
        }
 
