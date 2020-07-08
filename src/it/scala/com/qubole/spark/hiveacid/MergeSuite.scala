@@ -184,7 +184,8 @@ class MergeSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll
           .mergeCommandWithInsertOnly(srcTable.hiveTname, "*"))
       } else {
         helper.sparkCollect(tableSpark
-          .mergeCommandWithInsertOnly(srcTable.hiveTname, "key,intCol,doubleCol,floatCol,booleanCol"))
+          .mergeCommandWithInsertOnly(srcTable.hiveTname,
+            srcTable.getColMap.map(x => x._1).mkString(",")))
       }
 
       val expectedRows = 15
