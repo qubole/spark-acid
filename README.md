@@ -392,21 +392,38 @@ You can also join this group to discuss them: spark-acid+subscribe@googlegroups.
 ## Known Issues
 
 1. Insert in static partitions is not supported via spark acid. For example query like "insert into tbl partition (p1=1) ...." will not work. It is because spark currently does not support partitioned datasources. It only supports partitions in Hive table relation or a file based relation. But spark acid relation is neither of them.
-2. Because of an open source issue [HIVE-21052](https://issues.apache.org/jira/browse/HIVE-21052), users started hitting the issue described by [@amoghmargoor](https://github.com/amoghmargoor) in [this](https://issues.apache.org/jira/browse/HIVE-21052?focusedCommentId=17152785&page=com.atlassian.jira.plugin.system.issuetabpanels%3Acomment-tabpanel#comment-17152785) comment.
-The workaround of the issue HIVE-21052 is that we don't set dynamic partition flag when making lock request. With this workaround, we have observed the following:
+2. Because of an open source issue [HIVE-21052](https://issues.apache.org/jira/browse/HIVE-21052), users started hitting the issue described by [@amoghmargoor](https://github.com/amoghmargoor) in [this](https://issues.apache.org/jira/browse/HIVE-21052?focusedCommentId=17152785&page=com.atlassian.jira.plugin.system.issuetabpanels%3Acomment-tabpanel#comment-17152785) comment for **partitioned** tables.
+The workaround of the issue HIVE-21052 is that we don't set dynamic partition flag when making lock request in spark acid. HIVE-21052 will **not** have any impact on the functionality and it is expected to continue to work well. However users will have to do some manual cleanups. They are not serious in nature and can be performed once in a while. These are:
 
 - If transaction is successful
-
-   - It is moved to COMPLETED_TXN_COMPONENTS table and has all the partitions information which were touched in the transaction. Compaction (whenever gets kicked in) happens correctly. The entry in COMPLETED_TXN_COMPONENTS gets cleaned up after the compaction runs successfully.
-   - One **cavaet** is that when transaction is moved from TXN_COMPONENTS table to COMPLETED_TXN_COMPONENTS table, then hive metastore server also creates one more entry in COMPLETED_TXN_COMPONENTS table which is similar to the transaction moved except that CTC_PARTITION column is null. This entry with null value never gets removed from COMPLETED_TXN_COMPONENTS table resulting into a leak. For now it can be removed manually. Example of such entry (and actual transaction) in COMPLETED_TXN_COMPONENTS is: 
+   - For every transaction on partitioned table, now a null entry gets created in COMPLETED_TXN_COMPONENTS table when a transaction is moved from TXN_COMPONENTS. This entry does not get removed after compaction. Note that there would be only one such null entry in COMPLETED_TXN_COMPONENTS table for a transaction. For example if your transaction has touched 100 partitions only one entry of null partitions would get created. So the null entries should not overwhelm the table.
+   - To delete this null entry from COMPLETED_TXN_COMPONENTS table, manually run this query once in a while on metastore db. Note that this is only applicable on partitioned tables
    
-           +-----------+--------------+-----------+---------------+---------------------+-------------+-------------------+
-           | CTC_TXNID | CTC_DATABASE | CTC_TABLE | CTC_PARTITION | CTC_TIMESTAMP       | CTC_WRITEID | CTC_UPDATE_DELETE |
-           +-----------+--------------+-----------+---------------+---------------------+-------------+-------------------+
-           |         2 | default      | test_emp1 | NULL          | 2020-07-08 19:40:36 |        NULL | N                 |
-           |         2 | default      | test_emp1 | id=1          | 2020-07-08 19:40:36 |           2 | N                 |
-           +-----------+--------------+-----------+---------------+---------------------+-------------+-------------------+
-   
+       ``DELETE FROM completed_txn_components WHERE ctc_partition IS NULL AND ctc_writeid IS NULL  AND ctc_table = <TABLE_NAME>``
+                                                    
 - If transaction is aborted
 
-   - Transaction now remains in TXN_COMPONENTS and TXNS tables. Any future reads don't read the data written by this transaction. Initiator (which is a part of compactor) does not remove this transaction from TXN_COMPONENTS resulting into a leak. For now this needs to be handled manually (i.e remove the files written by this transaction and then delete entry from these tables) if required.
+   - Transaction now remains in TXN_COMPONENTS and TXNS tables. Any future reads are not impacted by this aborted transaction though.
+   - The cleanup involves 2 simple steps to be followed for partitioned tables in the following order. These are:
+      1. Delete files in the object store which were written by the aborted transaction. To find out the write id the simple sql query is: 
+           
+            ``SELECT t.TXN_ID,  T2W_WRITEID as WRITE_ID from TXNS as t JOIN TXN_COMPONENTS as tc ON tc.TC_TXNID = t.TXN_ID JOIN TXN_TO_WRITE_ID as tw on t.TXN_ID = tw.T2W_TXNID and t.TXN_STATE = 'a' and tc.TC_PARTITION is NULL``
+            
+            For example if your write ID is 4, then you will need to cleanup  all delta/delta_delete/base directories with name: delta_0000004_0000004/delete_delta_0000004_0000004/base_0000004
+      2. Delete entry from TXN_COMPONENTS table for aborted transaction. Complete sql query looks like
+      
+          ``WITH aborted_transactions AS (
+            SELECT
+                t.txn_id,  
+                tw.t2w_writeid AS write_id
+            FROM
+                txns AS t 
+                JOIN txn_components AS tc 
+                    ON t.txn_id = tc.tc_txnid
+                JOIN txn_to_write_id AS tw 
+                    ON t.txn_id = tw.t2w_txnid
+                    AND t.txn_state = 'a' 
+                    AND tc.tc_partition IS NULL
+            )
+            DELETE FROM txn_components WHERE tc_txnid IN (SELECT txn_id FROM aborted_transactions)`` 
+         
