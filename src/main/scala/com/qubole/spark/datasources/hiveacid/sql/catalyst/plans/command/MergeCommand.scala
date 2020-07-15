@@ -50,7 +50,8 @@ case class MergeCommand(targetTable: LogicalPlan,
 
     val targetRelation = children.head
     val sourceRelation = children.last
-    val sourceTableFullyQualifiedName = EliminateSubqueryAliases(sourceRelation) match {
+
+    val sourceTableFullyQualifiedName = SqlUtils.removeTopSubqueryAlias(sourceRelation) match {
       case hiveTable: HiveTableRelation =>
         Some(hiveTable.tableMeta.qualifiedName)
       case LogicalRelation(acidRelation: HiveAcidRelation, _, _, _) =>
@@ -60,19 +61,12 @@ case class MergeCommand(targetTable: LogicalPlan,
       case _ => None
     }
 
-    val (_, sourceDf) = if (sourceTableFullyQualifiedName.isDefined) {
-      SqlUtils.getDFQualified(sparkSession,
-        SqlUtils.logicalPlanToDataFrame(sparkSession, sourceTable),
-        sourceTableFullyQualifiedName.get)
-    } else {
-      (null,SqlUtils.logicalPlanToDataFrame(sparkSession, sourceTable))
-    }
+    val (_, sourceDf) = SqlUtils.getDFQualified(sparkSession,
+      SqlUtils.logicalPlanToDataFrame(sparkSession, sourceTable),
+      sourceTableFullyQualifiedName.getOrElse(""))
 
-    targetRelation match {
+    SqlUtils.removeTopSubqueryAlias(targetRelation) match {
       case LogicalRelation(relation: HiveAcidRelation, _, _, _) =>
-        relation.merge(sourceDf,
-          mergeCondition.expression, matched, insertClause, sourceAlias, targetAlias)
-      case SubqueryAlias(_, LogicalRelation(relation: HiveAcidRelation, _, _, _)) =>
         relation.merge(sourceDf,
           mergeCondition.expression, matched, insertClause, sourceAlias, targetAlias)
       case _ => throw HiveAcidErrors.tableNotAcidException(targetTable.toString())

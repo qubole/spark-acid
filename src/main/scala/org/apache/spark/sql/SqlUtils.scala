@@ -22,8 +22,9 @@ package org.apache.spark.sql
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis._
+import org.apache.spark.sql.catalyst.catalog.HiveTableRelation
 import org.apache.spark.sql.catalyst.encoders.RowEncoder
-import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
+import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, SubqueryAlias}
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference, Expression}
 import org.apache.spark.sql.execution.LogicalRDD
 import org.apache.spark.sql.execution.datasources.LogicalRelation
@@ -93,6 +94,15 @@ object SqlUtils {
           .map((x: AttributeReference) =>
             x.withQualifier(fullyQualifiedTableName.split('.').toSeq))
         )
+      case h: HiveTableRelation =>
+        h.copy(dataCols = h.dataCols
+          .map((x: AttributeReference) =>
+            x.withQualifier(fullyQualifiedTableName.split('.').toSeq))
+        )
+        h.copy(partitionCols = h.partitionCols
+          .map((x: AttributeReference) =>
+            x.withQualifier(fullyQualifiedTableName.split('.').toSeq))
+        )
       case _ => plan
     }
 
@@ -130,6 +140,13 @@ object SqlUtils {
 
   def analysisException(cause: String): Throwable = {
     new AnalysisException(cause)
+  }
+
+  def removeTopSubqueryAlias(logicalPlan: LogicalPlan): LogicalPlan = {
+    logicalPlan match {
+      case SubqueryAlias(_, child: LogicalPlan) => child
+      case _ => logicalPlan
+    }
   }
 }
 

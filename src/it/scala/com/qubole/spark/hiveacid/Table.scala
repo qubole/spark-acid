@@ -161,6 +161,15 @@ class Table (
       s" when matched and $deleteCond then delete " +
       s" when not matched then insert values($insertCols)"
 
+  def mergeCommandWithoutTableAlias(sourceTable: String, updateCond: String, deleteCond: String,
+                                    insertCols: String, updateSet:
+                                    String = "intCol=s.intCol * 10"): String = {
+    s" merge into $hiveTname using $sourceTable on ${sourceTable}.key=${hiveTname}.key " +
+      s" when matched and $updateCond then update set $updateSet " +
+      s" when matched and $deleteCond then delete " +
+      s" when not matched then insert values($insertCols)"
+  }
+
   def mergeCommandWithDeleteFirst(sourceTable: String, updateCond: String, deleteCond: String, insertCols: String): String =
     s" merge into $hiveTname t using $sourceTable s on s.key=t.key " +
       s" when matched and $deleteCond then delete " +
