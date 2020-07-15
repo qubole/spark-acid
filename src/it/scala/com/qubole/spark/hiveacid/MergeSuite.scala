@@ -71,8 +71,8 @@ class MergeSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll
     simpleMergeTestForFullAcidTables(Table.orcFullACIDTable, false, true)
   }
 
-  test("Simple Merge Test on Partitioned ORC") {
-    simpleMergeTestForFullAcidTables(Table.orcPartitionedFullACIDTable, true, true)
+  test("Simple Merge Test on Partitioned ORC with TableAliasInMerge: false") {
+    simpleMergeTestForFullAcidTables(Table.orcPartitionedFullACIDTable, true, true, false)
   }
 
   test("Merge Test on nonPartitioned ORC for conflicting match condition") {
@@ -245,13 +245,14 @@ class MergeSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll
 
   // Merge test for full acid tables
   def simpleMergeTestForFullAcidTables(tType: String, isPartitioned: Boolean,
-                                       positiveTest: Boolean): Unit = {
+                                       positiveTest: Boolean,
+                                       useTableAliasInMerge: Boolean = true): Unit = {
     val tableNameSpark = if (isPartitioned) {
       "tSparkMergePartitioned"
     } else  {
       "tSparkMergeNonPart"
     }
-    val testName = s"Simple Merge Test for $tableNameSpark type $tType"
+    val testName = s"Simple Merge Test for $tableNameSpark type $tType with tableAliasInMerge: ${useTableAliasInMerge}"
     val tableSpark = new Table(DEFAULT_DBNAME, tableNameSpark, cols, tType, isPartitioned)
 
     def code(): Unit = {
@@ -264,9 +265,19 @@ class MergeSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll
         helper.recreate(tableSpark)
         helper.hiveExecute(tableSpark.insertIntoHiveTableKeyRange(11, 20))
         val expectedUpdateValue = helper.sparkCollect(tableSpark.selectExpectedUpdateCol(16))
-        helper.sparkCollect(tableSpark
-          .mergeCommand(srcTable.hiveTname, "t.key >= 11 and t.key < 17",
-            "t.key > 16", "*"))
+        val mergeCommand = if (useTableAliasInMerge) {
+          tableSpark
+            .mergeCommand(srcTable.hiveTname, "t.key >= 11 and t.key < 17",
+              "t.key > 16", "*", "intCol=s.intCol * 10")
+        } else {
+          tableSpark
+            .mergeCommandWithoutTableAlias(srcTable.hiveTname,
+              s"${tableSpark.hiveTname}.key >= 11 and ${tableSpark.hiveTname}.key < 17",
+              s"${tableSpark.hiveTname}.key > 16", "*",
+              s"intCol=${srcTable.hiveTname}.intCol * 10")
+        }
+
+        helper.sparkCollect(mergeCommand)
         val expectedRows = 11
         helper.compareResult(expectedRows.toString, helper.sparkCollect(tableSpark.count))
         // Verify INSERT
@@ -279,10 +290,19 @@ class MergeSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll
         helper.compareResult(expectedUpdateValue, updatedVal)
       } else {
         helper.recreate(tableSpark, false)
-        intercept[RuntimeException] {
-          helper.sparkCollect(tableSpark
+        val mergeCommand = if (useTableAliasInMerge) {
+          tableSpark
             .mergeCommand(srcTable.hiveTname, "t.key >= 11 and t.key < 16",
-              "t.key > 15", "*"))
+              "t.key > 15", "*", "intCol=s.intCol * 10")
+        } else {
+          tableSpark
+            .mergeCommandWithoutTableAlias(srcTable.hiveTname,
+              s"${tableSpark.hiveTname}.key >= 11 and ${tableSpark.hiveTname}.key < 16",
+              s"${tableSpark.hiveTname}.key > 15", "*",
+              s"intCol=${srcTable.hiveTname}.intCol * 10")
+        }
+        intercept[RuntimeException] {
+          helper.sparkCollect(mergeCommand)
         }
       }
     }

@@ -21,6 +21,8 @@ import com.qubole.spark.hiveacid.HiveAcidErrors
 import com.qubole.spark.hiveacid.datasource.HiveAcidRelation
 import com.qubole.spark.hiveacid.merge.{MergeCondition, MergeWhenClause, MergeWhenNotInsert}
 import org.apache.spark.sql.catalyst.AliasIdentifier
+import org.apache.spark.sql.catalyst.analysis.EliminateSubqueryAliases
+import org.apache.spark.sql.catalyst.catalog.{CatalogTable, HiveTableRelation}
 import org.apache.spark.sql.{Row, SparkSession, SqlUtils}
 import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression}
 import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, SubqueryAlias}
@@ -46,12 +48,26 @@ case class MergeCommand(targetTable: LogicalPlan,
       case _ => throw HiveAcidErrors.mergeValidationError("WHEN NOT Clause has to be INSERT CLAUSE")
     }
 
-    children.head match {
-      case LogicalRelation(relation: HiveAcidRelation, _, _ , _) =>
-        relation.merge(SqlUtils.logicalPlanToDataFrame(sparkSession, sourceTable),
-          mergeCondition.expression, matched, insertClause, sourceAlias, targetAlias)
-      case SubqueryAlias(_, LogicalRelation(relation: HiveAcidRelation, _, _, _)) =>
-        relation.merge(SqlUtils.logicalPlanToDataFrame(sparkSession, sourceTable),
+    val targetRelation = children.head
+    val sourceRelation = children.last
+
+    val sourceTableFullyQualifiedName = SqlUtils.removeTopSubqueryAlias(sourceRelation) match {
+      case hiveTable: HiveTableRelation =>
+        Some(hiveTable.tableMeta.qualifiedName)
+      case LogicalRelation(acidRelation: HiveAcidRelation, _, _, _) =>
+        Some(acidRelation.fullyQualifiedTableName)
+      case LogicalRelation(_, _, catalogTable: Option[CatalogTable], _) if catalogTable.isDefined =>
+        Some(catalogTable.get.qualifiedName)
+      case _ => None
+    }
+
+    val (_, sourceDf) = SqlUtils.getDFQualified(sparkSession,
+      SqlUtils.logicalPlanToDataFrame(sparkSession, sourceTable),
+      sourceTableFullyQualifiedName.getOrElse(""))
+
+    SqlUtils.removeTopSubqueryAlias(targetRelation) match {
+      case LogicalRelation(relation: HiveAcidRelation, _, _, _) =>
+        relation.merge(sourceDf,
           mergeCondition.expression, matched, insertClause, sourceAlias, targetAlias)
       case _ => throw HiveAcidErrors.tableNotAcidException(targetTable.toString())
     }
