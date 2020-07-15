@@ -34,7 +34,7 @@ import com.qubole.shaded.hadoop.hive.serde2.objectinspector.ObjectInspectorUtils
 import com.qubole.spark.hiveacid.{HiveAcidErrors, HiveAcidOperation}
 import com.qubole.spark.hiveacid.util.Util
 import com.qubole.spark.hiveacid.writer.{Writer, WriterOptions}
-import org.apache.hadoop.fs.Path
+import org.apache.hadoop.fs.{FileSystem, Path}
 import org.apache.hadoop.io.Writable
 import org.apache.hadoop.mapred.{JobConf, Reporter}
 import org.apache.spark.TaskContext
@@ -221,12 +221,29 @@ private[writer] class HiveAcidFullAcidWriter(options: WriterOptions,
       }
     }
 
+    def safeDeletePath(fs: FileSystem, path: Path): Unit = {
+      try {
+        if (path != null && fs.exists(path)) {
+          fs.delete(path, false)
+        }
+      } catch {
+        case e: Exception =>
+          logWarning(s"Error while trying to delete $path" +
+            s" if it existed: ${e.getMessage}")
+      }
+    }
+
     if (createDelta) {
+      // Delete delta bucket file if exists. It can exist in the cases of task retries.
+      safeDeletePath(fs, AcidUtils.createFilename(path, acidOutputFormatOptions))
       createVersionFile(acidOutputFormatOptions)
     }
 
     if (createDeleteDelta) {
-      createVersionFile(acidOutputFormatOptions.writingDeleteDelta(true))
+      // Delete delete_delta bucket file if it exists. It can exist in the cases of task retries.
+      val deleteDeltaOptions = acidOutputFormatOptions.clone().writingDeleteDelta(true)
+      safeDeletePath(fs, AcidUtils.createFilename(path, deleteDeltaOptions))
+      createVersionFile(deleteDeltaOptions)
     }
     recordUpdater
   }
