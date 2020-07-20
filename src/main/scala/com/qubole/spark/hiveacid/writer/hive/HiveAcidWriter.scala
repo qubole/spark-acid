@@ -178,7 +178,7 @@ private[writer] class HiveAcidFullAcidWriter(options: WriterOptions,
   }
 
   override protected def createWriter(path: Path, acidBucketId: Int): Any = {
-
+    logInfo(s"Create Writer for path:$path and bucketId: $acidBucketId")
     val tableDesc = HiveAcidOptions.getFileSinkDesc.getTableInfo
 
     val recordUpdater = HiveFileFormatUtils.getAcidRecordUpdater(
@@ -224,8 +224,10 @@ private[writer] class HiveAcidFullAcidWriter(options: WriterOptions,
     def safeDeletePath(fs: FileSystem, path: Path): Unit = {
       try {
         if (path != null && fs.exists(path)) {
+          logInfo(s"safeDelete: $path exists")
           fs.delete(path, false)
         }
+        logInfo(s"safeDelete: $path doesn't exist")
       } catch {
         case e: Exception =>
           logWarning(s"Error while trying to delete $path" +
@@ -235,6 +237,7 @@ private[writer] class HiveAcidFullAcidWriter(options: WriterOptions,
 
     if (createDelta) {
       // Delete delta bucket file if exists. It can exist in the cases of task retries.
+      logInfo(s"Trying to safe remove delta path: ${path.toString}")
       safeDeletePath(fs, AcidUtils.createFilename(path, acidOutputFormatOptions))
       createVersionFile(acidOutputFormatOptions)
     }
@@ -242,6 +245,7 @@ private[writer] class HiveAcidFullAcidWriter(options: WriterOptions,
     if (createDeleteDelta) {
       // Delete delete_delta bucket file if it exists. It can exist in the cases of task retries.
       val deleteDeltaOptions = acidOutputFormatOptions.clone().writingDeleteDelta(true)
+      logInfo(s"Trying to safe remove delete delta path: ${path.toString}")
       safeDeletePath(fs, AcidUtils.createFilename(path, deleteDeltaOptions))
       createVersionFile(deleteDeltaOptions)
     }
@@ -279,9 +283,11 @@ private[writer] class HiveAcidFullAcidWriter(options: WriterOptions,
     val partitionColRow = getPartitionValues(row)
     val dataColRow = getDataValues(row)
 
+    val bucketId = getBucketID(dataColRow)
+
     //  Get the recordWriter for  this partitionedRow
     val recordUpdater =
-      getOrCreateWriter(partitionColRow, getBucketID(dataColRow)).asInstanceOf[RecordUpdater]
+      getOrCreateWriter(partitionColRow, bucketId).asInstanceOf[RecordUpdater]
 
     val recordValue = sparkHiveRowConverter.toHiveRow(dataColRow, hiveRow)
 
