@@ -19,8 +19,10 @@
 
 package com.qubole.spark.hiveacid.rdd
 
-import scala.reflect.ClassTag
+import com.qubole.spark.hiveacid.SparkAcidConf
+import com.qubole.spark.hiveacid.reader.hive.HiveAcidPartitionComputer
 
+import scala.reflect.ClassTag
 import org.apache.spark._
 import org.apache.spark.rdd.{RDD, UnionRDD}
 
@@ -33,11 +35,33 @@ import org.apache.spark.rdd.{RDD, UnionRDD}
 
   * @param sc - sparkContext
   * @param rddSeq - underlying partition RDDs
+  * @param hiveSplitInfo - It is sequence of HiveSplitInfo.
+  *                      It would be derived from the list of HiveAcidRDD passed here.
+  *                      check HiveAcidRDD.getHiveSplitsInfo
   */
 private[hiveacid] class HiveAcidUnionRDD[T: ClassTag](
    sc: SparkContext,
-   rddSeq: Seq[RDD[T]]) extends UnionRDD[T](sc, rddSeq) {
+   rddSeq: Seq[RDD[T]],
+   //TODO: We should clean so that HiveSplitInfo need not have to be passed separately.
+   hiveSplitInfo: Seq[HiveSplitInfo]) extends UnionRDD[T](sc, rddSeq) {
+
+  private val ignoreMissingFiles =
+    super.sparkContext.getConf.getBoolean("spark.files.ignoreMissingFiles", defaultValue = false)
+
+  private val ignoreEmptySplits =
+    super.sparkContext.getConf.getBoolean("spark.hadoopRDD.ignoreEmptySplits", defaultValue = false)
+
+  private val parallelPartitionThreshold =
+    super.sparkContext.getConf.getInt(SparkAcidConf.PARALLEL_PARTITION_THRESHOLD.configName, 10)
+
   override def getPartitions: Array[Partition] = {
+    if (hiveSplitInfo.length > parallelPartitionThreshold) {
+      val partitions = hiveSplitInfo.length/parallelPartitionThreshold
+      val hiveSplitRDD = super.sparkContext.parallelize(hiveSplitInfo, partitions)
+      val hiveAcidPartitionComputer = new HiveAcidPartitionComputer(ignoreEmptySplits, ignoreMissingFiles)
+      // It spawns a spark job to compute Partitions for every RDD and stores it in cache.
+      hiveAcidPartitionComputer.computeHiveSplitsAndCache(hiveSplitRDD)
+    }
     super.getPartitions
   }
 }

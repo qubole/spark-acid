@@ -187,7 +187,7 @@ extends CastSupport with Reader with Logging {
     * @return Deserialized RDD
     */
   private def deserializeTableRdd(hiveRDD: RDD[(RecordIdentifier, Writable)],
-                                    deserializerClass: Class[_ <: Deserializer]) = {
+                                  deserializerClass: Class[_ <: Deserializer]) = {
     val localTableDesc = hiveAcidOptions.tableDesc
     val broadcastedHadoopConf = _broadcastedHadoopConf
     val attrsWithIndex = readerOptions.requiredAttributes.zipWithIndex
@@ -211,7 +211,7 @@ extends CastSupport with Reader with Logging {
         mutableRowRecordIds,
         deserializer)
     }
-    new HiveAcidUnionRDD[InternalRow](sparkSession.sparkContext, Seq(deserializedHiveRDD))
+    new HiveAcidUnionRDD[InternalRow](sparkSession.sparkContext, Seq(deserializedHiveRDD), Seq())
   }
 
   /**
@@ -238,11 +238,12 @@ extends CastSupport with Reader with Logging {
       val localTableDesc = hiveAcidOptions.tableDesc
       val rdd = createRddForTable(localTableDesc, partition.getCols,
         partition.getTable.getParameters, inputPathStr, ifc)
-      (rdd, partition, partDeserializer)
+      val hiveSplitInfo = rdd.asInstanceOf[HiveAcidRDD[Writable, Writable]].getHiveSplitsInfo
+      (rdd, partition, partDeserializer, hiveSplitInfo)
     }.toSeq
 
     val hivePartitionRDDs = hivePartitionRDDSeq.map {
-      case (hiveRDD, partition, partDeserializer)  => {
+      case (hiveRDD, partition, partDeserializer, _)  => {
         makeRddForPartition(hiveRDD, partition, partDeserializer, readerOptions)
       }
     }
@@ -251,7 +252,8 @@ extends CastSupport with Reader with Logging {
     if (hivePartitionRDDs.isEmpty) {
       new EmptyRDD[InternalRow](sparkSession.sparkContext)
     } else {
-      new HiveAcidUnionRDD[InternalRow](hivePartitionRDDs.head.context, hivePartitionRDDs)
+      val hiveSplitInfos = hivePartitionRDDSeq.map(_._4)
+      new HiveAcidUnionRDD[InternalRow](hivePartitionRDDs.head.context, hivePartitionRDDs, hiveSplitInfos)
     }
   }
 

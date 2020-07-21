@@ -63,6 +63,7 @@ case class SparkAcidConf(@transient sparkSession: SparkSession, @transient param
   val lockNumRetries = getConf(SparkAcidConf.LOCK_NUM_RETRIES)
   val metastorePartitionPruningEnabled = sparkSession.sessionState.conf.metastorePartitionPruning
   val includeRowIds = parameters.getOrElse("includeRowIds", "false").toBoolean
+  val parallelPartitionComputationThreshold = getConf(SparkAcidConf.PARALLEL_PARTITION_THRESHOLD)
 
   def getConf[T](configEntry: SparkAcidConfigEntry[T]): T = {
     val value = configMap.getOrElse(configEntry.configName, configEntry.defaultValue)
@@ -103,6 +104,14 @@ object SparkAcidConf {
     .converter(toInt)
     .description("Maximum retries to acquire a lock; Lock retries are based on exponential backoff " +
       "that start with 50 milliseconds")
+    .create()
+
+  val PARALLEL_PARTITION_THRESHOLD = SparkAcidConfigBuilder[Long]("spark.hiveAcid.parallel.partitioning.threshold")
+    .defaultValue("10")
+    .converter(toInt)
+    .description("Threshold for number of RDDs for a partitioned table," +
+      " after which Spark Job will be spawn to compute RDD splits(i.e., partitions) in parallel" +
+      " Note that every partition in a table becomes one RDD ")
     .create()
 
   def toBoolean(s: String, key: String): Boolean = {

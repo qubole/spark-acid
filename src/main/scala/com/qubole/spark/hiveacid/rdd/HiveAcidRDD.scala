@@ -30,6 +30,7 @@ import scala.reflect.ClassTag
 import com.qubole.shaded.hadoop.hive.common.ValidWriteIdList
 import com.qubole.shaded.hadoop.hive.ql.io.{AcidInputFormat, AcidUtils, HiveInputFormat, RecordIdentifier}
 import com.qubole.spark.hiveacid.rdd.HiveAcidRDD.HiveAcidPartitionsWithSplitRDD
+import com.qubole.spark.hiveacid.reader.hive.HiveAcidPartitionComputer
 import com.qubole.spark.hiveacid.util.{SerializableConfiguration, Util}
 import com.qubole.spark.hiveacid.util.{SerializableWritable => _}
 import org.apache.hadoop.conf.{Configurable, Configuration}
@@ -46,10 +47,15 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.storage.StorageLevel
 
 // This file has lot of borrowed code from org.apache.spark.rdd.HadoopRdd
-
 private object Cache {
   val jobConf =  new ConcurrentHashMap[String, Any]()
 }
+
+case class HiveSplitInfo(id: Int, broadcastedConf: Broadcast[SerializableConfiguration],
+                         validWriteIdList: String, minPartitions: Int,
+                         ifcName: String, isFullAcidTable: Boolean,
+                         shouldCloneJobConf: Boolean,
+                         initLocalJobConfFuncOpt: Option[JobConf => Unit])
 
 class HiveAcidPartition(rddId: Int, override val index: Int, s: InputSplit)
   extends Partition {
@@ -181,6 +187,12 @@ private[hiveacid] class HiveAcidRDD[K, V](sc: SparkContext,
     }
   }
 
+  def getHiveSplitsInfo: HiveSplitInfo = {
+    HiveSplitInfo(id, broadcastedConf, validWriteIds.writeToString(), minPartitions,
+      inputFormatClass.getCanonicalName, isFullAcidTable, shouldCloneJobConf,
+      initLocalJobConfFuncOpt)
+  }
+
   protected def getInputFormat(conf: JobConf): InputFormat[K, V] = {
     val newInputFormat = ReflectionUtils.newInstance(inputFormatClass.asInstanceOf[Class[_]], conf)
       .asInstanceOf[InputFormat[K, V]]
@@ -192,60 +204,20 @@ private[hiveacid] class HiveAcidRDD[K, V](sc: SparkContext,
   }
 
   override def getPartitions: Array[Partition] = {
-    var jobConf = getJobConf
+    val jobConf: JobConf = HiveAcidRDD.setInputPathToJobConf(Some(getJobConf), isFullAcidTable, validWriteIds,
+      broadcastedConf, shouldCloneJobConf, initLocalJobConfFuncOpt)
 
-    if (isFullAcidTable) {
-      // If full ACID table, just set the right writeIds, the
-      // OrcInputFormat.getSplits() will take care of the rest
-      AcidUtils.setValidWriteIdList(jobConf, validWriteIds)
-    } else {
-      val finalPaths = new ListBuffer[Path]()
-      val pathsWithFileOriginals = new ListBuffer[Path]()
-      val dirs = FileInputFormat.getInputPaths(jobConf).toSeq // Seq(acidState.location)
-      HiveInputFormat.processPathsForMmRead(dirs, jobConf, validWriteIds,
-        finalPaths, pathsWithFileOriginals)
-
-      if (finalPaths.nonEmpty) {
-        FileInputFormat.setInputPaths(jobConf, finalPaths.toList: _*)
-        // Need recursive to be set to true because MM Tables can have a directory structure like:
-        // ~/warehouse/hello_mm/base_0000034/HIVE_UNION_SUBDIR_1/000000_0
-        // ~/warehouse/hello_mm/base_0000034/HIVE_UNION_SUBDIR_2/000000_0
-        // ~/warehouse/hello_mm/delta_0000033_0000033_0001/HIVE_UNION_SUBDIR_1/000000_0
-        // ~/warehouse/hello_mm/delta_0000033_0000033_0002/HIVE_UNION_SUBDIR_2/000000_0
-        // ... which is created on UNION ALL operations
-        jobConf.setBoolean(FileInputFormat.INPUT_DIR_RECURSIVE, true)
-      }
-
-      if (pathsWithFileOriginals.nonEmpty) {
-        // We are going to add splits for these directories with recursive = false, so we ignore
-        // any subdirectories (deltas or original directories) and only read the original files.
-        // The fact that there's a loop calling addSplitsForGroup already implies it's ok to
-        // the real input format multiple times... however some split concurrency/etc configs
-        // that are applied separately in each call will effectively be ignored for such splits.
-        jobConf = HiveInputFormat.createConfForMmOriginalsSplit(jobConf, pathsWithFileOriginals)
-      }
-
-    }
     // add the credentials here as this can be called before SparkContext initialized
     SparkHadoopUtil.get.addCredentials(jobConf)
-    try {
-      val allInputSplits = getInputFormat(jobConf).getSplits(jobConf, minPartitions)
-      val inputSplits = if (ignoreEmptySplits) {
-        allInputSplits.filter(_.getLength > 0)
-      } else {
-        allInputSplits
-      }
-      val array = new Array[Partition](inputSplits.size)
-      for (i <- 0 until inputSplits.size) {
-        array(i) = new HiveAcidPartition(id, i, inputSplits(i))
-      }
-      array
-    } catch {
-      case e: InvalidInputException if ignoreMissingFiles =>
-        val inputDir = jobConf.get(org.apache.hadoop.mapreduce.lib.input.FileInputFormat.INPUT_DIR)
-        logWarning(s"$inputDir doesn't exist and no" +
-          s" partitions returned from this path.", e)
-        Array.empty[Partition]
+    val paths = FileInputFormat.getInputPaths(jobConf)
+    val partitions = HiveAcidPartitionComputer.getFromSplitsCache(paths, validWriteIds)
+    if (partitions.isDefined) {
+      partitions.get.asInstanceOf[Array[Partition]]
+    } else {
+      logDebug(s"Splits Info is not cached, hence computing it here. Paths: ${paths.mkString(",")}")
+      new HiveAcidPartitionComputer(ignoreEmptySplits, ignoreMissingFiles)
+        .getPartitions[K, V](id, jobConf, getInputFormat(jobConf), minPartitions)
+        .asInstanceOf[Array[Partition]]
     }
   }
 
@@ -447,6 +419,94 @@ object HiveAcidRDD extends Logging {
         None
       }
     })
+  }
+  // Returns a JobConf that will be used on slaves to obtain input splits for Hadoop reads.
+  private[hiveacid] def getJobConf(broadcastedConf: Broadcast[SerializableConfiguration],
+                           shouldCloneJobConf: Boolean,
+                           initLocalJobConfFuncOpt: Option[JobConf => Unit]): JobConf = {
+    val conf: Configuration = broadcastedConf.value.value
+    if (shouldCloneJobConf) {
+      // Hadoop Configuration objects are not thread-safe, which may lead to various problems if
+      // one job modifies a configuration while another reads it (SPARK-2546).  This problem occurs
+      // somewhat rarely because most jobs treat the configuration as though it's immutable.  One
+      // solution, implemented here, is to clone the Configuration object.  Unfortunately, this
+      // clone can be very expensive.  To avoid unexpected performance regressions for workloads and
+      // Hadoop versions that do not suffer from these thread-safety issues, this cloning is
+      // disabled by default.
+      HiveAcidRDD.CONFIGURATION_INSTANTIATION_LOCK.synchronized {
+        logDebug("Cloning Hadoop Configuration")
+        val newJobConf = new JobConf(conf)
+        if (!conf.isInstanceOf[JobConf]) {
+          initLocalJobConfFuncOpt.foreach(f => f(newJobConf))
+        }
+        newJobConf
+      }
+    } else {
+      conf match {
+        case c: JobConf =>
+          logDebug("Re-using user-broadcasted JobConf")
+          c
+        case _ =>
+          // Create a JobConf that will be cached and used across this RDD's getJobConf() calls in
+          // the local process. The local cache is accessed through HiveAcidRDD.putCachedMetadata().
+          // The caching helps minimize GC, since a JobConf can contain ~10KB of temporary
+          // objects. Synchronize to prevent ConcurrentModificationException (SPARK-1097,
+          // HADOOP-10456).
+          HiveAcidRDD.CONFIGURATION_INSTANTIATION_LOCK.synchronized {
+            logDebug("Creating new JobConf and caching it for later re-use")
+            val newJobConf = new JobConf(conf)
+            initLocalJobConfFuncOpt.foreach(f => f(newJobConf))
+            newJobConf
+          }
+      }
+    }
+  }
+
+  private[hiveacid]
+  def setInputPathToJobConf(jobConfOpt: Option[JobConf], isFullAcidTable: Boolean,
+                            validWriteIds: ValidWriteIdList,
+                            broadcastedConf: Broadcast[SerializableConfiguration],
+                            shouldCloneJobConf: Boolean,
+                            initLocalJobConfFuncOpt: Option[JobConf => Unit]): JobConf = {
+    var jobConf = jobConfOpt match {
+      case Some(jobConf) => jobConf
+      case None => getJobConf(broadcastedConf, shouldCloneJobConf, initLocalJobConfFuncOpt)
+    }
+
+    if (isFullAcidTable) {
+      // If full ACID table, just set the right writeIds, the
+      // OrcInputFormat.getSplits() will take care of the rest
+      AcidUtils.setValidWriteIdList(jobConf, validWriteIds)
+    } else {
+      val finalPaths = new ListBuffer[Path]()
+      val pathsWithFileOriginals = new ListBuffer[Path]()
+      val dirs = FileInputFormat.getInputPaths(jobConf).toSeq // Seq(acidState.location)
+      HiveInputFormat.processPathsForMmRead(dirs, jobConf, validWriteIds,
+        finalPaths, pathsWithFileOriginals)
+
+      if (finalPaths.nonEmpty) {
+        FileInputFormat.setInputPaths(jobConf, finalPaths.toList: _*)
+        // Need recursive to be set to true because MM Tables can have a directory structure like:
+        // ~/warehouse/hello_mm/base_0000034/HIVE_UNION_SUBDIR_1/000000_0
+        // ~/warehouse/hello_mm/base_0000034/HIVE_UNION_SUBDIR_2/000000_0
+        // ~/warehouse/hello_mm/delta_0000033_0000033_0001/HIVE_UNION_SUBDIR_1/000000_0
+        // ~/warehouse/hello_mm/delta_0000033_0000033_0002/HIVE_UNION_SUBDIR_2/000000_0
+        // ... which is created on UNION ALL operations
+        jobConf.setBoolean(FileInputFormat.INPUT_DIR_RECURSIVE, true)
+      }
+
+      if (pathsWithFileOriginals.nonEmpty) {
+        // We are going to add splits for these directories with recursive = false, so we ignore
+        // any subdirectories (deltas or original directories) and only read the original files.
+        // The fact that there's a loop calling addSplitsForGroup already implies it's ok to
+        // the real input format multiple times... however some split concurrency/etc configs
+        // that are applied separately in each call will effectively be ignored for such splits.
+        jobConf = HiveInputFormat.createConfForMmOriginalsSplit(jobConf,
+          pathsWithFileOriginals)
+      }
+
+    }
+    jobConf
   }
 }
 
