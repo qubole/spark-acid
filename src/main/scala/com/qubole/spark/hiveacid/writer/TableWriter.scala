@@ -21,20 +21,18 @@ package com.qubole.spark.hiveacid.writer
 
 import scala.collection.JavaConverters._
 import scala.language.implicitConversions
-
 import com.qubole.spark.hiveacid._
 import com.qubole.spark.hiveacid.hive.HiveAcidMetadata
 import com.qubole.spark.hiveacid.writer.hive.{HiveAcidFullAcidWriter, HiveAcidInsertOnlyWriter, HiveAcidWriterOptions}
 import com.qubole.spark.hiveacid.transaction._
 import com.qubole.spark.hiveacid.util.SerializableConfiguration
 import org.apache.spark.internal.Logging
-import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.apache.spark.sql.{DataFrame, SparkSession, functions}
 import org.apache.spark.sql.catalyst.{InternalRow, TableIdentifier}
 import org.apache.spark.sql.catalyst.catalog.CatalogTypes.TablePartitionSpec
 import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.execution.command.AlterTableAddPartitionCommand
 import org.apache.spark.sql.execution.datasources.PartitioningUtils
-import org.apache.spark.sql.functions.col
 import org.apache.spark.sql.types.StructType
 
 /**
@@ -151,19 +149,35 @@ private[hiveacid] class TableWriter(sparkSession: SparkSession,
 
       val resultRDD =
         operationType match {
-          // In order to read data from delete delts, hive uses mergesort, which requires
+          // In order to read data from delete deltas, hive uses mergesort, which requires
           // originalWriteId, bucket, and rowId in ascending order, and currentWriteId in descending order.
           // We take care of originalWriteId, bucket, and rowId in asc order here. We only write file per bucket-transaction,
           // hence currentWriteId remains same throughout the file and doesn't need ordering.
           //
           // Deleted rowId needs to be in same bucketed file name as the original row. To achieve this,
-          // we repartition into 4096 partitions (i.e maximum number of buckets).
+          // we repartition into 4096 partitions (i.e maximum number of buckets) based on bucket Id.
           // This ensures all rows of one bucket goes to same partition.
+          //
+          //  ************** Repartitioning Logic *******************
+          //
+          // rowId.bucketId is composed of following.
+
+          // top 3 bits - version code.
+          // next 1 bit - reserved for future
+          // next 12 bits - the bucket ID
+          // next 4 bits reserved for future
+          // remaining 12 bits - the statement ID - 0-based numbering of all statements within a
+          // transaction.  Each leg of a multi-insert statement gets a separate statement ID.
+          // The reserved bits align it so that it easier to interpret it in Hex.
+          //
+          // We need to repartition only on the basis of 12 bits representing bucketID
+          // We extract by
+          // rowId.bucketId OR 268369920 (0b00001111111111110000000000000000) >>> (rightshift) by 16 bits
           //
           // There is still a chance that rows from multiple buckets go to same partition as well, but this is expected to work!
           case HiveAcidOperation.DELETE | HiveAcidOperation.UPDATE =>
-            df.repartition(MAX_NUMBER_OF_BUCKETS, col("rowId.bucketId"))
-              .toDF.sortWithinPartitions("rowId.bucketId", "rowId.writeId", "rowId.rowId")
+            df.repartition(MAX_NUMBER_OF_BUCKETS, functions.expr("shiftright(rowId.bucketId & 268369920, 16)"))
+              .toDF.sortWithinPartitions("rowId.writeId", "rowId.bucketId", "rowId.rowId")
               .toDF.queryExecution.executedPlan.execute()
           case HiveAcidOperation.INSERT_OVERWRITE | HiveAcidOperation.INSERT_INTO =>
             df.queryExecution.executedPlan.execute()
