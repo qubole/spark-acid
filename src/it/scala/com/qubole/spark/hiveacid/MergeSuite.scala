@@ -162,6 +162,60 @@ class MergeSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll
     assert(thrown.getMessage().contains("UPDATE on the partition columns are not allowed"))
   }
 
+  test("Check for Merge update on multi statements with 1 bucket") {
+    /** In this test following is done:
+      *  ** Insert into target table DF with statement id 1. Insert should just create one bucket file i.e., bucket0000
+      *  ** Insert into target table DF with no statement id. Insert should just create one bucket file i.e., bucket0000
+      *  ** Note encoded bucket id in both the above rows will be different due to difference in statement Id
+      *  ** Try to update one row from each of the above transaction. It is expected that both are updated
+      */
+    val spark = helper.spark
+    import spark.sqlContext.implicits._
+    val targetTable = s"$DEFAULT_DBNAME.target_bucket1"
+    val sourceTable = s"$DEFAULT_DBNAME.source_bucket1"
+
+    helper.hiveExecute(s"create table $targetTable (i int) stored as orc tblproperties('transactional'='true')")
+    val df1 = spark.sparkContext.parallelize(Seq(1, 2, 3)).toDF().repartition(1)
+    val htable = HiveAcidTable.fromSparkSession(spark, targetTable)
+    htable.insertInto(df1, Some(1))
+    val df2 = spark.sparkContext.parallelize(Seq(4, 5, 6)).toDF().repartition(1)
+    htable.insertInto(df2)
+    helper.hiveExecute(s"create table $sourceTable (i int) stored as orc tblproperties('transactional' = 'true')")
+    helper.sparkSQL(s"insert into $sourceTable values (1), (4)")
+    helper.sparkSQL(s"Merge into $targetTable t using $sourceTable s on t.i = s.i when matched then update set i = s.i + 1")
+
+    val res = helper.sparkCollect(s"select * from $targetTable order by i")
+    val expected = s"2\n2\n3\n5\n5\n6"
+    helper.compareResult(expected, res)
+  }
+
+  test("Check for Merge update on multi statements with 2 buckets") {
+    /** In this test following is done:
+      *  ** Insert into target table DF with statement id 1. Insert should just create two bucket file i.e., bucket0000, bucket0001
+      *  ** Insert into target table DF with no statement id. Insert should just create one bucket file i.e., bucket0000, bucket0001
+      *  ** Note encoded bucket id in rows of different transaction will be different due to difference in statement Id.
+      *  ** Try to update all the rows from each of the above transaction. It is expected that all rows are updated.
+      */
+    val spark = helper.spark
+    import spark.sqlContext.implicits._
+    val targetTable = s"$DEFAULT_DBNAME.target_bucket2"
+    val sourceTable = s"$DEFAULT_DBNAME.source_bucket2"
+
+    helper.hiveExecute(s"create table $targetTable (i int) stored as orc tblproperties('transactional'='true')")
+    val df1 = spark.sparkContext.parallelize(Seq(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)).toDF().repartition(2)
+    val htable = HiveAcidTable.fromSparkSession(spark, targetTable)
+    htable.insertInto(df1, Some(1))
+    val df2 = spark.sparkContext.parallelize(Seq(11, 12, 13, 14, 15, 16, 17, 18, 19, 20)).toDF().repartition(2)
+    htable.insertInto(df2)
+    helper.hiveExecute(s"create table $sourceTable (i int) stored as orc tblproperties('transactional' = 'true')")
+    helper.sparkSQL(s"insert into $sourceTable select * from $targetTable")
+    helper.sparkSQL(s"Merge into $targetTable t using $sourceTable s on t.i = s.i when matched then update set i = s.i + 1")
+
+    val res = helper.sparkCollect(s"select * from $targetTable order by i")
+    val expected = s"2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n16\n17\n18\n19\n20\n21"
+    helper.compareResult(expected, res)
+  }
+
   // Merge test for full acid tables
   def mergeTestWithJustInsert(tType: String, isPartitioned: Boolean): Unit = {
     val tableNameSpark = if (isPartitioned) {
