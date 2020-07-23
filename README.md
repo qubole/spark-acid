@@ -201,7 +201,7 @@ _Note: ``com.qubole.spark.hiveacid.HiveAcidAutoConvertExtension`` has to be adde
 ACID table supports streaming writes and can also be used as a Streaming Sink. 
 Streaming write happens under transactional guarantees which allows other
 concurrent writes to the same table either streaming writes or batch writes.
-For exactly-once semantics, ``acid.streaming.metadataDir`` is specified to 
+For exactly-once semantics, ``spark.acid.streaming.log.metadataDir`` is specified to
 store the latest batchId processed. Note, that concurrent streaming writes 
 to the same table should have different metadataDir specified.
 
@@ -210,9 +210,9 @@ to the same table should have different metadataDir specified.
       .format("HiveAcid")
       .options(Map(
         "table" ->"acid.acidtbl",
-        "acid.streaming.metadataDir"->"/tmp/_acid_streaming/_query_2"))
+        "spark.acid.streaming.log.metadataDir"->"/tmp/metadataDir"))
       .outputMode(OutputMode.Append)
-      .option("checkpointLocation", "/tmp/attempt16")
+      .option("checkpointLocation", "/tmp/checkpointDir")
       .start()
 
 ### Updates
