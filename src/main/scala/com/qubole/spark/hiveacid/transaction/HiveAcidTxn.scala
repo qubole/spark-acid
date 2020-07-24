@@ -122,12 +122,17 @@ object HiveAcidTxn extends Logging {
   private[hiveacid] def createSnapshot(txn: HiveAcidTxn, hiveAcidMetadata: HiveAcidMetadata): HiveAcidTableSnapshot = {
     val currentWriteId = txnManager.getCurrentWriteId(txn.txnId,
       hiveAcidMetadata.dbName, hiveAcidMetadata.tableName)
-    val validWriteIdList = if (txn.txnId == - 1) {
-      throw HiveAcidErrors.tableWriteIdRequestedBeforeTxnStart (hiveAcidMetadata.fullyQualifiedName)
-    } else {
-      txnManager.getValidWriteIds(txn.txnId, txn.validTxnList ,hiveAcidMetadata.fullyQualifiedName)
-    }
+    val validWriteIdList: ValidWriteIdList = getValidWriteIds(txn, hiveAcidMetadata)
     HiveAcidTableSnapshot(validWriteIdList, currentWriteId)
+  }
+
+  private[hiveacid] def getValidWriteIds(txn: HiveAcidTxn, hiveAcidMetadata: HiveAcidMetadata) = {
+    val validWriteIdList = if (txn.txnId == -1) {
+      throw HiveAcidErrors.tableWriteIdRequestedBeforeTxnStart(hiveAcidMetadata.fullyQualifiedName)
+    } else {
+      txnManager.getValidWriteIds(txn.txnId, txn.validTxnList, hiveAcidMetadata.fullyQualifiedName)
+    }
+    validWriteIdList
   }
 
   // Txn manager is connection to HMS. Use single instance of it

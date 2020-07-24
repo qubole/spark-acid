@@ -109,20 +109,21 @@ private[hiveacid] class TableReader(sparkSession: SparkSession,
     curTxn.acquireLocks(hiveAcidMetadata, HiveAcidOperation.READ, partitionList, readConf)
 
     // Create Snapshot !!!
-    val curSnapshot = HiveAcidTxn.createSnapshot(curTxn, hiveAcidMetadata)
+    //val curSnapshot = HiveAcidTxn.createSnapshot(curTxn, hiveAcidMetadata)
+
+    val validWriteIds = HiveAcidTxn.getValidWriteIds(curTxn, hiveAcidMetadata)
 
     val reader = new HiveAcidReader(
       sparkSession,
       readerOptions,
       hiveAcidReaderOptions,
-      curSnapshot.validWriteIdList)
+      validWriteIds)
 
     val rdd = if (hiveAcidMetadata.isPartitioned) {
       reader.makeRDDForPartitionedTable(hiveAcidMetadata, partitions)
     } else {
       reader.makeRDDForTable(hiveAcidMetadata)
     }
-
 
     rdd.asInstanceOf[RDD[Row]]
   }
