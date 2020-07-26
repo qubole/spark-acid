@@ -121,7 +121,7 @@ extends CastSupport with Reader with Logging {
     setReaderOptions(hiveAcidMetadata)
 
     val ifcName = hiveAcidMetadata.hTable.getInputFormatClass.getName
-    val ifc = Util.classForName(ifcName, loadShaded = true)
+    val inputFormatClass = Util.classForName(ifcName, loadShaded = true)
       .asInstanceOf[java.lang.Class[InputFormat[Writable, Writable]]]
 
     val colNames = getColumnNamesFromFieldSchema(fieldSchemas)
@@ -131,14 +131,19 @@ extends CastSupport with Reader with Logging {
       hiveAcidMetadata.hTable.getParameters,
       colNames, colTypes) _
 
-    //TODO : Need to cache it with some unique id.
-    val jobConf = HiveAcidRDD.getJobConf(_broadcastedHadoopConf,
-      HiveAcidRDD.shouldCloneJobConf(sparkSession.sparkContext),
-      Some(initializeJobConfFunc))
-
-    val inputSplits  = HiveAcidRDD.getPartitions(sparkSession.sparkContext, Some(jobConf), ifc, 0,
-      hiveAcidMetadata.isFullAcidTable, validWriteIds,
-      _broadcastedHadoopConf, Some(initializeJobConfFunc), _minSplitsPerRDD)
+    //TODO :Its a ugly hack, but avoids lots of duplicate code.
+    val rdd = new HiveAcidRDD(
+      sparkSession.sparkContext,
+      validWriteIds,
+      hiveAcidOptions.isFullAcidTable,
+      _broadcastedHadoopConf.asInstanceOf[Broadcast[SerializableConfiguration]],
+      Some(initializeJobConfFunc),
+      inputFormatClass,
+      classOf[Writable],
+      classOf[Writable],
+      _minSplitsPerRDD)
+    val jobConf = rdd.getJobConf
+    val inputSplits  = rdd.getPartitions
 
     val reqFields = hiveAcidMetadata.tableSchema.fields.filter(field =>
       readerOptions.requiredNonPartitionedColumns.contains(field.name))
