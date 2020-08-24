@@ -36,26 +36,27 @@ import org.apache.hadoop.mapred.{InputFormat, OutputFormat}
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql._
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 
 /**
  * Represents metadata for hive acid table and exposes API to perform operations on top of it
- * @param database - name of the database
- * @param identifier - table identifier
- * @param hiveConf hiveConf - hive conf
+ * @param sparkSession - spark session object
+ * @param fullyQualifiedTableName - the fully qualified hive acid table name
  */
-class HiveAcidMetadata(database : Option[String],
-                       identifier : String,
-                       hiveConf: HiveConf,
-                       caseSensitiveAnalysis : Boolean = false) extends Logging {
+class HiveAcidMetadata(sparkSession: SparkSession,
+                       fullyQualifiedTableName: String) extends Logging {
+
+  // hive conf
+  private val hiveConf: HiveConf = HiveConverter.getHiveConf(sparkSession.sparkContext)
+
   // a hive representation of the table
   val hTable: metadata.Table = {
     val hive: Hive = Hive.get(hiveConf)
+    val table = sparkSession.sessionState.sqlParser.parseTableIdentifier(fullyQualifiedTableName)
     val hTable = hive.getTable(
-      database match {
+      table.database match {
         case Some(database) => database
         case None => HiveAcidMetadata.DEFAULT_DATABASE
-      }, identifier)
+      }, table.identifier)
     Hive.closeCurrent()
     hTable
   }
@@ -133,7 +134,7 @@ class HiveAcidMetadata(database : Option[String],
   }
 
   private def getColName(field: StructField): String = {
-    HiveAcidMetadata.getColName(caseSensitiveAnalysis, field)
+    HiveAcidMetadata.getColName(sparkSession, field)
   }
 }
 
@@ -155,19 +156,13 @@ object HiveAcidMetadata {
 
   def fromSparkSession(sparkSession: SparkSession,
                        fullyQualifiedTableName: String): HiveAcidMetadata = {
-    val logicalPlan = sparkSession.sessionState.sqlParser.parseTableIdentifier(fullyQualifiedTableName)
-    new HiveAcidMetadata(logicalPlan.database,
-                          logicalPlan.table,
-                          HiveConverter.getHiveConf(sparkSession.sparkContext),
-                          sparkSession.sessionState.conf.caseSensitiveAnalysis)
+    new HiveAcidMetadata(
+      sparkSession,
+      fullyQualifiedTableName)
   }
 
-  def fromTableName(database : Option[String], table : String, hiveConf : HiveConf): HiveAcidMetadata = {
-    new HiveAcidMetadata(database, table, hiveConf)
-  }
-
-  def getColName(caseSensitiveAnalysis : Boolean, field: StructField): String = {
-    if (caseSensitiveAnalysis) {
+  def getColName(sparkSession: SparkSession, field: StructField): String = {
+    if (sparkSession.sessionState.conf.caseSensitiveAnalysis) {
       field.name
     } else {
       field.name.toLowerCase(Locale.ROOT)
@@ -175,6 +170,6 @@ object HiveAcidMetadata {
   }
 
   def getColNames(sparkSession: SparkSession, schema: StructType): Seq[String] = {
-    schema.map(getColName(sparkSession.sessionState.conf.caseSensitiveAnalysis, _))
+    schema.map(getColName(sparkSession, _))
   }
 }

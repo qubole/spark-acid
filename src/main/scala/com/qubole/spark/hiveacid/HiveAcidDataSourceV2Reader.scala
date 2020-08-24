@@ -99,7 +99,7 @@ class HiveAcidDataSourceV2Reader
       txn: HiveAcidTxn => {
         import scala.collection.JavaConversions._
         val reader = new TableReader(sparkSession, txn, hiveAcidMetadata)
-        val hiveReader = reader.getReader(schema.fieldNames,
+        val hiveReader = reader.getPartitionsV2(schema.fieldNames,
           pushedFilterArray, new SparkAcidConf(sparkSession, options.toMap))
         factories.addAll(hiveReader)
       }

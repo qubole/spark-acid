@@ -124,9 +124,9 @@ private[hiveacid] class TableReader(sparkSession: SparkSession,
       partitions)
   }
 
-  def getReader(requiredColumns: Array[String],
-                filters: Array[Filter],
-                readConf: SparkAcidConf): java.util.List[InputPartition[ColumnarBatch]] = {
+  def getPartitionsV2(requiredColumns: Array[String],
+                      filters: Array[Filter],
+                      readConf: SparkAcidConf): java.util.List[InputPartition[ColumnarBatch]] = {
     val reader = getTableReader(requiredColumns, filters, readConf)
     if (hiveAcidMetadata.isPartitioned) {
       logDebug("getReader for Partitioned table")
