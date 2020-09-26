@@ -148,12 +148,12 @@ extends CastSupport with Reader with Logging {
     val reqFields = hiveAcidMetadata.tableSchema.fields.filter(field =>
       readerOptions.requiredNonPartitionedColumns.contains(field.name))
 
+    val broadCastConf = sparkSession.sparkContext.broadcast(new SerializableConfiguration(jobConf))
     val partitionArray = new java.util.ArrayList[InputPartition[ColumnarBatch]]
     for (i <- 0 until inputSplits.size) {
       partitionArray.add(new HiveAcidInputPartitionV2(inputSplits(i).asInstanceOf[HiveAcidPartition],
-        sparkSession.sparkContext.broadcast(new SerializableConfiguration(jobConf)),
-        partitionValues, reqFields, hiveAcidMetadata.partitionSchema, hiveAcidMetadata.isFullAcidTable))
-      logInfo("getPartitions : Input split: " + inputSplits(i))
+        broadCastConf, partitionValues, reqFields, hiveAcidMetadata.partitionSchema, hiveAcidMetadata.isFullAcidTable))
+      logDebug("getPartitions : Input split: " + inputSplits(i))
     }
     partitionArray
   }

@@ -36,7 +36,8 @@ private[v2] class HiveAcidInputPartitionReaderV2(split: HiveAcidPartition,
         extends InputPartitionReader[ColumnarBatch] {
   //TODO : Need to get a unique id to cache the jobConf.
   private val jobConf = new JobConf(broadcastedConf.value.value)
-  private val orcColumnarBatchReader = new OrcColumnarBatchReader(1024)
+  private val defaultBatchSize = jobConf.get("spark.hive.acid.default.row.batch.size", "1024")
+  private val orcColumnarBatchReader = new OrcColumnarBatchReader(defaultBatchSize.toInt)
 
   private def initReader() : Unit = {
     // Get the reader schema using the column names and types set in hive conf.

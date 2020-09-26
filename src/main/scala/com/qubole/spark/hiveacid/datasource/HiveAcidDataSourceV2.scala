@@ -28,13 +28,9 @@ import org.apache.spark.sql.sources.v2.{ReadSupport,DataSourceOptions,DataSource
 
 class HiveAcidDataSourceV2 extends DataSourceV2 with ReadSupport with Logging {
   override def  createReader (options: DataSourceOptions) : DataSourceReader = {
-    logInfo("Using Datasource V2 for table" + options.tableName.get)
+    logInfo("Creating datasource V2 for table" + options.tableName.get)
     new HiveAcidDataSourceV2Reader(options.asMap,
                                   SparkSession.getActiveSession.orNull,
                                   options.databaseName.get, options.tableName.get)
-  }
-
-  def keyPrefix() : String = {
-    "HiveAcidV2"
   }
 }

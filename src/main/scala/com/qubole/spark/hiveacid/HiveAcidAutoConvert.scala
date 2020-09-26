@@ -31,6 +31,7 @@ import org.apache.spark.sql.execution.datasources.LogicalRelation
 import com.qubole.spark.hiveacid.datasource.{HiveAcidDataSource, HiveAcidDataSourceV2}
 import org.apache.spark.sql.execution.datasources.v2.DataSourceV2Relation
 import org.apache.spark.SparkContext
+import org.apache.spark.sql.internal.HiveSerDe
 
 
 /**
@@ -53,10 +54,11 @@ case class HiveAcidAutoConvert(spark: SparkSession) extends Rule[LogicalPlan] {
   }
 
   private def convertV2(relation: HiveTableRelation): LogicalPlan = {
-    val serde = relation.tableMeta.storage.serde.getOrElse("").toLowerCase(Locale.ROOT)
-    if (!serde.equals("org.apache.hadoop.hive.ql.io.orc.orcserde")) {
+    val serde = relation.tableMeta.storage.serde.getOrElse("")
+    if (!serde.equalsIgnoreCase(HiveSerDe.sourceToSerDe("orc").get.serde.get)) {
       // Only ORC formatted is supported as of now. If its not ORC, then fallback to
       // datasource V1.
+      logInfo("Falling back to datasource v1 as " + serde + " is not supported by v2 reader.")
       return convert(relation)
     }
     val dbName = relation.tableMeta.identifier.database.getOrElse("default")
@@ -75,7 +77,7 @@ case class HiveAcidAutoConvert(spark: SparkSession) extends Rule[LogicalPlan] {
       // Read path
       case relation: HiveTableRelation
         if DDLUtils.isHiveTable(relation.tableMeta) && isConvertible(relation) =>
-          if (spark.conf.get("spark.acid.use.datasource.v2", "false").toBoolean) {
+          if (spark.conf.get("spark.hive.acid.datasource.version", "v1").equals("v2")) {
             convertV2(relation)
           } else {
             convert(relation)

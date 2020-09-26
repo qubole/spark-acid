@@ -44,7 +44,7 @@ private[hiveacid] class TableReader(sparkSession: SparkSession,
                                     curTxn: HiveAcidTxn,
                                     hiveAcidMetadata: HiveAcidMetadata) extends Logging {
 
-  def getTableReader(requiredColumns: Array[String],
+  private def getTableReader(requiredColumns: Array[String],
              filters: Array[Filter],
              readConf: SparkAcidConf): HiveAcidReader = {
     val rowIdColumnSet = HiveAcidMetadata.rowIdSchema.fields.map(_.name).toSet
