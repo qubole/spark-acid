@@ -63,6 +63,7 @@ import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.sources.Filter
 import org.apache.spark.sql.types.{DataType, StructType}
 import org.apache.spark.sql.hive.{Hive3Inspectors, HiveAcidUtils}
+import org.apache.spark.sql.types.StructType
 import org.apache.spark.unsafe.types.UTF8String
 
 /**
@@ -90,6 +91,18 @@ extends CastSupport with Reader with Logging {
   SparkHadoopUtil.get.appendS3AndSparkHadoopConfigurations(
     sparkSession.sparkContext.getConf, readerOptions.hadoopConf)
 
+  if (readerOptions.readConf.predicatePushdownEnabled) {
+    setPushDownFiltersInHadoopConf(readerOptions.hadoopConf, hiveAcidOptions.dataSchema,
+      readerOptions.dataFilters)
+  }
+
+  // Set Required column.
+  setRequiredColumnsInHadoopConf(readerOptions.hadoopConf,
+    hiveAcidOptions.dataSchema,
+    readerOptions.requiredNonPartitionedColumns)
+
+
+  // NOTE: All hadoop/hive configs should be set before broadcasting hadoopConf
   private val _broadcastedHadoopConf =
     sparkSession.sparkContext.broadcast(new SerializableConfiguration(readerOptions.hadoopConf))
 
@@ -102,18 +115,6 @@ extends CastSupport with Reader with Logging {
    */
   def makeRDDForTable(hiveAcidMetadata: HiveAcidMetadata): RDD[InternalRow] = {
     val hiveTable = hiveAcidMetadata.hTable
-
-    // Push Down Predicate
-    if (readerOptions.readConf.predicatePushdownEnabled) {
-      setPushDownFiltersInHadoopConf(readerOptions.hadoopConf,
-        hiveAcidMetadata,
-        readerOptions.dataFilters)
-    }
-
-    // Set Required column.
-    setRequiredColumnsInHadoopConf(readerOptions.hadoopConf,
-      hiveAcidMetadata,
-      readerOptions.requiredNonPartitionedColumns)
 
     logDebug(s"sarg.pushdown: " +
       s"${readerOptions.hadoopConf.get("sarg.pushdown")}," +
@@ -391,9 +392,9 @@ extends CastSupport with Reader with Logging {
   }
 
   private def setRequiredColumnsInHadoopConf(conf: Configuration,
-                                     acidTableMetadata: HiveAcidMetadata,
+                                             dataSchema: StructType,
                                      requiredColumns: Seq[String]): Unit = {
-    val dataCols: Seq[String] = acidTableMetadata.dataSchema.fields.map(_.name)
+    val dataCols: Seq[String] = dataSchema.fields.map(_.name)
     val requiredColumnIndexes = requiredColumns.map(a => dataCols.indexOf(a): Integer)
     val (sortedIDs, sortedNames) = requiredColumnIndexes.zip(requiredColumns).sorted.unzip
     conf.set(ColumnProjectionUtils.READ_ALL_COLUMNS, "false")
@@ -402,9 +403,9 @@ extends CastSupport with Reader with Logging {
   }
 
   private def setPushDownFiltersInHadoopConf(conf: Configuration,
-                                     acidTableMetadata: HiveAcidMetadata,
-                                     dataFilters: Array[Filter]): Unit = {
-    HiveAcidSearchArgument.build(acidTableMetadata.dataSchema, dataFilters).foreach { f =>
+                                             dataSchema: StructType,
+                                             dataFilters: Array[Filter]): Unit = {
+    HiveAcidSearchArgument.build(dataSchema, dataFilters).foreach { f =>
       def toKryo(obj: com.qubole.shaded.hadoop.hive.ql.io.sarg.SearchArgument): String = {
         val out = new Output(4 * 1024, 10 * 1024 * 1024)
         new Kryo().writeObject(out, obj)
