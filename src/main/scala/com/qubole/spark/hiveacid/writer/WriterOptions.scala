@@ -30,7 +30,7 @@ import org.apache.spark.sql.types.StructType
 private[hiveacid] class WriterOptions(val currentWriteId: Long,
                                     val operationType: HiveAcidOperation.OperationType,
                                     val serializableHadoopConf: SerializableConfiguration,
-                                    val rowIDSchema: StructType,
+                                    val tableSchemaWithrowID: StructType,
                                     val dataColumns: Seq[Attribute],
                                     val partitionColumns: Seq[Attribute],
                                     val allColumns: Seq[Attribute],

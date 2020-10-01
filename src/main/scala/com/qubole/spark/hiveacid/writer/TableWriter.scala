@@ -176,7 +176,7 @@ private[hiveacid] class TableWriter(sparkSession: SparkSession,
           //
           // There is still a chance that rows from multiple buckets go to same partition as well, but this is expected to work!
           case HiveAcidOperation.DELETE | HiveAcidOperation.UPDATE =>
-            df.repartition(MAX_NUMBER_OF_BUCKETS, functions.expr("shiftright(rowId.bucketId & 268369920, 16)"))
+            df.repartition(MAX_NUMBER_OF_BUCKETS, functions.expr("shiftRightUnsigned(rowId.bucketId & 268369920, 16)"))
               .toDF.sortWithinPartitions("rowId.writeId", "rowId.bucketId", "rowId.rowId")
               .toDF.queryExecution.executedPlan.execute()
           case HiveAcidOperation.INSERT_OVERWRITE | HiveAcidOperation.INSERT_INTO =>
