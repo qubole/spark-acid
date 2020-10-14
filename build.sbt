@@ -72,7 +72,9 @@ libraryDependencies ++= Seq(
 		ExclusionRule("org.apache", "hadoop-hdfs")),
 	"org.apache.hadoop" % "hadoop-common" % "2.8.1" % "provided",
 	"org.apache.hadoop" % "hadoop-hdfs" % "2.8.1" % "provided",
-	"org.apache.commons" % "commons-lang3" % "3.3.5" % "provided"
+	"org.apache.commons" % "commons-lang3" % "3.3.5" % "provided",
+	// antlr-runtime
+	"org.antlr" % "antlr4-runtime" % "4.7.2" % "provided"
 )
 
 lazy val scalatest = "org.scalatest" %% "scalatest" % "3.0.5"
@@ -94,7 +96,9 @@ libraryDependencies ++= Seq(
 
 // Shaded jar dependency
 libraryDependencies ++= Seq(
-	"com.qubole" %% "spark-acid-shaded-dependencies" % sys.props.getOrElse("package.version", "0.1")
+	// intransitive() because we don't want to include any transitive dependencies of shaded-dependencies jar in main jar
+	// ideally all such dependencies should be shaded inside shaded-dependencies jar
+	"com.qubole" %% "spark-acid-shaded-dependencies" % sys.props.getOrElse("package.version", "0.1") intransitive()
 )
 
 /**************************************
@@ -154,11 +158,11 @@ pomExtra :=
             <connection>scm:git:git@github.com:qubole/spark-acid.git</connection>
         </scm>
         <developers>
-					  <developer>
-							<id>amoghmargoor</id>
-							<name>Amogh Margoor</name>
-							<url>https://github.com/amoghmargoor</url>
-						</developer>
+	    <developer>
+                <id>amoghmargoor</id>
+                <name>Amogh Margoor</name>
+                <url>https://github.com/amoghmargoor</url>
+	    </developer>
             <developer>
                 <id>citrusraj</id>
                 <name>Rajkumar Iyer</name>
@@ -172,8 +176,13 @@ pomExtra :=
             <developer>
                 <id>prakharjain09</id>
                 <name>Prakhar Jain</name>
-                <url>https://github.com/prakharjain09</url>
+		<url>https://github.com/prakharjain09</url>
             </developer>
+	    <developer>
+                <id>sourabh912</id>
+                <name>Sourabh Goyal</name>
+                <url>https://github.com/sourabh912</url>
+	    </developer>
         </developers>
 
 
@@ -202,6 +211,8 @@ antlr4Settings
 antlr4PackageName in Antlr4 := Some("com.qubole.spark.datasources.hiveacid.sql.catalyst.parser")
 antlr4GenListener in Antlr4 := true
 antlr4GenVisitor in Antlr4 := true
+antlr4Version := "4.7.2"
+
 
 /*******************
 	*  Test settings
@@ -212,6 +223,9 @@ parallelExecution in IntegrationTest := false
 // do not run test at assembly
 test in assembly := {}
 
+// do not add scala in fat jar
+assemblyOption in assembly := (assemblyOption in assembly).value.copy(includeScala = false)
+
 //Integration test
 lazy val root = (project in file("."))
   .configs(IntegrationTest)
@@ -219,6 +233,15 @@ lazy val root = (project in file("."))
     Defaults.itSettings,
     libraryDependencies += scalatest % "it"
   )
+
+// exclude antlr classes from assembly since those
+// are available in spark at runtime
+// any other classes to be excluded from assembly
+// should be added here
+assemblyExcludedJars in assembly := {
+	val cp = (fullClasspath in assembly).value
+	cp filter {_.data.getName.contains("antlr")}
+}
 
 /***********************
 	* Release settings

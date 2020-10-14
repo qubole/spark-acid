@@ -47,12 +47,13 @@ libraryDependencies ++= Seq(
 	"org.apache.hive" % "hive-service" % hive_version intransitive(),
 	"org.apache.hive" % "hive-serde" % hive_version intransitive(),
 	"org.apache.hive" % "hive-common" % hive_version intransitive(),
-
+	
 	// To deal with hive3 metastore library 0.9.3 vs zeppelin thirft
 	// library version 0.9.1 conflict when runing Notebooks.
 	"org.apache.thrift" % "libfb303" % "0.9.3",
 	"org.apache.thrift" % "libthrift" % "0.9.3"
 )
+
 
 assemblyShadeRules in assembly := Seq(
 	ShadeRule.rename("org.apache.hadoop.hive.**" -> "com.qubole.shaded.hadoop.hive.@1").inAll,
@@ -66,10 +67,23 @@ assemblyShadeRules in assembly := Seq(
 
 	ShadeRule.rename("com.google.**" -> "com.qubole.shaded.@1").inAll,
 	ShadeRule.rename("com.facebook.fb303.**" -> "com.qubole.shaded.facebook.fb303.@1").inAll,
-	ShadeRule.rename("org.apache.thrift.**" -> "com.qubole.shaded.thrift.@1").inAll
+	ShadeRule.rename("org.apache.thrift.**" -> "com.qubole.shaded.thrift.@1").inAll,
+
+	ShadeRule.rename("org.codehaus.jackson.**" -> "com.qubole.shaded.jackson.@1").inAll,
+	ShadeRule.rename("org.joda.**" -> "com.qubole.shaded.joda.@1").inAll,
+	ShadeRule.rename("org.json.**" -> "com.qubole.shaded.json.@1").inAll,
+
+	ShadeRule.rename("jodd.**" -> "com.qubole.shaded.jodd.@1").inAll,
+	ShadeRule.rename("javaewah.**" -> "com.qubole.shaded.javaewah.@1").inAll,
+	ShadeRule.rename("io.airlift.**" -> "com.qubole.shaded.io.airlift.@1").inAll,
+
+	ShadeRule.rename("org.openx.data.**" -> "com.qubole.shaded.openx.data.@1").inAll,
+	ShadeRule.rename("au.com.bytecode.opencsv.**" -> "com.qubole.shaded.au.com.bytecode.opencsv.@1").inAll,
+	ShadeRule.rename("com.readytalk.metrics.**" -> "com.qubole.shaded.readytalk.metrics.@1").inAll
 )
 
-import sbtassembly.AssemblyPlugin.autoImport.ShadeRule
+import sbtassembly.AssemblyPlugin.autoImport.{ ShadeRule}
+import sbtassembly.MergeStrategy
 val distinctAndReplace: sbtassembly.MergeStrategy = new sbtassembly.MergeStrategy {
     val name = "distinctAndReplace"
     def apply(tempDir: File, path: String, files: Seq[File]): Either[String, Seq[(File, String)]] = {
@@ -82,11 +96,13 @@ val distinctAndReplace: sbtassembly.MergeStrategy = new sbtassembly.MergeStrateg
     }
 }
 
+
 assemblyMergeStrategy in assembly := {
-	case PathList("javax", "inject", xs @ _*) => MergeStrategy.last
-	case PathList("javax", "servlet", xs @ _*) => MergeStrategy.last
-	case PathList("javax", "activation", xs @ _*) => MergeStrategy.last
-	case PathList("javax", "jdo", xs @ _*) => MergeStrategy.last
+	// all discarded classes first
+	case PathList("javax", xs @ _*) => MergeStrategy.discard
+	case PathList("javolution", xs @_*) => MergeStrategy.discard
+		// discard non shaded classes in hadoop and qubole packages
+	case PathList("org", "apache", "hadoop", xs @_*) => MergeStrategy.discard
 	case PathList("org", "apache", "log4j", xs @ _*) => MergeStrategy.last
 	case PathList("com", "google", xs @ _*) => MergeStrategy.last
 	case PathList("com", "esotericsoftware", xs @ _*) => MergeStrategy.last
@@ -113,8 +129,13 @@ assemblyMergeStrategy in assembly := {
 	case PathList("org", "slf4j", "impl", xs @ _*) => MergeStrategy.last
 	case PathList("org", "slf4j", "helpers", xs @ _*) => MergeStrategy.last
 	case PathList("org", "slf4j", xs @ _*) => MergeStrategy.last
+
+	// discard package.jdo because objects defined inside it are not shaded.
+		// So removing for now
+	case "package.jdo" => MergeStrategy.discard
+
 	case PathList("META-INF", "services", xs @ _*) => distinctAndReplace
-		//case "about.html" => MergeStrategy.rename
+	// case "about.html" => MergeStrategy.rename
 	case "META-INF/ECLIPSEF.RSA" => MergeStrategy.last
 	case "META-INF/mailcap" => MergeStrategy.last
 	case "META-INF/mimetypes.default" => MergeStrategy.last
@@ -126,7 +147,8 @@ assemblyMergeStrategy in assembly := {
 	case "META-INF/io.netty.versions.properties" => MergeStrategy.last
 	case "META-INF/org/apache/logging/log4j/core/config/plugins/Log4j2Plugins.dat" => MergeStrategy.last
 	case "codegen/config.fmpp" => MergeStrategy.first
-		case x =>
+
+	case x =>
 			val oldStrategy = (assemblyMergeStrategy in assembly).value
 			oldStrategy(x)
 }
