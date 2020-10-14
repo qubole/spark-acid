@@ -158,11 +158,11 @@ pomExtra :=
             <connection>scm:git:git@github.com:qubole/spark-acid.git</connection>
         </scm>
         <developers>
-					  <developer>
-							<id>amoghmargoor</id>
-							<name>Amogh Margoor</name>
-							<url>https://github.com/amoghmargoor</url>
-						</developer>
+	    <developer>
+                <id>amoghmargoor</id>
+                <name>Amogh Margoor</name>
+                <url>https://github.com/amoghmargoor</url>
+	    </developer>
             <developer>
                 <id>citrusraj</id>
                 <name>Rajkumar Iyer</name>
@@ -176,13 +176,13 @@ pomExtra :=
             <developer>
                 <id>prakharjain09</id>
                 <name>Prakhar Jain</name>
-                <url>https://github.com/prakharjain09</url>
+		<url>https://github.com/prakharjain09</url>
             </developer>
-					  <developer>
-							<id>sourabh912</id>
-							<name>Sourabh Goyal</name>
-							<url>https://https://github.com/sourabh912</url>
-						</developer>
+	    <developer>
+                <id>sourabh912</id>
+                <name>Sourabh Goyal</name>
+                <url>https://github.com/sourabh912</url>
+	    </developer>
         </developers>
 
 

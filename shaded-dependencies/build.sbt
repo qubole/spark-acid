@@ -79,9 +79,7 @@ assemblyShadeRules in assembly := Seq(
 
 	ShadeRule.rename("org.openx.data.**" -> "com.qubole.shaded.openx.data.@1").inAll,
 	ShadeRule.rename("au.com.bytecode.opencsv.**" -> "com.qubole.shaded.au.com.bytecode.opencsv.@1").inAll,
-	ShadeRule.rename("com.readytalk.metrics.**" -> "com.qubole.shaded.readytalk.metrics.@1").inAll,
-	ShadeRule.rename("com.qubole.metrics.**" -> "com.qubole.shaded.metrics.@1").inAll,
-	ShadeRule.rename("com.qubole.metricsd.**" -> "com.qubole.shaded.metricsd.@1").inAll
+	ShadeRule.rename("com.readytalk.metrics.**" -> "com.qubole.shaded.readytalk.metrics.@1").inAll
 )
 
 import sbtassembly.AssemblyPlugin.autoImport.{ ShadeRule}
@@ -105,10 +103,6 @@ assemblyMergeStrategy in assembly := {
 	case PathList("javolution", xs @_*) => MergeStrategy.discard
 		// discard non shaded classes in hadoop and qubole packages
 	case PathList("org", "apache", "hadoop", xs @_*) => MergeStrategy.discard
-	case PathList("com", "qubole", "cloudman", xs @_*) => MergeStrategy.discard
-	case PathList("com", "qubole", "hiveutils", xs @_*) => MergeStrategy.discard
-	case PathList("com", "qubole", "hustler", xs @_*) => MergeStrategy.discard
-	case PathList("com", "qubole", "shell", xs @_*) => MergeStrategy.discard
 	case PathList("org", "apache", "log4j", xs @ _*) => MergeStrategy.last
 	case PathList("com", "google", xs @ _*) => MergeStrategy.last
 	case PathList("com", "esotericsoftware", xs @ _*) => MergeStrategy.last
