@@ -69,7 +69,7 @@ private[v2] class HiveAcidInputPartitionReaderV2(split: HiveAcidPartition,
     //TODO: Need to generalize it for supporting other kind of file format.
     orcColumnarBatchReader.initialize(fileSplit, taskAttemptContext)
     orcColumnarBatchReader.initBatch(readerLocal.getSchema, requestedColIds,
-      requiredFields, partitionSchema, partitionValues, isFullAcidTable && !fileSplit.isOriginal)
+      requiredFields, partitionSchema, partitionValues, isFullAcidTable, fileSplit.isOriginal)
   }
   initReader()
 

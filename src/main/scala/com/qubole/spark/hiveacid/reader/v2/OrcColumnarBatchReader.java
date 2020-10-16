@@ -152,11 +152,13 @@ public class OrcColumnarBatchReader extends RecordReader<Void, ColumnarBatch> {
   // The columns that are pushed as search arguments to ORC file reader.
   private String[] getSargColumnNames(String[] originalColumnNames,
                                       List<OrcProto.Type> types,
-                                      boolean[] includedColumns) {
+                                      boolean[] includedColumns,
+                                      boolean isOriginal) {
     // Skip ACID related columns if present.
-    String[] columnNames = new String[types.size() - rootColIdx];
+    int dataColIdx = isOriginal ? 0 : rootColIdx + 1;
+    String[] columnNames = new String[types.size() - dataColIdx];
     int i = 0;
-    Iterator iterator = ((OrcProto.Type)types.get(rootColIdx)).getSubtypesList().iterator();
+    Iterator iterator = ((OrcProto.Type)types.get(dataColIdx)).getSubtypesList().iterator();
 
     while(true) {
       int columnId;
@@ -165,14 +167,15 @@ public class OrcColumnarBatchReader extends RecordReader<Void, ColumnarBatch> {
           return columnNames;
         }
         columnId = (Integer)iterator.next();
-      } while(includedColumns != null && !includedColumns[columnId - rootColIdx]);
-      columnNames[columnId - rootColIdx] = originalColumnNames[i++];
+      } while(includedColumns != null && !includedColumns[columnId - dataColIdx]);
+      columnNames[columnId - dataColIdx] = originalColumnNames[i++];
     }
   }
 
   private void setSearchArgument(Reader.Options options,
                                  List<OrcProto.Type> types,
-                                 Configuration conf) {
+                                 Configuration conf,
+                                 boolean isOriginal) {
     String neededColumnNames = conf.get("hive.io.file.readcolumn.names");
     if (neededColumnNames == null) {
       options.searchArgument((SearchArgument)null, (String[])null);
@@ -183,7 +186,7 @@ public class OrcColumnarBatchReader extends RecordReader<Void, ColumnarBatch> {
         options.searchArgument((SearchArgument)null, (String[])null);
       } else {
         String[] colNames = getSargColumnNames(neededColumnNames.split(","),
-                types, options.getInclude());
+                types, options.getInclude(), isOriginal);
         options.searchArgument(sarg, colNames);
       }
     }
@@ -191,9 +194,10 @@ public class OrcColumnarBatchReader extends RecordReader<Void, ColumnarBatch> {
 
   private void setSearchArgumentForOption(Configuration conf,
                                           TypeDescription readerSchema,
-                                          Reader.Options readerOptions) {
+                                          Reader.Options readerOptions,
+                                          boolean isOriginal) {
     final List<OrcProto.Type> schemaTypes = OrcUtils.getOrcTypes(readerSchema);
-    setSearchArgument(readerOptions, schemaTypes, conf);
+    setSearchArgument(readerOptions, schemaTypes, conf, isOriginal);
   }
 
   /**
@@ -274,8 +278,10 @@ public class OrcColumnarBatchReader extends RecordReader<Void, ColumnarBatch> {
           StructField[] requiredFields,
           StructType partitionSchema,
           InternalRow partitionValues,
-          boolean isAcidScan) throws IOException {
-
+          boolean isFullAcidTable,
+          boolean isOriginal
+          ) throws IOException {
+    boolean isAcidScan = isFullAcidTable && !isOriginal;
     if (!isAcidScan) {
       //rootCol = org.apache.hadoop.hive.ql.io.orc.OrcInputFormat.getRootColumn(true);
       rootColIdx = 0;
@@ -292,7 +298,7 @@ public class OrcColumnarBatchReader extends RecordReader<Void, ColumnarBatch> {
                     .filesystem(fileSplit.getPath().getFileSystem(conf)));
     Reader.Options options = /*createOptionsForReader(conf, orcSchema);*/
             OrcInputFormat.buildOptions(conf, readerInner, fileSplit.getStart(), fileSplit.getLength());
-    setSearchArgumentForOption(conf, orcSchema, options);
+    setSearchArgumentForOption(conf, orcSchema, options, isOriginal);
     baseRecordReader = readerInner.rows(options);
 
     // This schema will have both required fields and the filed to be used by ACID reader.

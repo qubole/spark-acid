@@ -114,7 +114,8 @@ class HiveAcidDataSourceV2Reader
   override def pushFilters (filters: Array[Filter]): Array[Filter] = {
     this.pushedFilterArray = HiveAcidSearchArgument.
       getSupportedFilters(hiveAcidMetadata.tableSchema, filters.toSeq).toArray
-    filters.filterNot(filter => this.pushedFilterArray.contains(filter))
+    // ORC does not do row level filtering. So the filters has to be applied again.
+    filters
   }
 
   override def pushedFilters(): Array[Filter] = this.pushedFilterArray
