@@ -28,11 +28,12 @@ publishArtifact in (Compile, packageSrc) := false
 
 publishArtifact in (Compile, packageBin) := false
 
-val hive_version = sys.props.getOrElse("hive.version", "3.1.2")
+val hive_version = sys.props.getOrElse("hive.version", "2.1.1-cdh6.2.0")
 
 val orc_version = sys.props.getOrElse("orc.version", "1.5.6")
 
 resolvers += "Additional Maven Repository" at sys.props.getOrElse("hive.repo", "https://repo1.maven.org/maven2/")
+resolvers += "cloudera Repository" at sys.props.getOrElse("cloudera", "https://repository.cloudera.com/artifactory/cloudera-repos/")
 
 // Shaded dependency
 libraryDependencies ++= Seq(
@@ -42,7 +43,7 @@ libraryDependencies ++= Seq(
 	"org.apache.orc" % "orc-core" % orc_version intransitive(),
 	"org.apache.orc" % "orc-mapreduce" % orc_version intransitive(),
 
-	// Only for hive3 client in tests.. but packing it in shaded jars.
+	/*// Only for hive3 client in tests.. but packing it in shaded jars.
 	"org.apache.hive" % "hive-jdbc" % hive_version intransitive(),
 	"org.apache.hive" % "hive-service" % hive_version intransitive(),
 	"org.apache.hive" % "hive-serde" % hive_version intransitive(),
@@ -51,7 +52,7 @@ libraryDependencies ++= Seq(
 	// To deal with hive3 metastore library 0.9.3 vs zeppelin thirft
 	// library version 0.9.1 conflict when runing Notebooks.
 	"org.apache.thrift" % "libfb303" % "0.9.3",
-	"org.apache.thrift" % "libthrift" % "0.9.3"
+	"org.apache.thrift" % "libthrift" % "0.9.3"*/
 )
 
 

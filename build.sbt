@@ -45,7 +45,7 @@ scalacOptions in (Compile, doc) ++= Seq(
 /**************************
 	* Spark package settings
 	*/
-sparkVersion := sys.props.getOrElse("spark.version", "2.4.3")
+sparkVersion := sys.props.getOrElse("spark.version", "2.4.0-cdh6.2.0")
 
 spIncludeMaven := true
 
@@ -55,7 +55,7 @@ spIgnoreProvided := true
 /************************
 	* Library Dependencies
 	*/
-
+resolvers += "cloudera Repository" at sys.props.getOrElse("cloudera", "https://repository.cloudera.com/artifactory/cloudera-repos/")
 libraryDependencies ++= Seq(
 	// Adding test classifier seems to break transitive resolution of the core dependencies
 	"org.apache.spark" %% "spark-hive" % sparkVersion.value % "provided" excludeAll(
@@ -70,20 +70,20 @@ libraryDependencies ++= Seq(
 	"org.apache.spark" %% "spark-catalyst" % sparkVersion.value % "provided" excludeAll(
 		ExclusionRule("org.apache", "hadoop-common"),
 		ExclusionRule("org.apache", "hadoop-hdfs")),
-	"org.apache.hadoop" % "hadoop-common" % "2.8.1" % "provided",
-	"org.apache.hadoop" % "hadoop-hdfs" % "2.8.1" % "provided",
-	"org.apache.commons" % "commons-lang3" % "3.3.5" % "provided",
+	"org.apache.hadoop" % "hadoop-common" % "3.0.0-cdh6.2.0" % "provided",
+	"org.apache.hadoop" % "hadoop-hdfs" % "3.0.0-cdh6.2.0" % "provided",
+	"org.apache.commons" % "commons-lang3" % "3.7" % "provided",
 	// antlr-runtime
-	"org.antlr" % "antlr4-runtime" % "4.7.2" % "provided"
+	"org.antlr" % "antlr4-runtime" % "4.7" % "provided"
 )
 
 lazy val scalatest = "org.scalatest" %% "scalatest" % "3.0.5"
 
 // Dependencies for Test
 libraryDependencies ++= Seq(
-	"org.apache.hadoop" % "hadoop-common" % "2.8.1" % "provided",
-	"org.apache.hadoop" % "hadoop-hdfs" % "2.8.1" % "provided",
-	"org.apache.commons" % "commons-lang3" % "3.3.5" % "provided",
+	"org.apache.hadoop" % "hadoop-common" % "3.0.0-cdh6.2.0" % "provided",
+	"org.apache.hadoop" % "hadoop-hdfs" % "3.0.0-cdh6.2.0" % "provided",
+	"org.apache.commons" % "commons-lang3" % "3.7" % "provided",
 	// Dependencies for tests
 	//
 	"org.scalatest" %% "scalatest" % "3.0.5" % "test",
