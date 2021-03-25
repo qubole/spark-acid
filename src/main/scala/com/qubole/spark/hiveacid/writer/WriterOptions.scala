@@ -27,7 +27,7 @@ import org.apache.spark.sql.types.StructType
 /**
  * Writer options which will be serialized and sent to each executor
  */
-private[hiveacid] class WriterOptions(val currentWriteId: Long,
+private[hiveacid] class WriterOptions(val currentTxnId: Long,
                                     val operationType: HiveAcidOperation.OperationType,
                                     val serializableHadoopConf: SerializableConfiguration,
                                     val tableSchemaWithrowID: StructType,

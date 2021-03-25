@@ -21,7 +21,7 @@ package com.qubole.spark.hiveacid.reader.hive
 
 import java.util.concurrent.{ConcurrentHashMap, TimeUnit}
 
-import com.qubole.shaded.hadoop.hive.common.{ValidReaderWriteIdList, ValidWriteIdList}
+import com.qubole.shaded.hadoop.hive.common.{ValidReadTxnList, ValidTxnList}
 import com.qubole.spark.hiveacid.rdd.{HiveAcidPartition, HiveAcidRDD, HiveSplitInfo}
 import com.qubole.spark.hiveacid.reader.hive.HiveAcidPartitionComputer.{addToPartitionCache, getInputFormat}
 import com.qubole.spark.hiveacid.util.Util
@@ -68,16 +68,16 @@ private[hiveacid] case class HiveAcidPartitionComputer(ignoreEmptySplits: Boolea
     logInfo("Spawning job to compute partitions for ACID table RDD")
     val splits = splitRDD.map {
       case HiveSplitInfo(id, broadcastedConf,
-      validWriteIdList, minPartitions, ifcName, isFullAcidTable, shouldCloneJobConf, initLocalJobConfFuncOpt) =>
+      validTxnList, minPartitions, ifcName, isFullAcidTable, shouldCloneJobConf, initLocalJobConfFuncOpt) =>
         val jobConf = HiveAcidRDD.setInputPathToJobConf(
           Some(HiveAcidRDD.getJobConf(broadcastedConf, shouldCloneJobConf, initLocalJobConfFuncOpt)),
           isFullAcidTable,
-          new ValidReaderWriteIdList(validWriteIdList),
+          new ValidReadTxnList(validTxnList),
           broadcastedConf,
           shouldCloneJobConf,
           initLocalJobConfFuncOpt)
         val partitions = this.getPartitions[Writable, Writable](id, jobConf, getInputFormat(jobConf, ifcName), minPartitions)
-        (partitions, FileInputFormat.getInputPaths(jobConf), validWriteIdList)
+        (partitions, FileInputFormat.getInputPaths(jobConf), validTxnList)
     }.collect()
 
     splits.foreach {
@@ -96,12 +96,12 @@ private[hiveacid] object HiveAcidPartitionComputer extends Logging {
     case class SplitCacheKey(paths: Set[Path], validWriteIdList: String)
   }
 
-  def getFromSplitsCache(paths: Array[Path], validWriteIdList: ValidWriteIdList): Option[Array[HiveAcidPartition]] = {
-    Option(Cache.partitionCache.get(Cache.SplitCacheKey(paths.toSet, validWriteIdList.writeToString())))
+  def getFromSplitsCache(paths: Array[Path], validTxnList: ValidTxnList): Option[Array[HiveAcidPartition]] = {
+    Option(Cache.partitionCache.get(Cache.SplitCacheKey(paths.toSet, validTxnList.writeToString())))
   }
 
-  def removeFromSplitsCache(paths: Array[Path], validWriteIdList: ValidWriteIdList): Unit = {
-    Cache.partitionCache.remove(Cache.SplitCacheKey(paths.toSet, validWriteIdList.writeToString()))
+  def removeFromSplitsCache(paths: Array[Path], validTxnList: ValidTxnList): Unit = {
+    Cache.partitionCache.remove(Cache.SplitCacheKey(paths.toSet, validTxnList.writeToString()))
   }
 
   def addToPartitionCache(paths: Array[Path], validWriteIdList: String, inputSplits: Array[HiveAcidPartition]): Unit = {

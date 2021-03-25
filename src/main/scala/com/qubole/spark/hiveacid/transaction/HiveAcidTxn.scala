@@ -19,7 +19,7 @@ package com.qubole.spark.hiveacid.transaction
 
 import java.util.concurrent.atomic.AtomicBoolean
 
-import com.qubole.shaded.hadoop.hive.common.{ValidTxnList, ValidWriteIdList}
+import com.qubole.shaded.hadoop.hive.common.{ValidTxnList}
 import com.qubole.spark.hiveacid.{HiveAcidErrors, HiveAcidOperation, SparkAcidConf}
 import com.qubole.spark.hiveacid.hive.HiveAcidMetadata
 import org.apache.spark.internal.Logging
@@ -120,19 +120,20 @@ object HiveAcidTxn extends Logging {
 
   // Helper function to create snapshot.
   private[hiveacid] def createSnapshot(txn: HiveAcidTxn, hiveAcidMetadata: HiveAcidMetadata): HiveAcidTableSnapshot = {
-    val currentWriteId = txnManager.getCurrentWriteId(txn.txnId,
+    //dont need this because there is no writeids in hive 2.1
+    /*val currentWriteId = txnManager.getCurrentWriteId(txn.txnId,
       hiveAcidMetadata.dbName, hiveAcidMetadata.tableName)
-    val validWriteIdList: ValidWriteIdList = getValidWriteIds(txn, hiveAcidMetadata)
-    HiveAcidTableSnapshot(validWriteIdList, currentWriteId)
+    val validWriteIdList: ValidWriteIdList = getValidWriteIds(txn, hiveAcidMetadata)*/
+    HiveAcidTableSnapshot(txn.validTxnList, txn.txnId)
   }
 
-  private[hiveacid] def getValidWriteIds(txn: HiveAcidTxn, hiveAcidMetadata: HiveAcidMetadata) = {
-    val validWriteIdList = if (txn.txnId == -1) {
+  private[hiveacid] def getValidTxnIds(txn: HiveAcidTxn, hiveAcidMetadata: HiveAcidMetadata) = {
+    val validTxnIds = if (txn.txnId == -1) {
       throw HiveAcidErrors.tableWriteIdRequestedBeforeTxnStart(hiveAcidMetadata.fullyQualifiedName)
     } else {
-      txnManager.getValidWriteIds(txn.txnId, txn.validTxnList, hiveAcidMetadata.fullyQualifiedName)
+      txnManager.getValidTxns(Some(txn.txnId))
     }
-    validWriteIdList
+    validTxnIds
   }
 
   // Txn manager is connection to HMS. Use single instance of it
@@ -173,31 +174,30 @@ object HiveAcidTxn extends Logging {
       false
     } else {
       // Compare the earlier writeIds of fullyQualifiedTableName with the current one.
-      val previousWriteIdList = txnManager.getValidWriteIds(txn.txnId, txn.validTxnList, fullyQualifiedTableName)
-      val currentValidList = txnManager.getValidTxns(Some(txn.txnId))
-      val currentWriteIdList = txnManager.getValidWriteIds(txn.txnId, currentValidList, fullyQualifiedTableName)
+      val previousValidTxnList = txn.validTxnList
+      val currentValidTxnList = txnManager.getValidTxns(Some(txn.txnId))
       // Checks if any new write transaction was started and committed
       // after opening transaction and before acquiring locks using HighWaterMark
-      if (previousWriteIdList.getHighWatermark == currentWriteIdList.getHighWatermark) {
+      if (previousValidTxnList.getHighWatermark == currentValidTxnList.getHighWatermark) {
         // Check all the open transactions when current transaction was opened,
         // are still invalid i.e., either running/open or aborted.
-        val prevOpenInvalidWriteIds = previousWriteIdList.getInvalidWriteIds
-          .filter(!previousWriteIdList.isWriteIdAborted(_)).toSet
-        val currentInvalidWriteIds = currentWriteIdList.getInvalidWriteIds.toSet
+        val prevOpenInvalidTxnIds = previousValidTxnList.getInvalidTransactions
+          .filter(!previousValidTxnList.isTxnValid(_)).toSet
+        val currentInvalidTxnIds = currentValidTxnList.getInvalidTransactions.toSet
         // Previous open transactions should still be invalid
-        if (prevOpenInvalidWriteIds.isEmpty ||
-          prevOpenInvalidWriteIds.diff(currentInvalidWriteIds).isEmpty) {
+        if (prevOpenInvalidTxnIds.isEmpty ||
+          prevOpenInvalidTxnIds.diff(currentInvalidTxnIds).isEmpty) {
           logDebug("All previous open transactions are still invalid! Transaction is valid!")
           true
         } else {
-          logWarning("Prev Open transactions: " +  prevOpenInvalidWriteIds.diff(currentInvalidWriteIds).mkString(", ")
+          logWarning("Prev Open transactions: " +  prevOpenInvalidTxnIds.diff(currentInvalidTxnIds).mkString(", ")
             + " have been committed. Transaction " + txn.txnId + " is not valid !")
           false
         }
       } else {
         logWarning("HighWatermark moved from " +
-          previousWriteIdList.getHighWatermark + " to " +
-          currentWriteIdList.getHighWatermark +
+          previousValidTxnList.getHighWatermark + " to " +
+          currentValidTxnList.getHighWatermark +
           ". Transaction " + txn.txnId + " is not valid !")
         false
       }
@@ -205,4 +205,4 @@ object HiveAcidTxn extends Logging {
   }
 }
 
-private[hiveacid] case class HiveAcidTableSnapshot(validWriteIdList: ValidWriteIdList, currentWriteId: Long)
+private[hiveacid] case class HiveAcidTableSnapshot(validTxnList: ValidTxnList, currentTxnId: Long)

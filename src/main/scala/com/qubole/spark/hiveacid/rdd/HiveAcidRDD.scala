@@ -27,7 +27,7 @@ import java.util.{Date, Locale}
 import scala.collection.JavaConversions._
 import scala.collection.mutable.ListBuffer
 import scala.reflect.ClassTag
-import com.qubole.shaded.hadoop.hive.common.ValidWriteIdList
+import com.qubole.shaded.hadoop.hive.common.ValidTxnList
 import com.qubole.shaded.hadoop.hive.ql.io.{AcidInputFormat, AcidUtils, HiveInputFormat, RecordIdentifier}
 import com.qubole.spark.hiveacid.rdd.HiveAcidRDD.HiveAcidPartitionsWithSplitRDD
 import com.qubole.spark.hiveacid.reader.hive.HiveAcidPartitionComputer
@@ -88,7 +88,7 @@ class HiveAcidPartition(rddId: Int, override val index: Int, s: InputSplit)
  * `org.apache.spark.SparkContext.HiveAcidRDD()`
  */
 private[hiveacid] class HiveAcidRDD[K, V](sc: SparkContext,
-                                     @transient val validWriteIds: ValidWriteIdList,
+                                     @transient val validTxnList: ValidTxnList,
                                      @transient val isFullAcidTable: Boolean,
                                      broadcastedConf: Broadcast[SerializableConfiguration],
                                      initLocalJobConfFuncOpt: Option[JobConf => Unit],
@@ -100,7 +100,7 @@ private[hiveacid] class HiveAcidRDD[K, V](sc: SparkContext,
 
   def this(
             sc: SparkContext,
-            @transient validWriteIds: ValidWriteIdList,
+            @transient validTxnList: ValidTxnList,
             @transient isFullAcidTable: Boolean,
             conf: JobConf,
             inputFormatClass: Class[_ <: InputFormat[K, V]],
@@ -109,7 +109,7 @@ private[hiveacid] class HiveAcidRDD[K, V](sc: SparkContext,
             minPartitions: Int) = {
     this(
       sc,
-      validWriteIds,
+      validTxnList,
       isFullAcidTable,
       sc.broadcast(new SerializableConfiguration(conf))
         .asInstanceOf[Broadcast[SerializableConfiguration]],
@@ -188,7 +188,7 @@ private[hiveacid] class HiveAcidRDD[K, V](sc: SparkContext,
   }
 
   def getHiveSplitsInfo: HiveSplitInfo = {
-    HiveSplitInfo(id, broadcastedConf, validWriteIds.writeToString(), minPartitions,
+    HiveSplitInfo(id, broadcastedConf, validTxnList.writeToString(), minPartitions,
       inputFormatClass.getCanonicalName, isFullAcidTable, shouldCloneJobConf,
       initLocalJobConfFuncOpt)
   }
@@ -204,13 +204,13 @@ private[hiveacid] class HiveAcidRDD[K, V](sc: SparkContext,
   }
 
   override def getPartitions: Array[Partition] = {
-    val jobConf: JobConf = HiveAcidRDD.setInputPathToJobConf(Some(getJobConf), isFullAcidTable, validWriteIds,
+    val jobConf: JobConf = HiveAcidRDD.setInputPathToJobConf(Some(getJobConf), isFullAcidTable, validTxnList,
       broadcastedConf, shouldCloneJobConf, initLocalJobConfFuncOpt)
 
     // add the credentials here as this can be called before SparkContext initialized
     SparkHadoopUtil.get.addCredentials(jobConf)
     val paths = FileInputFormat.getInputPaths(jobConf)
-    val partitions = HiveAcidPartitionComputer.getFromSplitsCache(paths, validWriteIds)
+    val partitions = HiveAcidPartitionComputer.getFromSplitsCache(paths, validTxnList)
     if (partitions.isDefined) {
       partitions.get.asInstanceOf[Array[Partition]]
     } else {
@@ -464,7 +464,7 @@ object HiveAcidRDD extends Logging {
 
   private[hiveacid]
   def setInputPathToJobConf(jobConfOpt: Option[JobConf], isFullAcidTable: Boolean,
-                            validWriteIds: ValidWriteIdList,
+                            validTxnList: ValidTxnList,
                             broadcastedConf: Broadcast[SerializableConfiguration],
                             shouldCloneJobConf: Boolean,
                             initLocalJobConfFuncOpt: Option[JobConf => Unit]): JobConf = {
@@ -476,15 +476,15 @@ object HiveAcidRDD extends Logging {
     if (isFullAcidTable) {
       // If full ACID table, just set the right writeIds, the
       // OrcInputFormat.getSplits() will take care of the rest
-      AcidUtils.setValidWriteIdList(jobConf, validWriteIds)
+      //AcidUtils.setValidWriteIdList(jobConf, validTxnList)
     } else {
-      val finalPaths = new ListBuffer[Path]()
+      /*val finalPaths = new ListBuffer[Path]()
       val pathsWithFileOriginals = new ListBuffer[Path]()
       val dirs = FileInputFormat.getInputPaths(jobConf).toSeq // Seq(acidState.location)
       HiveInputFormat.processPathsForMmRead(dirs, jobConf, validWriteIds,
-        finalPaths, pathsWithFileOriginals)
+        finalPaths, pathsWithFileOriginals)*/
 
-      if (finalPaths.nonEmpty) {
+      /*if (finalPaths.nonEmpty) {
         FileInputFormat.setInputPaths(jobConf, finalPaths.toList: _*)
         // Need recursive to be set to true because MM Tables can have a directory structure like:
         // ~/warehouse/hello_mm/base_0000034/HIVE_UNION_SUBDIR_1/000000_0
@@ -503,7 +503,7 @@ object HiveAcidRDD extends Logging {
         // that are applied separately in each call will effectively be ignored for such splits.
         jobConf = HiveInputFormat.createConfForMmOriginalsSplit(jobConf,
           pathsWithFileOriginals)
-      }
+      }*/
 
     }
     jobConf

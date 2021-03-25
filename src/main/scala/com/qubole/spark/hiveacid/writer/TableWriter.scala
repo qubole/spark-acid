@@ -116,7 +116,7 @@ private[hiveacid] class TableWriter(sparkSession: SparkSession,
       // Create Snapshot !!!
       val curSnapshot = HiveAcidTxn.createSnapshot(curTxn, hiveAcidMetadata)
 
-      val writerOptions = new WriterOptions(curSnapshot.currentWriteId,
+      val writerOptions = new WriterOptions(curSnapshot.currentTxnId,
         operationType,
         new SerializableConfiguration(hadoopConf),
         getSchema(operationType),
@@ -215,7 +215,7 @@ private[hiveacid] class TableWriter(sparkSession: SparkSession,
         val touchedPartitionNames = touchedPartitions.map (
           PartitioningUtils.getPathFragment(_, partitionColumns))
 
-        curTxn.addDynamicPartitions(curSnapshot.currentWriteId, hiveAcidMetadata.dbName,
+        curTxn.addDynamicPartitions(curSnapshot.currentTxnId, hiveAcidMetadata.dbName,
           hiveAcidMetadata.tableName, operationType, touchedPartitionNames)
       }
 

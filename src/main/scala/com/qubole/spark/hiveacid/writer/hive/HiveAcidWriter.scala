@@ -25,7 +25,7 @@ import scala.collection.JavaConverters._
 import scala.collection.mutable
 import com.qubole.shaded.hadoop.hive.ql.exec.FileSinkOperator.RecordWriter
 import com.qubole.shaded.hadoop.hive.ql.exec.Utilities
-import com.qubole.shaded.hadoop.hive.ql.io.{BucketCodec, HiveFileFormatUtils, RecordIdentifier, RecordUpdater, _}
+import com.qubole.shaded.hadoop.hive.ql.io.{HiveFileFormatUtils, RecordIdentifier, RecordUpdater, _}
 import com.qubole.shaded.hadoop.hive.ql.plan.{FileSinkDesc, TableDesc}
 import com.qubole.shaded.hadoop.hive.serde2.{Deserializer, SerDeUtils}
 import com.qubole.shaded.hadoop.hive.serde2.Serializer
@@ -45,7 +45,7 @@ import org.apache.spark.sql.catalyst.catalog.CatalogTypes.TablePartitionSpec
 import org.apache.spark.sql.catalyst.catalog.ExternalCatalogUtils
 import org.apache.spark.sql.catalyst.expressions.{Cast, Concat, Expression, Literal, ScalaUDF, UnsafeProjection, UnsafeRow}
 import org.apache.spark.sql.execution.datasources.PartitioningUtils
-import org.apache.spark.sql.hive.Hive3Inspectors
+import org.apache.spark.sql.hive.Hive2Inspectors
 import org.apache.spark.sql.types.StringType
 
 abstract private[writer] class HiveAcidWriter(val options: WriterOptions,
@@ -205,8 +205,8 @@ private[writer] class HiveAcidFullAcidWriter(options: WriterOptions,
     val acidOutputFormatOptions = new AcidOutputFormat.Options(jobConf)
       .writingBase(options.operationType == HiveAcidOperation.INSERT_OVERWRITE)
       .bucket(acidBucketId)
-      .minimumWriteId(fileSinkConf.getTableWriteId)
-      .maximumWriteId(fileSinkConf.getTableWriteId)
+      .minimumTransactionId(fileSinkConf.getTransactionId)
+      .maximumTransactionId(fileSinkConf.getTransactionId )
       .statementId(fileSinkConf.getStatementId)
 
     val (createDelta, createDeleteDelta) = options.operationType match {
@@ -218,7 +218,7 @@ private[writer] class HiveAcidFullAcidWriter(options: WriterOptions,
 
     val fs = path.getFileSystem(jobConf)
 
-    def createVersionFile(acidOptions: AcidOutputFormat.Options): Unit = {
+    /*def createVersionFile(acidOptions: AcidOutputFormat.Options): Unit = {
       try {
         AcidUtils.OrcAcidVersion.writeVersionFile(
           AcidUtils.createFilename(path, acidOptions).getParent, fs)
@@ -230,7 +230,7 @@ private[writer] class HiveAcidFullAcidWriter(options: WriterOptions,
         case _: Throwable =>
           logError("Version file already found - shouldn't be caught")
       }
-    }
+    }*/
 
     def safeDeletePath(fs: FileSystem, path: Path): Unit = {
       try {
@@ -247,15 +247,15 @@ private[writer] class HiveAcidFullAcidWriter(options: WriterOptions,
     if (createDelta) {
       // Delete delta bucket file if exists. It can exist in the cases of task retries.
       safeDeletePath(fs, AcidUtils.createFilename(path, acidOutputFormatOptions))
-      createVersionFile(acidOutputFormatOptions)
+      //createVersionFile(acidOutputFormatOptions)
     }
 
-    if (createDeleteDelta) {
+    /*if (createDeleteDelta) {
       // Delete delete_delta bucket file if it exists. It can exist in the cases of task retries.
       val deleteDeltaOptions = acidOutputFormatOptions.clone().writingDeleteDelta(true)
       safeDeletePath(fs, AcidUtils.createFilename(path, deleteDeltaOptions))
       createVersionFile(deleteDeltaOptions)
-    }
+    }*/
     recordUpdater
   }
 
@@ -272,7 +272,7 @@ private[writer] class HiveAcidFullAcidWriter(options: WriterOptions,
         case HiveAcidOperation.DELETE | HiveAcidOperation.UPDATE =>
           val rowID = dataRow.get(rowIdColNum, HiveAcidMetadata.rowIdSchema)
           // FIXME: Currently hard coding codec as V1 and also bucket ordinal as 1.
-          BucketCodec.V1.decodeWriterId(rowID.asInstanceOf[UnsafeRow].getInt(1))
+          rowID.asInstanceOf[UnsafeRow].getInt(1)
         case x =>
           throw new RuntimeException(s"Invalid write operation $x")
       }
@@ -299,11 +299,11 @@ private[writer] class HiveAcidFullAcidWriter(options: WriterOptions,
 
     options.operationType match {
       case HiveAcidOperation.INSERT_INTO | HiveAcidOperation.INSERT_OVERWRITE =>
-        recordUpdater.insert(options.currentWriteId, recordValue)
+        recordUpdater.insert(options.currentTxnId, recordValue)
       case HiveAcidOperation.UPDATE =>
-        recordUpdater.update(options.currentWriteId, recordValue)
+        recordUpdater.update(options.currentTxnId, recordValue)
       case HiveAcidOperation.DELETE =>
-        recordUpdater.delete(options.currentWriteId, recordValue)
+        recordUpdater.delete(options.currentTxnId, recordValue)
       case x =>
         throw new RuntimeException(s"Invalid write operation $x")
     }
@@ -340,8 +340,8 @@ private[writer] class HiveAcidInsertOnlyWriter(options: WriterOptions,
     val acidOutputFormatOptions = new AcidOutputFormat.Options(jobConf)
       .writingBase(options.operationType == HiveAcidOperation.INSERT_OVERWRITE)
       .bucket(acidBucketId)
-      .minimumWriteId(fileSinkConf.getTableWriteId)
-      .maximumWriteId(fileSinkConf.getTableWriteId)
+      .minimumTransactionId(fileSinkConf.getTransactionId)
+      .maximumTransactionId(fileSinkConf.getTransactionId)
       .statementId(fileSinkConf.getStatementId)
 
     // FIXME: Hack to remove bucket prefix for Insert only table.
@@ -406,7 +406,7 @@ private[writer] class HiveAcidInsertOnlyWriter(options: WriterOptions,
  */
 private[hive] class SparkHiveRowConverter(options: WriterOptions,
                                           HiveAcidOptions: HiveAcidWriterOptions,
-                                          jobConf: JobConf) extends Hive3Inspectors {
+                                          jobConf: JobConf) extends Hive2Inspectors {
 
   val tableDesc: TableDesc = HiveAcidOptions.getFileSinkDesc.getTableInfo
 

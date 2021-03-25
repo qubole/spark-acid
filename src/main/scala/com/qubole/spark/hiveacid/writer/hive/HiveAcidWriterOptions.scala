@@ -39,10 +39,10 @@ private[writer] object HiveAcidWriterOptions {
     lazy val fileSinkDescriptor: FileSinkDesc = {
       val fileSinkDesc: FileSinkDesc = new FileSinkDesc()
       fileSinkDesc.setTableInfo(hiveAcidMetadata.tableDesc)
-      fileSinkDesc.setTableWriteId(options.currentWriteId)
-      if (options.operationType == HiveAcidOperation.INSERT_OVERWRITE) {
+      fileSinkDesc.setTransactionId(options.currentTxnId)
+      /*if (options.operationType == HiveAcidOperation.INSERT_OVERWRITE) {
         fileSinkDesc.setInsertOverwrite(true)
-      }
+      }*/
       if (options.statementId.isDefined) {
         fileSinkDesc.setStatementId(options.statementId.get)
       }

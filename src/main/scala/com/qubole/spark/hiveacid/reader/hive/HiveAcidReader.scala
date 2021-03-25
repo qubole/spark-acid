@@ -26,16 +26,17 @@ import scala.collection.JavaConverters._
 import com.esotericsoftware.kryo.Kryo
 import com.esotericsoftware.kryo.io.Output
 import com.qubole.shaded.hadoop.hive.conf.HiveConf.ConfVars
-import com.qubole.shaded.hadoop.hive.common.ValidWriteIdList
+import com.qubole.shaded.hadoop.hive.common.ValidTxnList
 import com.qubole.shaded.hadoop.hive.metastore.api.FieldSchema
 import com.qubole.shaded.hadoop.hive.metastore.api.hive_metastoreConstants._
-import com.qubole.shaded.hadoop.hive.metastore.utils.MetaStoreUtils.{getColumnNamesFromFieldSchema, getColumnTypesFromFieldSchema}
+import com.qubole.shaded.hadoop.hive.metastore.MetaStoreUtils.{getColumnNamesFromFieldSchema, getColumnTypesFromFieldSchema}
 import com.qubole.shaded.hadoop.hive.ql.exec.Utilities
 import com.qubole.shaded.hadoop.hive.ql.io.{AcidUtils, RecordIdentifier}
 import com.qubole.shaded.hadoop.hive.ql.metadata.{Partition => HiveJarPartition, Table => HiveTable}
 import com.qubole.shaded.hadoop.hive.ql.plan.TableDesc
 import com.qubole.shaded.hadoop.hive.serde2.Deserializer
 import com.qubole.shaded.hadoop.hive.serde2.objectinspector.{ObjectInspectorConverters, StructObjectInspector}
+import com.qubole.shaded.hadoop.hive.serde2.objectinspector.ObjectInspector
 import com.qubole.shaded.hadoop.hive.serde2.objectinspector.primitive._
 import com.qubole.spark.hiveacid.HiveAcidErrors
 import com.qubole.spark.hiveacid.hive.HiveAcidMetadata
@@ -46,7 +47,7 @@ import com.qubole.spark.hiveacid.util._
 import org.apache.commons.codec.binary.Base64
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{Path, PathFilter}
-import org.apache.hadoop.hive.serde2.ColumnProjectionUtils
+import com.qubole.shaded.hadoop.hive.serde2.ColumnProjectionUtils
 import org.apache.hadoop.io.Writable
 import org.apache.hadoop.mapred.{FileInputFormat, InputFormat, JobConf}
 import org.apache.spark.broadcast.Broadcast
@@ -61,9 +62,8 @@ import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.sources.Filter
-import org.apache.spark.sql.types.{DataType, StructType}
-import org.apache.spark.sql.hive.{Hive3Inspectors, HiveAcidUtils}
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types.{DataType, Decimal, StructType}
+import org.apache.spark.sql.hive.{Hive2Inspectors, HiveAcidUtils}
 import org.apache.spark.unsafe.types.UTF8String
 
 /**
@@ -77,7 +77,7 @@ import org.apache.spark.unsafe.types.UTF8String
 private[reader] class HiveAcidReader(sparkSession: SparkSession,
                                      readerOptions: ReaderOptions,
                                      hiveAcidOptions: HiveAcidReaderOptions,
-                                     validWriteIds: ValidWriteIdList)
+                                     validTxnList: ValidTxnList)
 
 extends CastSupport with Reader with Logging {
 
@@ -379,7 +379,7 @@ extends CastSupport with Reader with Logging {
       colNames, colTypes) _
     val rdd = new HiveAcidRDD(
       sparkSession.sparkContext,
-      validWriteIds,
+      validTxnList,
       hiveAcidOptions.isFullAcidTable,
       _broadcastedHadoopConf.asInstanceOf[Broadcast[SerializableConfiguration]],
       Some(initializeJobConfFunc),
@@ -420,7 +420,7 @@ extends CastSupport with Reader with Logging {
   }
 }
 
-private[reader] object HiveAcidReader extends Hive3Inspectors with Logging {
+private[reader] object HiveAcidReader extends Hive2Inspectors with Logging {
 
   def getPartitions(hiveAcidMetadata: HiveAcidMetadata,
                     readerOptions: ReaderOptions,
@@ -537,14 +537,14 @@ private[reader] object HiveAcidReader extends Hive3Inspectors with Logging {
     jobConf.set("schema.evolution.columns", schemaColNames)
     jobConf.set("schema.evolution.columns.types", schemaColTypes)
 
-    // Set HiveACID related properties in jobConf
-    val isTransactionalTable = AcidUtils.isTransactionalTable(tableParameters)
-    val acidProps = if (isTransactionalTable) {
-      AcidUtils.getAcidOperationalProperties(tableParameters)
+  }
+  def toCatalystDecimal(hdoi: HiveDecimalObjectInspector, data: Any): Decimal = {
+    if (hdoi.preferWritable()) {
+      Decimal(hdoi.getPrimitiveWritableObject(data).getHiveDecimal().bigDecimalValue,
+        hdoi.precision(), hdoi.scale())
     } else {
-      null
+      Decimal(hdoi.getPrimitiveJavaObject(data).bigDecimalValue(), hdoi.precision(), hdoi.scale())
     }
-    AcidUtils.setAcidOperationalProperties(jobConf, isTransactionalTable, acidProps)
   }
 
   /**
@@ -620,10 +620,10 @@ private[reader] object HiveAcidReader extends Hive3Inspectors with Logging {
           case oi: TimestampObjectInspector =>
             (value: Any, row: InternalRow, ordinal: Int) =>
               row.setLong(ordinal, DateTimeUtils.fromJavaTimestamp(
-                oi.getPrimitiveJavaObject(value).toSqlTimestamp))
+                oi.getPrimitiveJavaObject(value)))
           case oi: DateObjectInspector =>
             (value: Any, row: InternalRow, ordinal: Int) =>
-              val y = oi.getPrimitiveWritableObject(value).get().toEpochMilli
+              val y = oi.getPrimitiveWritableObject(value).get().toInstant.toEpochMilli
               row.setInt(ordinal, DateTimeUtils.fromJavaDate(new java.sql.Date(y)))
           case oi: BinaryObjectInspector =>
             (value: Any, row: InternalRow, ordinal: Int) =>
@@ -650,8 +650,8 @@ private[reader] object HiveAcidReader extends Hive3Inspectors with Logging {
       mutableRowRecordId match {
         case Some(record) =>
           val recordIdentifier = value._1
-          record.setLong(0, recordIdentifier.getWriteId)
-          record.setInt(1, recordIdentifier.getBucketProperty)
+          record.setLong(0, recordIdentifier.getTransactionId)
+          record.setInt(1, recordIdentifier.getBucketId)
           record.setLong(2, recordIdentifier.getRowId)
           mutableRow.update(rowIdIndex, record)
         case None =>

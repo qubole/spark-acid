@@ -122,7 +122,7 @@ private[hive] object HiveAcidSearchArgument {
     case _: DecimalType =>
       val decimal = value.asInstanceOf[java.math.BigDecimal]
       val decimalWritable = new HiveDecimalWritable(decimal.longValue)
-      decimalWritable.mutateEnforcePrecisionScale(decimal.precision, decimal.scale)
+      //decimalWritable.mutateEnforcePrecisionScale(decimal.precision, decimal.scale)
       decimalWritable
     case _ => value
   }

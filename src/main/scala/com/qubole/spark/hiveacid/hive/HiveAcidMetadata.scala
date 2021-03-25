@@ -16,13 +16,12 @@
  */
 
 package com.qubole.spark.hiveacid.hive
-
-import java.lang.reflect.InvocationTargetException
 import java.util.Locale
 
 import scala.collection.JavaConversions._
 import scala.collection.mutable
 import com.qubole.shaded.hadoop.hive.conf.HiveConf
+import com.qubole.shaded.hadoop.hive.metastore.Warehouse
 import com.qubole.shaded.hadoop.hive.ql.io.RecordIdentifier
 import com.qubole.shaded.hadoop.hive.ql.metadata
 import com.qubole.shaded.hadoop.hive.ql.metadata.Hive
@@ -30,7 +29,6 @@ import com.qubole.shaded.hadoop.hive.ql.plan.TableDesc
 import com.qubole.spark.hiveacid.util.Util
 import com.qubole.spark.hiveacid.HiveAcidErrors
 import org.apache.hadoop.fs.Path
-import org.apache.hadoop.hive.metastore.api.MetaException
 import org.apache.hadoop.io.Writable
 import org.apache.hadoop.mapred.{InputFormat, OutputFormat}
 import org.apache.spark.internal.Logging
@@ -62,7 +60,7 @@ class HiveAcidMetadata(sparkSession: SparkSession,
   }
 
   if (hTable.getParameters.get("transactional") != "true") {
-    throw HiveAcidErrors.tableNotAcidException(hTable.getFullyQualifiedName)
+    throw HiveAcidErrors.tableNotAcidException(getFullyQualifiedName(hTable.getTTable))
   }
 
   val isFullAcidTable: Boolean = hTable.getParameters.containsKey("transactional_properties") &&
@@ -75,7 +73,7 @@ class HiveAcidMetadata(sparkSession: SparkSession,
   val rootPath: Path = hTable.getDataLocation
   val dbName: String = hTable.getDbName
   val tableName: String = hTable.getTableName
-  val fullyQualifiedName: String = hTable.getFullyQualifiedName
+  val fullyQualifiedName: String = getFullyQualifiedName(hTable.getTTable)
 
   // Schema properties
   val dataSchema = StructType(hTable.getSd.getCols.toList.map(
@@ -135,6 +133,9 @@ class HiveAcidMetadata(sparkSession: SparkSession,
 
   private def getColName(field: StructField): String = {
     HiveAcidMetadata.getColName(sparkSession, field)
+  }
+  private def getFullyQualifiedName(tTable : com.qubole.shaded.hadoop.hive.metastore.api.Table): String = {
+    return Warehouse.getQualifiedName(tTable)
   }
 }
 

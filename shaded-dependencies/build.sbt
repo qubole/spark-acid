@@ -41,7 +41,7 @@ libraryDependencies ++= Seq(
 	"org.apache.hive" % "hive-metastore" % hive_version intransitive(),
 	"org.apache.hive" % "hive-exec" % hive_version intransitive(),
 	"org.apache.orc" % "orc-core" % orc_version intransitive(),
-	"org.apache.orc" % "orc-mapreduce" % orc_version intransitive(),
+	"org.apache.orc" % "orc-mapreduce" % orc_version intransitive()
 
 	/*// Only for hive3 client in tests.. but packing it in shaded jars.
 	"org.apache.hive" % "hive-jdbc" % hive_version intransitive(),

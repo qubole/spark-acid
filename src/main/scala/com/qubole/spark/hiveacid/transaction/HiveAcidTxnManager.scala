@@ -20,9 +20,9 @@ package com.qubole.spark.hiveacid.transaction
 import java.util.concurrent.{Executors, ScheduledExecutorService, ThreadFactory, TimeUnit}
 import java.util.concurrent.atomic.AtomicBoolean
 
-import com.qubole.shaded.hadoop.hive.common.{ValidTxnList, ValidTxnWriteIdList, ValidWriteIdList}
+import com.qubole.shaded.hadoop.hive.common.{ValidTxnList}
 import com.qubole.shaded.hadoop.hive.metastore.api.{DataOperationType, LockRequest, LockResponse, LockState, TxnInfo}
-import com.qubole.shaded.hadoop.hive.metastore.conf.MetastoreConf
+import com.qubole.shaded.hadoop.hive.conf.HiveConf
 import com.qubole.shaded.hadoop.hive.metastore.txn.TxnUtils
 import com.qubole.shaded.hadoop.hive.metastore.{IMetaStoreClient, LockComponentBuilder, LockRequestBuilder, RetryingMetaStoreClient}
 import com.qubole.spark.hiveacid.datasource.HiveAcidDataSource
@@ -45,8 +45,8 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession) extends L
 
   private val hiveConf = HiveConverter.getHiveConf(sparkSession.sparkContext)
 
-  private val heartbeatInterval = MetastoreConf.getTimeVar(hiveConf,
-    MetastoreConf.ConfVars.TXN_TIMEOUT, TimeUnit.MILLISECONDS) / 3
+  private val heartbeatInterval = HiveConf.getTimeVar(hiveConf,
+    HiveConf.ConfVars.HIVE_TXN_TIMEOUT, TimeUnit.MILLISECONDS) / 3
 
   private lazy val client: IMetaStoreClient =
     RetryingMetaStoreClient.getProxy(hiveConf, false)
@@ -148,9 +148,9 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession) extends L
     * @param tableName: Table name
     * @return
     */
-  def getCurrentWriteId(txnId: Long, dbName: String, tableName: String): Long = synchronized {
+  /*def getCurrentWriteId(txnId: Long, dbName: String, tableName: String): Long = synchronized {
     client.allocateTableWriteId(txnId, dbName, tableName)
-  }
+  }*/
 
   /**
     * Return list of valid txn list.
@@ -164,43 +164,6 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession) extends L
     }
   }
 
-  /**
-    * Return list of all valid write ids for the table.
-    * @param fullyQualifiedTableName name of the table
-    * @param validTxnList valid txn list snapshot.
-    * @return List of valid write ids
-    */
-  def getValidWriteIds(validTxnList: ValidTxnList,
-                        fullyQualifiedTableName: String): ValidWriteIdList = synchronized {
-    getValidWriteIds(None, validTxnList, fullyQualifiedTableName)
-  }
-
-  /**
-    * Return list of all valid write ids for the table for given transactions
-    * @param txnId transaction id
-    * @param validTxnList valid txn list snapshot.
-    * @param fullyQualifiedTableName table name
-    * @return List of valid write ids
-    */
-  def getValidWriteIds(txnId: Long,
-                       validTxnList: ValidTxnList,
-                       fullyQualifiedTableName: String): ValidWriteIdList = synchronized {
-    getValidWriteIds(Option(txnId), validTxnList, fullyQualifiedTableName)
-  }
-
-  private def getValidWriteIds(txnIdOpt: Option[Long],
-                               validTxnList: ValidTxnList,
-                               fullyQualifiedTableName: String): ValidWriteIdList = synchronized {
-    val txnId = txnIdOpt match {
-      case Some(id) => id
-      case None => -1L
-    }
-    val tableValidWriteIds = client.getValidWriteIds(Seq(fullyQualifiedTableName),
-      validTxnList.writeToString())
-    val txnWriteIds: ValidTxnWriteIdList = TxnUtils.createValidTxnWriteIdList(txnId,
-      tableValidWriteIds)
-    txnWriteIds.getTableValidWriteIdList(fullyQualifiedTableName)
-  }
 
   def convertToDataOperationType(operationType: HiveAcidOperation.OperationType):
   DataOperationType = {
@@ -271,14 +234,14 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession) extends L
       requestBuilder.setTransactionId(txnId)
      if (partitionNames.isEmpty) {
        def addDPInfoForWrites(lcb: LockComponentBuilder): LockComponentBuilder = {
-         if (operationType == HiveAcidOperation.INSERT_OVERWRITE ||
+         /*if (operationType == HiveAcidOperation.INSERT_OVERWRITE ||
            operationType == HiveAcidOperation.INSERT_INTO ||
            operationType == HiveAcidOperation.UPDATE ||
            operationType == HiveAcidOperation.DELETE) {
            // setting isDynamicPartitionWrite flag to false.
            // Check *Known Issues* in README for more details
-           lcb.setIsDynamicPartitionWrite(false)
-         } else lcb
+           //lcb.setIsDynamicPartitionWrite(false)
+         } else */lcb
        }
 
         val lockCompBuilder = new LockComponentBuilder()
@@ -353,7 +316,7 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession) extends L
                            tableName: String,
                            partitionNames: Set[String],
                            operationType: HiveAcidOperation.OperationType): Unit = {
-    client.addDynamicPartitions(txnId, writeId, dbName,
+    client.addDynamicPartitions(txnId, dbName,
       tableName, scala.collection.JavaConversions.seqAsJavaList(partitionNames.toSeq),
       convertToDataOperationType(operationType))
   }
