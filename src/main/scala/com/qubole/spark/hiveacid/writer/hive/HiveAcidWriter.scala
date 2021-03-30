@@ -23,14 +23,14 @@ import java.util.Properties
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable
-import com.qubole.shaded.hadoop.hive.ql.exec.FileSinkOperator.RecordWriter
-import com.qubole.shaded.hadoop.hive.ql.exec.Utilities
-import com.qubole.shaded.hadoop.hive.ql.io.{HiveFileFormatUtils, RecordIdentifier, RecordUpdater, _}
-import com.qubole.shaded.hadoop.hive.ql.plan.{FileSinkDesc, TableDesc}
-import com.qubole.shaded.hadoop.hive.serde2.{Deserializer, SerDeUtils}
-import com.qubole.shaded.hadoop.hive.serde2.Serializer
-import com.qubole.shaded.hadoop.hive.serde2.objectinspector.{ObjectInspector, ObjectInspectorFactory, ObjectInspectorUtils, StructObjectInspector}
-import com.qubole.shaded.hadoop.hive.serde2.objectinspector.ObjectInspectorUtils.ObjectInspectorCopyOption
+import org.apache.hadoop.hive.ql.exec.FileSinkOperator.RecordWriter
+import org.apache.hadoop.hive.ql.exec.Utilities
+import org.apache.hadoop.hive.ql.io.{HiveFileFormatUtils, RecordIdentifier, RecordUpdater, _}
+import org.apache.hadoop.hive.ql.plan.{FileSinkDesc, TableDesc}
+import org.apache.hadoop.hive.serde2.{Deserializer, SerDeUtils}
+import org.apache.hadoop.hive.serde2.{AbstractDeserializer, AbstractSerializer}
+import org.apache.hadoop.hive.serde2.objectinspector.{ObjectInspector, ObjectInspectorFactory, ObjectInspectorUtils, StructObjectInspector}
+import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspectorUtils.ObjectInspectorCopyOption
 import com.qubole.spark.hiveacid.hive.HiveAcidMetadata
 import com.qubole.spark.hiveacid.{HiveAcidErrors, HiveAcidOperation}
 import com.qubole.spark.hiveacid.util.Util
@@ -412,16 +412,16 @@ private[hive] class SparkHiveRowConverter(options: WriterOptions,
 
   // NB: Can't use tableDesc.getDeserializer as it  uses Reflection
   // internally which doesn't work because of shading. So copied its logic
-  lazy val serializer: Serializer = {
+  lazy val serializer: AbstractSerializer = {
     val serializer = Util.classForName(tableDesc.getSerdeClassName,
-      loadShaded = true).asInstanceOf[Class[Serializer]].newInstance()
+      loadShaded = true).asInstanceOf[Class[AbstractSerializer]].newInstance()
     serializer.initialize(jobConf, tableDesc.getProperties)
     serializer
   }
 
-  lazy val deserializer: Deserializer = {
+  lazy val deserializer: AbstractDeserializer = {
     val deserializer = Util.classForName(tableDesc.getSerdeClassName,
-      loadShaded = true).asInstanceOf[Class[Deserializer]].newInstance()
+      loadShaded = true).asInstanceOf[Class[AbstractDeserializer]].newInstance()
     SerDeUtils.initializeSerDe(deserializer, jobConf, tableDesc.getProperties,
       null.asInstanceOf[Properties])
     deserializer

@@ -20,18 +20,18 @@ package com.qubole.spark.hiveacid.transaction
 import java.util.concurrent.{Executors, ScheduledExecutorService, ThreadFactory, TimeUnit}
 import java.util.concurrent.atomic.AtomicBoolean
 
-import com.qubole.shaded.hadoop.hive.common.{ValidTxnList}
-import com.qubole.shaded.hadoop.hive.metastore.api.{DataOperationType, LockRequest, LockResponse, LockState, TxnInfo}
-import com.qubole.shaded.hadoop.hive.conf.HiveConf
-import com.qubole.shaded.hadoop.hive.metastore.txn.TxnUtils
-import com.qubole.shaded.hadoop.hive.metastore.{IMetaStoreClient, LockComponentBuilder, LockRequestBuilder, RetryingMetaStoreClient}
+import org.apache.hadoop.hive.common.{ValidTxnList}
+import org.apache.hadoop.hive.metastore.api.{DataOperationType, LockRequest, LockResponse, LockState, TxnInfo}
+import org.apache.hadoop.hive.conf.HiveConf
+import org.apache.hadoop.hive.metastore.txn.TxnUtils
+import org.apache.hadoop.hive.metastore.{IMetaStoreClient, LockComponentBuilder, LockRequestBuilder, RetryingMetaStoreClient}
 import com.qubole.spark.hiveacid.datasource.HiveAcidDataSource
 import com.qubole.spark.hiveacid.hive.HiveConverter
 import com.qubole.spark.hiveacid.{HiveAcidErrors, HiveAcidOperation, SparkAcidConf}
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.SqlUtils
-import com.qubole.shaded.thrift.TException
+import org.apache.thrift.TException
 
 import scala.collection.JavaConversions._
 import scala.language.implicitConversions

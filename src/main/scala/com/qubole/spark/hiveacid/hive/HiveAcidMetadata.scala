@@ -20,12 +20,12 @@ import java.util.Locale
 
 import scala.collection.JavaConversions._
 import scala.collection.mutable
-import com.qubole.shaded.hadoop.hive.conf.HiveConf
-import com.qubole.shaded.hadoop.hive.metastore.Warehouse
-import com.qubole.shaded.hadoop.hive.ql.io.RecordIdentifier
-import com.qubole.shaded.hadoop.hive.ql.metadata
-import com.qubole.shaded.hadoop.hive.ql.metadata.Hive
-import com.qubole.shaded.hadoop.hive.ql.plan.TableDesc
+import org.apache.hadoop.hive.conf.HiveConf
+import org.apache.hadoop.hive.metastore.Warehouse
+import org.apache.hadoop.hive.ql.io.RecordIdentifier
+import org.apache.hadoop.hive.ql.metadata
+import org.apache.hadoop.hive.ql.metadata.Hive
+import org.apache.hadoop.hive.ql.plan.TableDesc
 import com.qubole.spark.hiveacid.util.Util
 import com.qubole.spark.hiveacid.HiveAcidErrors
 import org.apache.hadoop.fs.Path
@@ -134,7 +134,7 @@ class HiveAcidMetadata(sparkSession: SparkSession,
   private def getColName(field: StructField): String = {
     HiveAcidMetadata.getColName(sparkSession, field)
   }
-  private def getFullyQualifiedName(tTable : com.qubole.shaded.hadoop.hive.metastore.api.Table): String = {
+  private def getFullyQualifiedName(tTable : org.apache.hadoop.hive.metastore.api.Table): String = {
     return Warehouse.getQualifiedName(tTable)
   }
 }

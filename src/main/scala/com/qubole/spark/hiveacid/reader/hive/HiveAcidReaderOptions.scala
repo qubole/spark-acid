@@ -19,7 +19,7 @@
 
 package com.qubole.spark.hiveacid.reader.hive
 
-import com.qubole.shaded.hadoop.hive.ql.plan.TableDesc
+import org.apache.hadoop.hive.ql.plan.TableDesc
 import com.qubole.spark.hiveacid.hive.HiveAcidMetadata
 import org.apache.spark.sql.types.StructType
 

@@ -36,7 +36,7 @@ import org.apache.spark.internal.Logging
   * Filter(MergeJoin, target.rowId == null) will provide non-matched rows for INSERT
   *
   * DFs with the rows to UPDATE/DELETE/INSERT are created and corresponding operations
-  * are performed on [[HiveAcidTable]]. Under same transactions, different statementIds
+  * are performed on [[com.qubole.spark.hiveacid.HiveAcidTable]]. Under same transactions, different statementIds
   * are assigned to each operation so that they don;t collide while writing delta files.
   *
   * Performance considerations:

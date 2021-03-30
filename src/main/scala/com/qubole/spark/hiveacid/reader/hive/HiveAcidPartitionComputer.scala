@@ -21,7 +21,7 @@ package com.qubole.spark.hiveacid.reader.hive
 
 import java.util.concurrent.{ConcurrentHashMap, TimeUnit}
 
-import com.qubole.shaded.hadoop.hive.common.{ValidReadTxnList, ValidTxnList}
+import org.apache.hadoop.hive.common.{ValidReadTxnList, ValidTxnList}
 import com.qubole.spark.hiveacid.rdd.{HiveAcidPartition, HiveAcidRDD, HiveSplitInfo}
 import com.qubole.spark.hiveacid.reader.hive.HiveAcidPartitionComputer.{addToPartitionCache, getInputFormat}
 import com.qubole.spark.hiveacid.util.Util

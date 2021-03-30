@@ -19,7 +19,7 @@
 
 package com.qubole.spark.hiveacid.writer.hive
 
-import com.qubole.shaded.hadoop.hive.ql.plan.FileSinkDesc
+import org.apache.hadoop.hive.ql.plan.FileSinkDesc
 import com.qubole.spark.hiveacid.HiveAcidOperation
 import com.qubole.spark.hiveacid.hive.HiveAcidMetadata
 import com.qubole.spark.hiveacid.writer.WriterOptions

@@ -25,19 +25,18 @@ import java.util.Properties
 import scala.collection.JavaConverters._
 import com.esotericsoftware.kryo.Kryo
 import com.esotericsoftware.kryo.io.Output
-import com.qubole.shaded.hadoop.hive.conf.HiveConf.ConfVars
-import com.qubole.shaded.hadoop.hive.common.ValidTxnList
-import com.qubole.shaded.hadoop.hive.metastore.api.FieldSchema
-import com.qubole.shaded.hadoop.hive.metastore.api.hive_metastoreConstants._
-import com.qubole.shaded.hadoop.hive.metastore.MetaStoreUtils.{getColumnNamesFromFieldSchema, getColumnTypesFromFieldSchema}
-import com.qubole.shaded.hadoop.hive.ql.exec.Utilities
-import com.qubole.shaded.hadoop.hive.ql.io.{AcidUtils, RecordIdentifier}
-import com.qubole.shaded.hadoop.hive.ql.metadata.{Partition => HiveJarPartition, Table => HiveTable}
-import com.qubole.shaded.hadoop.hive.ql.plan.TableDesc
-import com.qubole.shaded.hadoop.hive.serde2.Deserializer
-import com.qubole.shaded.hadoop.hive.serde2.objectinspector.{ObjectInspectorConverters, StructObjectInspector}
-import com.qubole.shaded.hadoop.hive.serde2.objectinspector.ObjectInspector
-import com.qubole.shaded.hadoop.hive.serde2.objectinspector.primitive._
+import org.apache.hadoop.hive.conf.HiveConf.ConfVars
+import org.apache.hadoop.hive.common.ValidTxnList
+import org.apache.hadoop.hive.metastore.api.FieldSchema
+import org.apache.hadoop.hive.metastore.api.hive_metastoreConstants._
+import org.apache.hadoop.hive.metastore.MetaStoreUtils.{getColumnNamesFromFieldSchema, getColumnTypesFromFieldSchema}
+import org.apache.hadoop.hive.ql.exec.Utilities
+import org.apache.hadoop.hive.ql.io.{AcidUtils, RecordIdentifier}
+import org.apache.hadoop.hive.ql.metadata.{Partition => HiveJarPartition, Table => HiveTable}
+import org.apache.hadoop.hive.ql.plan.TableDesc
+import org.apache.hadoop.hive.serde2.AbstractDeserializer
+import org.apache.hadoop.hive.serde2.objectinspector.{ObjectInspectorConverters, StructObjectInspector}
+import org.apache.hadoop.hive.serde2.objectinspector.primitive._
 import com.qubole.spark.hiveacid.HiveAcidErrors
 import com.qubole.spark.hiveacid.hive.HiveAcidMetadata
 import com.qubole.spark.hiveacid.hive.HiveConverter
@@ -47,7 +46,7 @@ import com.qubole.spark.hiveacid.util._
 import org.apache.commons.codec.binary.Base64
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{Path, PathFilter}
-import com.qubole.shaded.hadoop.hive.serde2.ColumnProjectionUtils
+import org.apache.hadoop.hive.serde2.ColumnProjectionUtils
 import org.apache.hadoop.io.Writable
 import org.apache.hadoop.mapred.{FileInputFormat, InputFormat, JobConf}
 import org.apache.spark.broadcast.Broadcast
@@ -126,7 +125,7 @@ extends CastSupport with Reader with Logging {
     makeRDDForTable(
       hiveTable,
       Util.classForName(hiveAcidOptions.tableDesc.getSerdeClassName,
-        loadShaded = true).asInstanceOf[Class[Deserializer]],
+        loadShaded = true).asInstanceOf[Class[AbstractDeserializer]],
       hiveAcidMetadata,
       readerOptions
     )
@@ -145,7 +144,7 @@ extends CastSupport with Reader with Logging {
       part =>
         val deserializerClassName = part.getTPartition.getSd.getSerdeInfo.getSerializationLib
         val deserializer = Util.classForName(deserializerClassName, loadShaded = true)
-          .asInstanceOf[Class[Deserializer]]
+          .asInstanceOf[Class[AbstractDeserializer]]
         (part, deserializer)
     }.toMap
     makeRDDForPartitionedTable(partitionToDeserializer, filterOpt = None, readerOptions)
@@ -159,7 +158,7 @@ extends CastSupport with Reader with Logging {
    * @param deserializerClass Class of the SerDe used to deserialize Writables read from Hadoop.
    */
   private def makeRDDForTable(hiveTable: HiveTable,
-                              deserializerClass: Class[_ <: Deserializer],
+                              deserializerClass: Class[_ <: AbstractDeserializer],
                               hiveAcidMetadata: HiveAcidMetadata,
                               readerOptions: ReaderOptions): RDD[InternalRow] = {
 
@@ -188,7 +187,7 @@ extends CastSupport with Reader with Logging {
     * @return Deserialized RDD
     */
   private def deserializeTableRdd(hiveRDD: RDD[(RecordIdentifier, Writable)],
-                                  deserializerClass: Class[_ <: Deserializer]) = {
+                                  deserializerClass: Class[_ <: AbstractDeserializer]) = {
     val localTableDesc = hiveAcidOptions.tableDesc
     val broadcastedHadoopConf = _broadcastedHadoopConf
     val attrsWithIndex = readerOptions.requiredAttributes.zipWithIndex
@@ -224,7 +223,7 @@ extends CastSupport with Reader with Logging {
    *     subdirectory of each partition being read. If None, then all files are accepted.
    */
   private def makeRDDForPartitionedTable(
-      partitionToDeserializer: Map[HiveJarPartition, Class[_ <: Deserializer]],
+      partitionToDeserializer: Map[HiveJarPartition, Class[_ <: AbstractDeserializer]],
       filterOpt: Option[PathFilter],
       readerOptions: ReaderOptions): RDD[InternalRow] = {
 
@@ -260,7 +259,7 @@ extends CastSupport with Reader with Logging {
 
   private def makeRddForPartition(hiveRDD: RDD[(RecordIdentifier, Writable)],
                                   partition: HiveJarPartition,
-                                  partDeserializer: Class[_ <: Deserializer],
+                                  partDeserializer: Class[_ <: AbstractDeserializer],
                                   readerOptions: ReaderOptions) = {
     deserializePartitionRdd(hiveRDD, partition, partDeserializer)
   }
@@ -274,7 +273,7 @@ extends CastSupport with Reader with Logging {
     * @param partDeserializer
     * @return
     */
-  private def deserializePartitionRdd(partitionRDD: RDD[(RecordIdentifier, Writable)], partition: HiveJarPartition, partDeserializer: Class[_ <: Deserializer]) = {
+  private def deserializePartitionRdd(partitionRDD: RDD[(RecordIdentifier, Writable)], partition: HiveJarPartition, partDeserializer: Class[_ <: AbstractDeserializer]) = {
     // member variable cannot be used directly inside mapPartition as HiveAcidReader is not serializable.
     val broadcastedHadoopConf = _broadcastedHadoopConf
     val tableProperties = hiveAcidOptions.tableDesc.getProperties
@@ -336,7 +335,7 @@ extends CastSupport with Reader with Logging {
       // get the table deserializer
       val tableSerDeClassName = localTableDesc.getSerdeClassName
       val tableSerDe = Util.classForName(tableSerDeClassName,
-        loadShaded = true).newInstance().asInstanceOf[Deserializer]
+        loadShaded = true).newInstance().asInstanceOf[AbstractDeserializer]
       tableSerDe.initialize(hconf, localTableDesc.getProperties)
 
       // fill the non partition key attributes
@@ -406,7 +405,7 @@ extends CastSupport with Reader with Logging {
                                              dataSchema: StructType,
                                              dataFilters: Array[Filter]): Unit = {
     HiveAcidSearchArgument.build(dataSchema, dataFilters).foreach { f =>
-      def toKryo(obj: com.qubole.shaded.hadoop.hive.ql.io.sarg.SearchArgument): String = {
+      def toKryo(obj: org.apache.hadoop.hive.ql.io.sarg.SearchArgument): String = {
         val out = new Output(4 * 1024, 10 * 1024 * 1024)
         new Kryo().writeObject(out, obj)
         out.close()
@@ -433,7 +432,7 @@ private[reader] object HiveAcidReader extends Hive2Inspectors with Logging {
           hiveAcidMetadata.getRawPartitions(partitionPruningFiltering)
         } catch {
           // TODO: Enable pruning results returned by getting all Partitions
-          case ex: com.qubole.shaded.hadoop.hive.metastore.api.MetaException => {
+          case ex: org.apache.hadoop.hive.metastore.api.MetaException => {
             logWarning("Caught Hive MetaException attempting to get partition metadata by " +
               "filter from Hive. Falling back to fetching all partition metadata and pruning them. " +
               "Filter: " + partitionPruningFiltering)
@@ -505,7 +504,7 @@ private[reader] object HiveAcidReader extends Hive2Inspectors with Logging {
                                                       conf: Configuration, input: Boolean) {
     val property = tableDesc.getProperties.getProperty(META_TABLE_STORAGE)
     val storageHandler =
-      com.qubole.shaded.hadoop.hive.ql.metadata.HiveUtils.getStorageHandler(conf, property)
+      org.apache.hadoop.hive.ql.metadata.HiveUtils.getStorageHandler(conf, property)
     if (storageHandler != null) {
       val jobProperties = new java.util.LinkedHashMap[String, String]
       if (input) {
@@ -560,11 +559,11 @@ private[reader] object HiveAcidReader extends Hive2Inspectors with Logging {
     */
   def fillObject(
                   iterator: Iterator[(RecordIdentifier, Writable)],
-                  rawDeser: Deserializer,
+                  rawDeser: AbstractDeserializer,
                   nonPartitionKeyAttrs: Seq[(Attribute, Int)],
                   mutableRow: InternalRow,
                   mutableRowRecordId: Option[InternalRow],
-                  tableDeser: Deserializer): Iterator[InternalRow] = {
+                  tableDeser: AbstractDeserializer): Iterator[InternalRow] = {
 
     // Note mutableRowRecordId will be None when no rowIds needs to be included in the InternalRow.
     val soi = if (rawDeser.getObjectInspector.equals(tableDeser.getObjectInspector)) {

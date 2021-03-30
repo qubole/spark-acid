@@ -27,8 +27,8 @@ import java.util.{Date, Locale}
 import scala.collection.JavaConversions._
 import scala.collection.mutable.ListBuffer
 import scala.reflect.ClassTag
-import com.qubole.shaded.hadoop.hive.common.ValidTxnList
-import com.qubole.shaded.hadoop.hive.ql.io.{AcidInputFormat, AcidUtils, HiveInputFormat, RecordIdentifier}
+import org.apache.hadoop.hive.common.ValidTxnList
+import org.apache.hadoop.hive.ql.io.{AcidInputFormat, AcidUtils, HiveInputFormat, RecordIdentifier}
 import com.qubole.spark.hiveacid.rdd.HiveAcidRDD.HiveAcidPartitionsWithSplitRDD
 import com.qubole.spark.hiveacid.reader.hive.HiveAcidPartitionComputer
 import com.qubole.spark.hiveacid.util.{SerializableConfiguration, Util}

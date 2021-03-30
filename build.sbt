@@ -55,21 +55,14 @@ spIgnoreProvided := true
 /************************
 	* Library Dependencies
 	*/
+resolvers += "Additional Maven Repository" at sys.props.getOrElse("hive.repo", "https://repo1.maven.org/maven2/")
 resolvers += "cloudera Repository" at sys.props.getOrElse("cloudera", "https://repository.cloudera.com/artifactory/cloudera-repos/")
 libraryDependencies ++= Seq(
 	// Adding test classifier seems to break transitive resolution of the core dependencies
-	"org.apache.spark" %% "spark-hive" % sparkVersion.value % "provided" excludeAll(
-		ExclusionRule("org.apache", "hadoop-common"),
-		ExclusionRule("org.apache", "hadoop-hdfs")),
-	"org.apache.spark" %% "spark-sql" % sparkVersion.value % "provided" excludeAll(
-		ExclusionRule("org.apache", "hadoop-common"),
-		ExclusionRule("org.apache", "hadoop-hdfs")),
-	"org.apache.spark" %% "spark-core" % sparkVersion.value % "provided" excludeAll(
-		ExclusionRule("org.apache", "hadoop-common"),
-		ExclusionRule("org.apache", "hadoop-hdfs")),
-	"org.apache.spark" %% "spark-catalyst" % sparkVersion.value % "provided" excludeAll(
-		ExclusionRule("org.apache", "hadoop-common"),
-		ExclusionRule("org.apache", "hadoop-hdfs")),
+	"org.apache.spark" %% "spark-hive" % sparkVersion.value % "provided",
+	"org.apache.spark" %% "spark-sql" % sparkVersion.value % "provided" ,
+	"org.apache.spark" %% "spark-core" % sparkVersion.value % "provided" ,
+	"org.apache.spark" %% "spark-catalyst" % sparkVersion.value % "provided" ,
 	"org.apache.hadoop" % "hadoop-common" % "3.0.0-cdh6.2.0" % "provided",
 	"org.apache.hadoop" % "hadoop-hdfs" % "3.0.0-cdh6.2.0" % "provided",
 	"org.apache.commons" % "commons-lang3" % "3.7" % "provided",
@@ -98,7 +91,31 @@ libraryDependencies ++= Seq(
 libraryDependencies ++= Seq(
 	// intransitive() because we don't want to include any transitive dependencies of shaded-dependencies jar in main jar
 	// ideally all such dependencies should be shaded inside shaded-dependencies jar
-	"com.qubole" %% "spark-acid-shaded-dependencies" % sys.props.getOrElse("package.version", "0.1") intransitive()
+	//"com.qubole" %% "spark-acid-shaded-dependencies" % sys.props.getOrElse("package.version", "0.1") intransitive()
+)
+
+val hive_version = sys.props.getOrElse("hive.version", "2.1.1-cdh6.2.0")
+
+val orc_version = sys.props.getOrElse("orc.version", "1.5.6")
+
+libraryDependencies ++= Seq(
+	// Hive/Orc core dependencies packed.
+	//"org.apache.hive" % "hive-metastore" % hive_version intransitive(),
+	//"org.apache.hive" % "hive-exec" % hive_version intransitive(),
+	//"org.apache.orc" % "orc-core" % orc_version intransitive(),
+	//"org.apache.orc" % "orc-mapreduce" % orc_version intransitive(),
+	//"org.apache.hive" % "hive-serde" % hive_version intransitive()
+
+	/*// Only for hive3 client in tests.. but packing it in shaded jars.
+	"org.apache.hive" % "hive-jdbc" % hive_version intransitive(),
+	"org.apache.hive" % "hive-service" % hive_version intransitive(),
+	"org.apache.hive" % "hive-serde" % hive_version intransitive(),
+	"org.apache.hive" % "hive-common" % hive_version intransitive(),
+
+	// To deal with hive3 metastore library 0.9.3 vs zeppelin thirft
+	// library version 0.9.1 conflict when runing Notebooks.
+	"org.apache.thrift" % "libfb303" % "0.9.3",
+	"org.apache.thrift" % "libthrift" % "0.9.3"*/
 )
 
 /**************************************
@@ -122,7 +139,7 @@ pomPostProcess := { (node: XmlNode) =>
 }
 
 excludeDependencies ++= Seq (
-	// hive
+/*	// hive
 	"org.apache.hive" % "hive-exec",
 	"org.apache.hive" % "hive-metastore",
 	"org.apache.hive" % "hive-jdbc",
@@ -134,7 +151,7 @@ excludeDependencies ++= Seq (
 	"org.apache.orc" % "orc-core",
 	"org.apache.orc" % "orc-mapreduce",
 
-	"org.slf4j" % "slf4j-api"
+	"org.slf4j" % "slf4j-api"*/
 )
 
 // do not run test at assembly

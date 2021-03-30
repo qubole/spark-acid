@@ -19,7 +19,7 @@ package com.qubole.spark.hiveacid.transaction
 
 import java.util.concurrent.atomic.AtomicBoolean
 
-import com.qubole.shaded.hadoop.hive.common.{ValidTxnList}
+import org.apache.hadoop.hive.common.{ValidTxnList}
 import com.qubole.spark.hiveacid.{HiveAcidErrors, HiveAcidOperation, SparkAcidConf}
 import com.qubole.spark.hiveacid.hive.HiveAcidMetadata
 import org.apache.spark.internal.Logging

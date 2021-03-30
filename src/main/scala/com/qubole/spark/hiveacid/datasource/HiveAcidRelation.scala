@@ -29,7 +29,6 @@ import com.qubole.spark.hiveacid.hive.HiveAcidMetadata
 import com.qubole.spark.hiveacid.merge.{MergeWhenClause, MergeWhenNotInsert}
 import org.apache.spark.sql.catalyst.AliasIdentifier
 import org.apache.spark.sql.catalyst.expressions.Expression
-import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 
 import collection.JavaConversions._
 

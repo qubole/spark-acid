@@ -20,8 +20,8 @@ package com.qubole.spark.hiveacid.hive
 import java.sql.{Date, Timestamp}
 import java.util.Locale
 
-import com.qubole.shaded.hadoop.hive.conf.HiveConf
-import com.qubole.shaded.hadoop.hive.metastore.api.FieldSchema
+import org.apache.hadoop.hive.conf.HiveConf
+import org.apache.hadoop.hive.metastore.api.FieldSchema
 import org.apache.commons.lang3.StringUtils
 import org.apache.spark.internal.Logging
 import org.apache.spark.{SparkContext, SparkException}

@@ -68,7 +68,7 @@ object HiveAcidUtils {
     }
   }
 
-  def convertToCatalogTablePartition(hp: com.qubole.shaded.hadoop.hive.ql.metadata.Partition): CatalogTablePartition = {
+  def convertToCatalogTablePartition(hp: org.apache.hadoop.hive.ql.metadata.Partition): CatalogTablePartition = {
     val apiPartition = hp.getTPartition
     val properties: Map[String, String] = if (hp.getParameters != null) {
       hp.getParameters.asScala.toMap

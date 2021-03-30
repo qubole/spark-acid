@@ -40,15 +40,16 @@ libraryDependencies ++= Seq(
 	// Hive/Orc core dependencies packed.
 	"org.apache.hive" % "hive-metastore" % hive_version intransitive(),
 	"org.apache.hive" % "hive-exec" % hive_version intransitive(),
-	"org.apache.orc" % "orc-core" % orc_version intransitive(),
-	"org.apache.orc" % "orc-mapreduce" % orc_version intransitive()
+	//"org.apache.orc" % "orc-core" % orc_version intransitive(),
+	"org.apache.orc" % "orc-mapreduce" % orc_version intransitive(),
+  "org.apache.hive" % "hive-serde" % hive_version intransitive()
 
 	/*// Only for hive3 client in tests.. but packing it in shaded jars.
 	"org.apache.hive" % "hive-jdbc" % hive_version intransitive(),
 	"org.apache.hive" % "hive-service" % hive_version intransitive(),
 	"org.apache.hive" % "hive-serde" % hive_version intransitive(),
 	"org.apache.hive" % "hive-common" % hive_version intransitive(),
-	
+
 	// To deal with hive3 metastore library 0.9.3 vs zeppelin thirft
 	// library version 0.9.1 conflict when runing Notebooks.
 	"org.apache.thrift" % "libfb303" % "0.9.3",
@@ -57,7 +58,7 @@ libraryDependencies ++= Seq(
 
 
 assemblyShadeRules in assembly := Seq(
-	ShadeRule.rename("org.apache.hadoop.hive.**" -> "com.qubole.shaded.hadoop.hive.@1").inAll,
+	/*ShadeRule.rename("org.apache.hadoop.hive.**" -> "com.qubole.shaded.hadoop.hive.@1").inAll,
 	ShadeRule.rename("org.apache.hive.**" -> "com.qubole.shaded.hive.@1").inAll,
 	ShadeRule.rename("org.apache.orc.**" -> "com.qubole.shaded.orc.@1").inAll,
 	ShadeRule.rename("org.apache.commons.**" -> "com.qubole.shaded.commons.@1").inAll,
@@ -80,7 +81,7 @@ assemblyShadeRules in assembly := Seq(
 
 	ShadeRule.rename("org.openx.data.**" -> "com.qubole.shaded.openx.data.@1").inAll,
 	ShadeRule.rename("au.com.bytecode.opencsv.**" -> "com.qubole.shaded.au.com.bytecode.opencsv.@1").inAll,
-	ShadeRule.rename("com.readytalk.metrics.**" -> "com.qubole.shaded.readytalk.metrics.@1").inAll
+	ShadeRule.rename("com.readytalk.metrics.**" -> "com.qubole.shaded.readytalk.metrics.@1").inAll*/
 )
 
 import sbtassembly.AssemblyPlugin.autoImport.{ ShadeRule}
@@ -90,7 +91,7 @@ val distinctAndReplace: sbtassembly.MergeStrategy = new sbtassembly.MergeStrateg
     def apply(tempDir: File, path: String, files: Seq[File]): Either[String, Seq[(File, String)]] = {
         val lines = files flatMap (IO.readLines(_, IO.utf8))
             val unique = lines.distinct
-            val replaced = unique.map {  x => x.replace("org.apache.hadoop.hive", "com.qubole.shaded.hadoop.hive")}
+            val replaced = unique.map {  x => x.replace("org.apache.hadoop.hive", "org.apache.hadoop.hive")}
             val file = sbtassembly.MergeStrategy.createMergeTarget(tempDir, path)
             IO.writeLines(file, replaced, IO.utf8)
             Right(Seq(file -> path))
