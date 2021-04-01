@@ -66,6 +66,7 @@ libraryDependencies ++= Seq(
 	"org.apache.hadoop" % "hadoop-common" % "3.0.0-cdh6.2.0" % "provided",
 	"org.apache.hadoop" % "hadoop-hdfs" % "3.0.0-cdh6.2.0" % "provided",
 	"org.apache.commons" % "commons-lang3" % "3.7" % "provided",
+	"org.apache.hive" % "hive-metastore" % "2.1.1-cdh6.2.0" % "provided",
 	// antlr-runtime
 	"org.antlr" % "antlr4-runtime" % "4.7" % "provided"
 )

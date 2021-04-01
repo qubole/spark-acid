@@ -17,11 +17,14 @@
 
 package com.qubole.spark.hiveacid.transaction
 
-import java.util.concurrent.{Executors, ScheduledExecutorService, ThreadFactory, TimeUnit}
+import java.util.concurrent._
 import java.util.concurrent.atomic.AtomicBoolean
+import scala.collection._
+import scala.collection.convert.decorateAsScala._
+import java.util.concurrent.ConcurrentHashMap
 
-import org.apache.hadoop.hive.common.{ValidTxnList}
-import org.apache.hadoop.hive.metastore.api.{DataOperationType, LockRequest, LockResponse, LockState, TxnInfo}
+import org.apache.hadoop.hive.common.ValidTxnList
+import org.apache.hadoop.hive.metastore.api._
 import org.apache.hadoop.hive.conf.HiveConf
 import org.apache.hadoop.hive.metastore.txn.TxnUtils
 import org.apache.hadoop.hive.metastore.{IMetaStoreClient, LockComponentBuilder, LockRequestBuilder, RetryingMetaStoreClient}
@@ -48,11 +51,19 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession) extends L
   private val heartbeatInterval = HiveConf.getTimeVar(hiveConf,
     HiveConf.ConfVars.HIVE_TXN_TIMEOUT, TimeUnit.MILLISECONDS) / 3
 
+  val m: ConcurrentHashMap[String, java.lang.Long] = new ConcurrentHashMap
+  val types = new Array[Class[_]](2)
+  types(0) =  classOf[HiveConf].getClass
+  types(1) = Boolean.getClass
+  val args = new Array[Object](2)
+  args(0) = hiveConf
+  args(1) = false.asInstanceOf[AnyRef]
+
   private lazy val client: IMetaStoreClient =
-    RetryingMetaStoreClient.getProxy(hiveConf, false)
+    RetryingMetaStoreClient.getProxy(hiveConf, types, args, m, "org.apache.hadoop.hive.metastore.HiveMetaStoreClient")
 
   private lazy val heartBeaterClient: IMetaStoreClient =
-    RetryingMetaStoreClient.getProxy(hiveConf, false)
+    RetryingMetaStoreClient.getProxy(hiveConf,false);
 
   // FIXME: Use thread pool so that we don't create multiple threads
   private val heartBeater: ScheduledExecutorService =
