@@ -53,17 +53,17 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession) extends L
 
   val m: ConcurrentHashMap[String, java.lang.Long] = new ConcurrentHashMap
   val types = new Array[Class[_]](2)
-  types(0) =  classOf[HiveConf].getClass
-  types(1) = Boolean.getClass
   val args = new Array[Object](2)
+  types(0) =  classOf[HiveConf]
+  types(1) = classOf[java.lang.Boolean]
   args(0) = hiveConf
-  args(1) = false.asInstanceOf[AnyRef]
+  args(1) = java.lang.Boolean.FALSE
 
   private lazy val client: IMetaStoreClient =
     RetryingMetaStoreClient.getProxy(hiveConf, types, args, m, "org.apache.hadoop.hive.metastore.HiveMetaStoreClient")
 
   private lazy val heartBeaterClient: IMetaStoreClient =
-    RetryingMetaStoreClient.getProxy(hiveConf,false);
+    RetryingMetaStoreClient.getProxy(hiveConf, types, args, m, "org.apache.hadoop.hive.metastore.HiveMetaStoreClient")
 
   // FIXME: Use thread pool so that we don't create multiple threads
   private val heartBeater: ScheduledExecutorService =
