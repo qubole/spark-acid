@@ -29,7 +29,7 @@ private[hiveacid] object Util extends Logging {
 
   def classForName(className: String, loadShaded: Boolean = false): Class[_] = {
     val classToLoad = if (loadShaded) {
-      className.replaceFirst("org.apache.hadoop.hive.", "com.qubole.shaded.hadoop.hive.")
+      className.replaceFirst("org.apache.hadoop.hive.", "org.apache.hadoop.hive.")
     } else {
       className
     }

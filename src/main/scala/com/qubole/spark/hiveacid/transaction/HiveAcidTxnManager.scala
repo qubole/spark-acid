@@ -19,6 +19,7 @@ package com.qubole.spark.hiveacid.transaction
 
 import java.util.concurrent._
 import java.util.concurrent.atomic.AtomicBoolean
+
 import scala.collection._
 import scala.collection.convert.decorateAsScala._
 import java.util.concurrent.ConcurrentHashMap
@@ -27,7 +28,7 @@ import org.apache.hadoop.hive.common.ValidTxnList
 import org.apache.hadoop.hive.metastore.api._
 import org.apache.hadoop.hive.conf.HiveConf
 import org.apache.hadoop.hive.metastore.txn.TxnUtils
-import org.apache.hadoop.hive.metastore.{IMetaStoreClient, LockComponentBuilder, LockRequestBuilder, RetryingMetaStoreClient}
+import org.apache.hadoop.hive.metastore._
 import com.qubole.spark.hiveacid.datasource.HiveAcidDataSource
 import com.qubole.spark.hiveacid.hive.HiveConverter
 import com.qubole.spark.hiveacid.{HiveAcidErrors, HiveAcidOperation, SparkAcidConf}
@@ -35,7 +36,7 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.SqlUtils
 import org.apache.thrift.TException
-
+import org.apache.hadoop.hive.accumulo.AccumuloStorageHandler
 import scala.collection.JavaConversions._
 import scala.language.implicitConversions
 
@@ -51,13 +52,20 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession) extends L
   private val heartbeatInterval = HiveConf.getTimeVar(hiveConf,
     HiveConf.ConfVars.HIVE_TXN_TIMEOUT, TimeUnit.MILLISECONDS) / 3
 
+
+
+  val hiveMetaHookLoaderImp = new HiveMetaHookLoaderImp
+
+
   val m: ConcurrentHashMap[String, java.lang.Long] = new ConcurrentHashMap
-  val types = new Array[Class[_]](2)
-  val args = new Array[Object](2)
+  val types = new Array[Class[_]](3)
+  val args = new Array[Object](3)
   types(0) =  classOf[HiveConf]
-  types(1) = classOf[java.lang.Boolean]
+  types(2) = classOf[java.lang.Boolean]
+  types(1) = classOf[HiveMetaHookLoader]
   args(0) = hiveConf
-  args(1) = java.lang.Boolean.FALSE
+  args(2) = java.lang.Boolean.FALSE
+  args(1) = hiveMetaHookLoaderImp
 
   private lazy val client: IMetaStoreClient =
     RetryingMetaStoreClient.getProxy(hiveConf, types, args, m, "org.apache.hadoop.hive.metastore.HiveMetaStoreClient")
