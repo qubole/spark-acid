@@ -31,11 +31,8 @@ scalaVersion := crossScalaVersions.value.head
 
 scalacOptions ++= Seq(
 	"-Xlint",
-	"-Xfatal-warnings",
-	"-deprecation",
 	"-unchecked",
-	"-optimise",
-	"-Yinline-warnings"
+	"-optimise"
 )
 
 scalacOptions in (Compile, doc) ++= Seq(

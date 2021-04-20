@@ -164,7 +164,12 @@ private[hiveacid] class HiveAcidRDD[K, V](sc: SparkContext,
           logDebug("Re-using user-broadcasted JobConf")
           c
         case _ =>
-
+          Option(HiveAcidRDD.getCachedMetadata(jobConfCacheKey))
+            .map { conf =>
+              logDebug("Re-using cached JobConf")
+              conf.asInstanceOf[JobConf]
+            }
+            .getOrElse {
               // Create a JobConf that will be cached and used across this RDD's getJobConf() calls in
               // the local process. The local cache is accessed through HiveAcidRDD.putCachedMetadata().
               // The caching helps minimize GC, since a JobConf can contain ~10KB of temporary
@@ -177,7 +182,7 @@ private[hiveacid] class HiveAcidRDD[K, V](sc: SparkContext,
                 HiveAcidRDD.putCachedMetadata(jobConfCacheKey, newJobConf)
                 newJobConf
               }
-
+            }
       }
     }
   }

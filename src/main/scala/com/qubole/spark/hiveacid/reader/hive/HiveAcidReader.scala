@@ -19,6 +19,7 @@
 
 package com.qubole.spark.hiveacid.reader.hive
 
+import java.io.DataInput
 import java.util
 import java.util.Properties
 
@@ -34,9 +35,10 @@ import org.apache.hadoop.hive.ql.exec.Utilities
 import org.apache.hadoop.hive.ql.io.{AcidUtils, RecordIdentifier}
 import org.apache.hadoop.hive.ql.metadata.{Partition => HiveJarPartition, Table => HiveTable}
 import org.apache.hadoop.hive.ql.plan.TableDesc
-import org.apache.hadoop.hive.serde2.AbstractDeserializer
-import org.apache.hadoop.hive.serde2.objectinspector.{ObjectInspectorConverters, StructObjectInspector}
+import org.apache.hadoop.hive.serde2.{AbstractDeserializer, ColumnProjectionUtils, Deserializer, typeinfo}
+import org.apache.hadoop.hive.serde2.objectinspector.{ObjectInspector, ObjectInspectorConverters, StructObjectInspector}
 import org.apache.hadoop.hive.serde2.objectinspector.primitive._
+import org.apache.hadoop.hive.serde2.typeinfo._
 import com.qubole.spark.hiveacid.HiveAcidErrors
 import com.qubole.spark.hiveacid.hive.HiveAcidMetadata
 import com.qubole.spark.hiveacid.hive.HiveConverter
@@ -46,7 +48,7 @@ import com.qubole.spark.hiveacid.util._
 import org.apache.commons.codec.binary.Base64
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{Path, PathFilter}
-import org.apache.hadoop.hive.serde2.ColumnProjectionUtils
+import org.apache.hadoop.hive.ql.io.orc.{OrcSerde, OrcStruct}
 import org.apache.hadoop.io.Writable
 import org.apache.hadoop.mapred.{FileInputFormat, InputFormat, JobConf}
 import org.apache.spark.broadcast.Broadcast
@@ -115,6 +117,8 @@ extends CastSupport with Reader with Logging {
   def makeRDDForTable(hiveAcidMetadata: HiveAcidMetadata): RDD[InternalRow] = {
     val hiveTable = hiveAcidMetadata.hTable
 
+    logDebug("Making rdd for table")
+
     logDebug(s"sarg.pushdown: " +
       s"${readerOptions.hadoopConf.get("sarg.pushdown")}," +
       s"hive.io.file.readcolumn.names: " +
@@ -125,7 +129,7 @@ extends CastSupport with Reader with Logging {
     makeRDDForTable(
       hiveTable,
       Util.classForName(hiveAcidOptions.tableDesc.getSerdeClassName,
-        loadShaded = true).asInstanceOf[Class[AbstractDeserializer]],
+        loadShaded = true).asInstanceOf[Class[Deserializer]],
       hiveAcidMetadata,
       readerOptions
     )
@@ -140,11 +144,13 @@ extends CastSupport with Reader with Logging {
   def makeRDDForPartitionedTable(hiveAcidMetadata: HiveAcidMetadata,
                                  partitions: Seq[ReaderPartition]): RDD[InternalRow] = {
 
+    logDebug("Making rdd for partitioned table")
+
     val partitionToDeserializer = partitions.map(p => p.ptn.asInstanceOf[HiveJarPartition]).map {
       part =>
         val deserializerClassName = part.getTPartition.getSd.getSerdeInfo.getSerializationLib
         val deserializer = Util.classForName(deserializerClassName, loadShaded = true)
-          .asInstanceOf[Class[AbstractDeserializer]]
+          .asInstanceOf[Class[Deserializer]]
         (part, deserializer)
     }.toMap
     makeRDDForPartitionedTable(partitionToDeserializer, filterOpt = None, readerOptions)
@@ -158,9 +164,11 @@ extends CastSupport with Reader with Logging {
    * @param deserializerClass Class of the SerDe used to deserialize Writables read from Hadoop.
    */
   private def makeRDDForTable(hiveTable: HiveTable,
-                              deserializerClass: Class[_ <: AbstractDeserializer],
+                              deserializerClass: Class[_ <: Deserializer],
                               hiveAcidMetadata: HiveAcidMetadata,
                               readerOptions: ReaderOptions): RDD[InternalRow] = {
+
+    logDebug("Making rdd for table 2")
 
     assert(!hiveTable.isPartitioned,
       "makeRDDForTable() cannot be called on a partitioned table, since input formats may " +
@@ -187,7 +195,9 @@ extends CastSupport with Reader with Logging {
     * @return Deserialized RDD
     */
   private def deserializeTableRdd(hiveRDD: RDD[(RecordIdentifier, Writable)],
-                                  deserializerClass: Class[_ <: AbstractDeserializer]) = {
+                                  deserializerClass: Class[_ <: Deserializer]) = {
+
+    logDebug("deserializeTableRdd")
     val localTableDesc = hiveAcidOptions.tableDesc
     val broadcastedHadoopConf = _broadcastedHadoopConf
     val attrsWithIndex = readerOptions.requiredAttributes.zipWithIndex
@@ -207,9 +217,9 @@ extends CastSupport with Reader with Logging {
       val hconf = broadcastedHadoopConf.value.value
       val deserializer = deserializerClass.newInstance()
       deserializer.initialize(hconf, localTableDesc.getProperties)
-      HiveAcidReader.fillObject(iter, deserializer, attrsWithIndex, mutableRow,
+      HiveAcidReader.fillObject(iter, deserializer.asInstanceOf[Deserializer], attrsWithIndex, mutableRow,
         mutableRowRecordIds,
-        deserializer)
+        deserializer.asInstanceOf[Deserializer])
     }
     new HiveAcidUnionRDD[InternalRow](sparkSession.sparkContext, Seq(deserializedHiveRDD), Seq())
   }
@@ -223,7 +233,7 @@ extends CastSupport with Reader with Logging {
    *     subdirectory of each partition being read. If None, then all files are accepted.
    */
   private def makeRDDForPartitionedTable(
-      partitionToDeserializer: Map[HiveJarPartition, Class[_ <: AbstractDeserializer]],
+      partitionToDeserializer: Map[HiveJarPartition, Class[_ <: Deserializer]],
       filterOpt: Option[PathFilter],
       readerOptions: ReaderOptions): RDD[InternalRow] = {
 
@@ -259,7 +269,7 @@ extends CastSupport with Reader with Logging {
 
   private def makeRddForPartition(hiveRDD: RDD[(RecordIdentifier, Writable)],
                                   partition: HiveJarPartition,
-                                  partDeserializer: Class[_ <: AbstractDeserializer],
+                                  partDeserializer: Class[_ <: Deserializer],
                                   readerOptions: ReaderOptions) = {
     deserializePartitionRdd(hiveRDD, partition, partDeserializer)
   }
@@ -273,9 +283,10 @@ extends CastSupport with Reader with Logging {
     * @param partDeserializer
     * @return
     */
-  private def deserializePartitionRdd(partitionRDD: RDD[(RecordIdentifier, Writable)], partition: HiveJarPartition, partDeserializer: Class[_ <: AbstractDeserializer]) = {
+  private def deserializePartitionRdd(partitionRDD: RDD[(RecordIdentifier, Writable)], partition: HiveJarPartition, partDeserializer: Class[_ <: Deserializer]) = {
     // member variable cannot be used directly inside mapPartition as HiveAcidReader is not serializable.
     val broadcastedHadoopConf = _broadcastedHadoopConf
+    logDebug("deserializeTableRdd")
     val tableProperties = hiveAcidOptions.tableDesc.getProperties
     val partProps = partition.getMetadataFromPartitionSchema
     val localTableDesc = hiveAcidOptions.tableDesc
@@ -335,7 +346,7 @@ extends CastSupport with Reader with Logging {
       // get the table deserializer
       val tableSerDeClassName = localTableDesc.getSerdeClassName
       val tableSerDe = Util.classForName(tableSerDeClassName,
-        loadShaded = true).newInstance().asInstanceOf[AbstractDeserializer]
+        loadShaded = true).newInstance().asInstanceOf[Deserializer]
       tableSerDe.initialize(hconf, localTableDesc.getProperties)
 
       // fill the non partition key attributes
@@ -370,6 +381,7 @@ extends CastSupport with Reader with Logging {
                                 path: String,
                                 inputFormatClass: Class[InputFormat[Writable, Writable]]
                                ): RDD[(RecordIdentifier, Writable)] = {
+    logDebug("Creating rdd for tble")
 
     val colNames = getColumnNamesFromFieldSchema(cols)
     val colTypes = getColumnTypesFromFieldSchema(cols)
@@ -559,11 +571,11 @@ private[reader] object HiveAcidReader extends Hive2Inspectors with Logging {
     */
   def fillObject(
                   iterator: Iterator[(RecordIdentifier, Writable)],
-                  rawDeser: AbstractDeserializer,
+                  rawDeser: Deserializer,
                   nonPartitionKeyAttrs: Seq[(Attribute, Int)],
                   mutableRow: InternalRow,
                   mutableRowRecordId: Option[InternalRow],
-                  tableDeser: AbstractDeserializer): Iterator[InternalRow] = {
+                  tableDeser: Deserializer): Iterator[InternalRow] = {
 
     // Note mutableRowRecordId will be None when no rowIds needs to be included in the InternalRow.
     val soi = if (rawDeser.getObjectInspector.equals(tableDeser.getObjectInspector)) {
@@ -574,7 +586,7 @@ private[reader] object HiveAcidReader extends Hive2Inspectors with Logging {
         tableDeser.getObjectInspector).asInstanceOf[StructObjectInspector]
     }
 
-    logDebug(soi.toString)
+    logInfo("mutable row rec id  " + mutableRowRecordId.toString)
 
     val (fieldRefs, fieldOrdinals) = if (!mutableRowRecordId.isEmpty) { // Check if we need to include rowIds
       nonPartitionKeyAttrs.filterNot(x => isAttributeRowId(x._1)
@@ -592,6 +604,7 @@ private[reader] object HiveAcidReader extends Hive2Inspectors with Logging {
     val unwrappers: Seq[(Any, InternalRow, Int) => Unit] = fieldRefs.map {
       x =>
         val y = x.getFieldObjectInspector
+
         y match {
           case oi: BooleanObjectInspector =>
             (value: Any, row: InternalRow, ordinal: Int) => row.setBoolean(ordinal, oi.get(value))
@@ -628,6 +641,7 @@ private[reader] object HiveAcidReader extends Hive2Inspectors with Logging {
             (value: Any, row: InternalRow, ordinal: Int) =>
               row.update(ordinal, oi.getPrimitiveJavaObject(value))
           case oi =>
+            logInfo("Not matched any insp " + y.toString)
             val unwrapper = unwrapperFor(oi)
             (value: Any, row: InternalRow, ordinal: Int) => row(ordinal) = unwrapper(value)
         }
@@ -643,8 +657,67 @@ private[reader] object HiveAcidReader extends Hive2Inspectors with Logging {
       HiveAcidErrors.unexpectedReadError("Error reading the ACID table" +
         " as rowId is not present even when includeRowId is the parameter")
     }
+
+
+    val columns  = soi.getAllStructFieldRefs
+    var colNames : util.ArrayList[String] = new util.ArrayList[String]()
+    var colTypes : util.ArrayList[TypeInfo] = new util.ArrayList[TypeInfo]()
+    val itr = columns.iterator
+    while(itr.hasNext){
+      val iter = itr.next()
+      val fieldName = iter.getFieldName
+      colNames.add(fieldName)
+      val objInspector = iter.getFieldObjectInspector
+      val inspectorType = objInspector.getTypeName
+      var colType : TypeInfo = null
+
+      inspectorType match{
+        case "int" =>
+          colType = TypeInfoFactory.intTypeInfo
+        case "string" =>
+          colType = TypeInfoFactory.stringTypeInfo
+        case "char" =>
+          colType = TypeInfoFactory.charTypeInfo
+        case "bigint" =>
+          colType = TypeInfoFactory.longTypeInfo
+        case "float" =>
+          colType = TypeInfoFactory.floatTypeInfo
+        case "double" =>
+          colType = TypeInfoFactory.doubleTypeInfo
+        case "boolean" =>
+          colType = TypeInfoFactory.booleanTypeInfo
+        case "binary" =>
+          colType = TypeInfoFactory.binaryTypeInfo
+        case _ =>
+          colType = TypeInfoFactory.stringTypeInfo
+      }
+      colTypes.add(colType)
+    }
+
+    val structFieldNames : util.ArrayList[String] = new util.ArrayList[String]
+    structFieldNames.add("operation")
+    structFieldNames.add("originalTransaction")
+    structFieldNames.add("bucket")
+    structFieldNames.add("rowid")
+    structFieldNames.add("currentTransaction")
+    structFieldNames.add("row")
+
+    val structFieldTypes : util.ArrayList[TypeInfo] = new util.ArrayList[TypeInfo]
+    structFieldTypes.add(TypeInfoFactory.longTypeInfo)
+    structFieldTypes.add(TypeInfoFactory.longTypeInfo)
+    structFieldTypes.add(TypeInfoFactory.longTypeInfo)
+    structFieldTypes.add(TypeInfoFactory.longTypeInfo)
+    structFieldTypes.add(TypeInfoFactory.longTypeInfo)
+    structFieldTypes.add(TypeInfoFactory.getStructTypeInfo(colNames, colTypes))
+
+    val orcStructTypeInfo : TypeInfo = TypeInfoFactory.getStructTypeInfo(structFieldNames, structFieldTypes)
+    val rowDataObjectInspector : ObjectInspector = OrcStruct.createObjectInspector(orcStructTypeInfo)
+
+
     iterator.map { value =>
       val raw = converter.convert(rawDeser.deserialize(value._2))
+      val rowRef = rowDataObjectInspector.asInstanceOf[StructObjectInspector].getStructFieldRef("row")
+      val rawRow = rowDataObjectInspector.asInstanceOf[StructObjectInspector].getStructFieldData(raw, rowRef)
       var i = 0
       mutableRowRecordId match {
         case Some(record) =>
@@ -655,9 +728,12 @@ private[reader] object HiveAcidReader extends Hive2Inspectors with Logging {
           mutableRow.update(rowIdIndex, record)
         case None =>
       }
+
+      //val colValuesStruct : StructTypeInfo = TypeInfoFactory.getStructTypeInfo()
+
       val length = fieldRefs.length
       while (i < length) {
-        val fieldValue = soi.getStructFieldData(raw, fieldRefs(i))
+        val fieldValue = soi.getStructFieldData(rawRow, fieldRefs(i))
         if (fieldValue == null) {
           mutableRow.setNullAt(fieldOrdinals(i))
         } else {
