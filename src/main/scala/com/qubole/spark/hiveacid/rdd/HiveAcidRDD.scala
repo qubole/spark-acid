@@ -477,6 +477,7 @@ object HiveAcidRDD extends Logging {
       // If full ACID table, just set the right writeIds, the
       // OrcInputFormat.getSplits() will take care of the rest
       //AcidUtils.setValidWriteIdList(jobConf, validTxnList)
+      jobConf.set(ValidTxnList.VALID_TXNS_KEY, validTxnList.writeToString())
     } else {
       /*val finalPaths = new ListBuffer[Path]()
       val pathsWithFileOriginals = new ListBuffer[Path]()

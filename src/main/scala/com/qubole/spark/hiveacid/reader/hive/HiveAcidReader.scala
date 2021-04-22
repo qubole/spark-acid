@@ -117,7 +117,7 @@ extends CastSupport with Reader with Logging {
   def makeRDDForTable(hiveAcidMetadata: HiveAcidMetadata): RDD[InternalRow] = {
     val hiveTable = hiveAcidMetadata.hTable
 
-    logDebug("Making rdd for table")
+    logInfo("Making rdd for table")
 
     logDebug(s"sarg.pushdown: " +
       s"${readerOptions.hadoopConf.get("sarg.pushdown")}," +
@@ -197,7 +197,7 @@ extends CastSupport with Reader with Logging {
   private def deserializeTableRdd(hiveRDD: RDD[(RecordIdentifier, Writable)],
                                   deserializerClass: Class[_ <: Deserializer]) = {
 
-    logDebug("deserializeTableRdd")
+    logInfo("deserializeTableRdd")
     val localTableDesc = hiveAcidOptions.tableDesc
     val broadcastedHadoopConf = _broadcastedHadoopConf
     val attrsWithIndex = readerOptions.requiredAttributes.zipWithIndex
@@ -286,7 +286,7 @@ extends CastSupport with Reader with Logging {
   private def deserializePartitionRdd(partitionRDD: RDD[(RecordIdentifier, Writable)], partition: HiveJarPartition, partDeserializer: Class[_ <: Deserializer]) = {
     // member variable cannot be used directly inside mapPartition as HiveAcidReader is not serializable.
     val broadcastedHadoopConf = _broadcastedHadoopConf
-    logDebug("deserializeTableRdd")
+    logInfo("deserializePartitionRdd")
     val tableProperties = hiveAcidOptions.tableDesc.getProperties
     val partProps = partition.getMetadataFromPartitionSchema
     val localTableDesc = hiveAcidOptions.tableDesc
@@ -399,6 +399,7 @@ extends CastSupport with Reader with Logging {
       classOf[Writable],
       _minSplitsPerRDD)
 
+    logInfo("Valid txns " + validTxnList.writeToString())
     rdd
   }
 
@@ -641,7 +642,7 @@ private[reader] object HiveAcidReader extends Hive2Inspectors with Logging {
             (value: Any, row: InternalRow, ordinal: Int) =>
               row.update(ordinal, oi.getPrimitiveJavaObject(value))
           case oi =>
-            logInfo("Not matched any insp " + y.toString)
+            logInfo("Not matched any inspector " + y.toString)
             val unwrapper = unwrapperFor(oi)
             (value: Any, row: InternalRow, ordinal: Int) => row(ordinal) = unwrapper(value)
         }

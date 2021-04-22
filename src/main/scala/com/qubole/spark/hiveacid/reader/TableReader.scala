@@ -23,7 +23,7 @@ import com.qubole.spark.hiveacid.{HiveAcidOperation, SparkAcidConf}
 import com.qubole.spark.hiveacid.transaction._
 import com.qubole.spark.hiveacid.hive.HiveAcidMetadata
 import com.qubole.spark.hiveacid.reader.hive.{HiveAcidReader, HiveAcidReaderOptions}
-
+import com.qubole.spark.hiveacid.transaction.HiveAcidTxn.logInfo
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.{Row, SparkSession}
@@ -112,6 +112,7 @@ private[hiveacid] class TableReader(sparkSession: SparkSession,
     //val curSnapshot = HiveAcidTxn.createSnapshot(curTxn, hiveAcidMetadata)
 
     val validWriteIds = HiveAcidTxn.getValidTxnIds(curTxn, hiveAcidMetadata)
+    logInfo("Valid transactions are : " + validWriteIds.writeToString)
 
     val reader = new HiveAcidReader(
       sparkSession,
