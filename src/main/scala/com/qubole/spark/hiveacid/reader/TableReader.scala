@@ -84,10 +84,14 @@ private[hiveacid] class TableReader(sparkSession: SparkSession,
       s"partitionFilters: ${partitionFilters.length}")
 
     val hadoopConf = sparkSession.sessionState.newHadoopConf()
+    hadoopConf.setBoolean("hive.transactional.table.scan", true)
 
     logDebug(s"sarg.pushdown: ${hadoopConf.get("sarg.pushdown")}," +
       s"hive.io.file.readcolumn.names: ${hadoopConf.get("hive.io.file.readcolumn.names")}, " +
       s"hive.io.file.readcolumn.ids: ${hadoopConf.get("hive.io.file.readcolumn.ids")}")
+
+    logInfo("hadoop conf" + hadoopConf.toString)
+    logInfo("readconf : " + readConf.toString)
 
     val readerOptions = new ReaderOptions(hadoopConf,
       partitionAttributes,

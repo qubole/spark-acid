@@ -19,7 +19,7 @@
 
 package com.qubole.spark.hiveacid.rdd
 
-import java.io.{FileNotFoundException, IOException}
+import java.io.{FileNotFoundException, IOException, StringWriter, Writer}
 import java.text.SimpleDateFormat
 import java.util.concurrent.ConcurrentHashMap
 import java.util.{Date, Locale}
@@ -142,6 +142,7 @@ private[hiveacid] class HiveAcidRDD[K, V](sc: SparkContext,
   // Returns a JobConf that will be used on slaves to obtain input splits for Hadoop reads.
   protected def getJobConf: JobConf = {
     val conf: Configuration = broadcastedConf.value.value
+    logInfo("conf prop " + conf.get("HIVE_TRANSACTIONAL_TABLE_SCAN"))
     if (shouldCloneJobConf) {
       // Hadoop Configuration objects are not thread-safe, which may lead to various problems if
       // one job modifies a configuration while another reads it (SPARK-2546).  This problem occurs
@@ -177,7 +178,7 @@ private[hiveacid] class HiveAcidRDD[K, V](sc: SparkContext,
               // HADOOP-10456).
               HiveAcidRDD.CONFIGURATION_INSTANTIATION_LOCK.synchronized {
                 logDebug("Creating new JobConf and caching it for later re-use")
-                val newJobConf = new JobConf()
+                val newJobConf = new JobConf(conf)
                 initLocalJobConfFuncOpt.foreach(f => f(newJobConf))
                 HiveAcidRDD.putCachedMetadata(jobConfCacheKey, newJobConf)
                 newJobConf
@@ -228,6 +229,8 @@ private[hiveacid] class HiveAcidRDD[K, V](sc: SparkContext,
       private val split = theSplit.asInstanceOf[HiveAcidPartition]
       logDebug("Input split: " + split.inputSplit)
       val jobConf: JobConf = getJobConf
+      logInfo("conf prop " + jobConf.get("hive.transactional.table.scan"))
+      jobConf.setBoolean("hive.transactional.table.scan", true)
 
       private var reader: RecordReader[K, V] = _
       private val inputFormat = getInputFormat(jobConf)
@@ -239,6 +242,8 @@ private[hiveacid] class HiveAcidRDD[K, V](sc: SparkContext,
         try {
           // Underlying code is not MT safe. Synchronize
           // while creating record reader
+          logInfo("input format " + inputFormat.toString)
+          logInfo("inputsplit value " + split.inputSplit.value)
           HiveAcidRDD.RECORD_READER_INIT_LOCK.synchronized {
             inputFormat.getRecordReader(split.inputSplit.value, jobConf, Reporter.NULL)
           }

@@ -19,7 +19,7 @@
 
 package com.qubole.spark.hiveacid.reader.hive
 
-import java.io.DataInput
+import java.io.{DataInput, StringWriter, Writer}
 import java.util
 import java.util.Properties
 
@@ -82,7 +82,12 @@ private[reader] class HiveAcidReader(sparkSession: SparkSession,
 
 extends CastSupport with Reader with Logging {
 
-  private val _minSplitsPerRDD = if (sparkSession.sparkContext.isLocal) {
+  val writer : Writer = new StringWriter()
+  Configuration.dumpConfiguration(readerOptions.hadoopConf, writer)
+  logInfo("Conf string " + writer.toString)
+
+
+    private val _minSplitsPerRDD = if (sparkSession.sparkContext.isLocal) {
     0 // will be split based on block by default.
   } else {
     math.max(readerOptions.hadoopConf.getInt("mapreduce.job.maps", 1),
@@ -116,8 +121,6 @@ extends CastSupport with Reader with Logging {
    */
   def makeRDDForTable(hiveAcidMetadata: HiveAcidMetadata): RDD[InternalRow] = {
     val hiveTable = hiveAcidMetadata.hTable
-
-    logInfo("Making rdd for table")
 
     logDebug(s"sarg.pushdown: " +
       s"${readerOptions.hadoopConf.get("sarg.pushdown")}," +
@@ -197,7 +200,6 @@ extends CastSupport with Reader with Logging {
   private def deserializeTableRdd(hiveRDD: RDD[(RecordIdentifier, Writable)],
                                   deserializerClass: Class[_ <: Deserializer]) = {
 
-    logInfo("deserializeTableRdd")
     val localTableDesc = hiveAcidOptions.tableDesc
     val broadcastedHadoopConf = _broadcastedHadoopConf
     val attrsWithIndex = readerOptions.requiredAttributes.zipWithIndex
@@ -331,6 +333,7 @@ extends CastSupport with Reader with Logging {
 
     partitionRDD.mapPartitions { iter =>
       val hconf = broadcastedHadoopConf.value.value
+
       val deserializer = partDeserializer.newInstance()
       // SPARK-13709: For SerDes like AvroSerDe, some essential information (e.g. Avro schema
       // information) may be defined in table properties. Here we should merge table properties
@@ -381,13 +384,15 @@ extends CastSupport with Reader with Logging {
                                 path: String,
                                 inputFormatClass: Class[InputFormat[Writable, Writable]]
                                ): RDD[(RecordIdentifier, Writable)] = {
-    logDebug("Creating rdd for tble")
+
+
 
     val colNames = getColumnNamesFromFieldSchema(cols)
     val colTypes = getColumnTypesFromFieldSchema(cols)
     val initializeJobConfFunc = HiveAcidReader.initializeLocalJobConfFunc(
       path, tableDesc, tableParameters,
       colNames, colTypes) _
+    _broadcastedHadoopConf.value.value.setBoolean("hive.transactional.table.scan", true)
     val rdd = new HiveAcidRDD(
       sparkSession.sparkContext,
       validTxnList,
@@ -398,8 +403,6 @@ extends CastSupport with Reader with Logging {
       classOf[Writable],
       classOf[Writable],
       _minSplitsPerRDD)
-
-    logInfo("Valid txns " + validTxnList.writeToString())
     rdd
   }
 
