@@ -84,7 +84,6 @@ extends CastSupport with Reader with Logging {
 
   val writer : Writer = new StringWriter()
   Configuration.dumpConfiguration(readerOptions.hadoopConf, writer)
-  logInfo("Conf string " + writer.toString)
 
 
     private val _minSplitsPerRDD = if (sparkSession.sparkContext.isLocal) {
@@ -288,7 +287,6 @@ extends CastSupport with Reader with Logging {
   private def deserializePartitionRdd(partitionRDD: RDD[(RecordIdentifier, Writable)], partition: HiveJarPartition, partDeserializer: Class[_ <: Deserializer]) = {
     // member variable cannot be used directly inside mapPartition as HiveAcidReader is not serializable.
     val broadcastedHadoopConf = _broadcastedHadoopConf
-    logInfo("deserializePartitionRdd")
     val tableProperties = hiveAcidOptions.tableDesc.getProperties
     val partProps = partition.getMetadataFromPartitionSchema
     val localTableDesc = hiveAcidOptions.tableDesc
@@ -392,7 +390,6 @@ extends CastSupport with Reader with Logging {
     val initializeJobConfFunc = HiveAcidReader.initializeLocalJobConfFunc(
       path, tableDesc, tableParameters,
       colNames, colTypes) _
-    _broadcastedHadoopConf.value.value.setBoolean("hive.transactional.table.scan", true)
     val rdd = new HiveAcidRDD(
       sparkSession.sparkContext,
       validTxnList,
@@ -590,7 +587,7 @@ private[reader] object HiveAcidReader extends Hive2Inspectors with Logging {
         tableDeser.getObjectInspector).asInstanceOf[StructObjectInspector]
     }
 
-    logInfo("mutable row rec id  " + mutableRowRecordId.toString)
+    logDebug(soi.toString)
 
     val (fieldRefs, fieldOrdinals) = if (!mutableRowRecordId.isEmpty) { // Check if we need to include rowIds
       nonPartitionKeyAttrs.filterNot(x => isAttributeRowId(x._1)
@@ -608,7 +605,6 @@ private[reader] object HiveAcidReader extends Hive2Inspectors with Logging {
     val unwrappers: Seq[(Any, InternalRow, Int) => Unit] = fieldRefs.map {
       x =>
         val y = x.getFieldObjectInspector
-
         y match {
           case oi: BooleanObjectInspector =>
             (value: Any, row: InternalRow, ordinal: Int) => row.setBoolean(ordinal, oi.get(value))
@@ -645,7 +641,6 @@ private[reader] object HiveAcidReader extends Hive2Inspectors with Logging {
             (value: Any, row: InternalRow, ordinal: Int) =>
               row.update(ordinal, oi.getPrimitiveJavaObject(value))
           case oi =>
-            logInfo("Not matched any inspector " + y.toString)
             val unwrapper = unwrapperFor(oi)
             (value: Any, row: InternalRow, ordinal: Int) => row(ordinal) = unwrapper(value)
         }
@@ -661,67 +656,8 @@ private[reader] object HiveAcidReader extends Hive2Inspectors with Logging {
       HiveAcidErrors.unexpectedReadError("Error reading the ACID table" +
         " as rowId is not present even when includeRowId is the parameter")
     }
-
-
-    val columns  = soi.getAllStructFieldRefs
-    var colNames : util.ArrayList[String] = new util.ArrayList[String]()
-    var colTypes : util.ArrayList[TypeInfo] = new util.ArrayList[TypeInfo]()
-    val itr = columns.iterator
-    while(itr.hasNext){
-      val iter = itr.next()
-      val fieldName = iter.getFieldName
-      colNames.add(fieldName)
-      val objInspector = iter.getFieldObjectInspector
-      val inspectorType = objInspector.getTypeName
-      var colType : TypeInfo = null
-
-      inspectorType match{
-        case "int" =>
-          colType = TypeInfoFactory.intTypeInfo
-        case "string" =>
-          colType = TypeInfoFactory.stringTypeInfo
-        case "char" =>
-          colType = TypeInfoFactory.charTypeInfo
-        case "bigint" =>
-          colType = TypeInfoFactory.longTypeInfo
-        case "float" =>
-          colType = TypeInfoFactory.floatTypeInfo
-        case "double" =>
-          colType = TypeInfoFactory.doubleTypeInfo
-        case "boolean" =>
-          colType = TypeInfoFactory.booleanTypeInfo
-        case "binary" =>
-          colType = TypeInfoFactory.binaryTypeInfo
-        case _ =>
-          colType = TypeInfoFactory.stringTypeInfo
-      }
-      colTypes.add(colType)
-    }
-
-    val structFieldNames : util.ArrayList[String] = new util.ArrayList[String]
-    structFieldNames.add("operation")
-    structFieldNames.add("originalTransaction")
-    structFieldNames.add("bucket")
-    structFieldNames.add("rowid")
-    structFieldNames.add("currentTransaction")
-    structFieldNames.add("row")
-
-    val structFieldTypes : util.ArrayList[TypeInfo] = new util.ArrayList[TypeInfo]
-    structFieldTypes.add(TypeInfoFactory.longTypeInfo)
-    structFieldTypes.add(TypeInfoFactory.longTypeInfo)
-    structFieldTypes.add(TypeInfoFactory.longTypeInfo)
-    structFieldTypes.add(TypeInfoFactory.longTypeInfo)
-    structFieldTypes.add(TypeInfoFactory.longTypeInfo)
-    structFieldTypes.add(TypeInfoFactory.getStructTypeInfo(colNames, colTypes))
-
-    val orcStructTypeInfo : TypeInfo = TypeInfoFactory.getStructTypeInfo(structFieldNames, structFieldTypes)
-    val rowDataObjectInspector : ObjectInspector = OrcStruct.createObjectInspector(orcStructTypeInfo)
-
-
     iterator.map { value =>
       val raw = converter.convert(rawDeser.deserialize(value._2))
-      val rowRef = rowDataObjectInspector.asInstanceOf[StructObjectInspector].getStructFieldRef("row")
-      val rawRow = rowDataObjectInspector.asInstanceOf[StructObjectInspector].getStructFieldData(raw, rowRef)
       var i = 0
       mutableRowRecordId match {
         case Some(record) =>
@@ -732,12 +668,9 @@ private[reader] object HiveAcidReader extends Hive2Inspectors with Logging {
           mutableRow.update(rowIdIndex, record)
         case None =>
       }
-
-      //val colValuesStruct : StructTypeInfo = TypeInfoFactory.getStructTypeInfo()
-
       val length = fieldRefs.length
       while (i < length) {
-        val fieldValue = soi.getStructFieldData(rawRow, fieldRefs(i))
+        val fieldValue = soi.getStructFieldData(raw, fieldRefs(i))
         if (fieldValue == null) {
           mutableRow.setNullAt(fieldOrdinals(i))
         } else {

@@ -28,6 +28,7 @@ import org.apache.spark.sql.execution.streaming.Sink
 import org.apache.spark.sql.sources._
 import org.apache.spark.sql.streaming.OutputMode
 
+
 /**
   * HiveAcid Data source implementation.
   */
@@ -49,7 +50,6 @@ class HiveAcidDataSource
                               mode: SaveMode,
                               parameters: Map[String, String],
                               df: DataFrame): BaseRelation = {
-
     val hiveAcidTable: HiveAcidTable = HiveAcidTable.fromSparkSession(
       sqlContext.sparkSession,
       getFullyQualifiedTableName(parameters),

@@ -30,6 +30,8 @@ import org.apache.spark.sql.execution.command.DDLUtils
 import org.apache.spark.sql.execution.datasources.LogicalRelation
 import com.qubole.spark.hiveacid.datasource.HiveAcidDataSource
 
+import org.apache.spark.internal.Logging
+
 
 /**
  * Analyzer rule to convert a transactional HiveRelation
@@ -66,8 +68,9 @@ case class HiveAcidAutoConvert(spark: SparkSession) extends Rule[LogicalPlan] {
   }
 }
 
-class HiveAcidAutoConvertExtension extends (SparkSessionExtensions => Unit) {
+class HiveAcidAutoConvertExtension extends (SparkSessionExtensions => Unit)  with Logging {
   def apply(extension: SparkSessionExtensions): Unit = {
+    logInfo("In hiveacidautoconvertextn")
     extension.injectResolutionRule(HiveAcidAutoConvert.apply)
     extension.injectParser { (session, parser) =>
       SparkAcidSqlParser(parser)

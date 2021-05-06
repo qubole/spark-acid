@@ -109,6 +109,7 @@ case class HiveAcidRelation(sparkSession: SparkSession,
   override def buildScan(requiredColumns: Array[String], filters: Array[Filter]): RDD[Row] = {
     val readOptions = SparkAcidConf(sparkSession, parameters)
     // sql "select *"
+    logInfo("In buildscan")
     hiveAcidTable.getRdd(requiredColumns, filters, readOptions)
   }
 }
