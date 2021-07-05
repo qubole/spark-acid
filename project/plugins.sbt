@@ -1,5 +1,5 @@
 
-resolvers += "spark-packages" at sys.props.getOrElse("spark.repo", "https://dl.bintray.com/spark-packages/maven/")
+resolvers += "spark-packages" at sys.props.getOrElse("spark.repo", "https://repos.spark-packages.org/")
 
 addSbtPlugin("org.spark-packages" % "sbt-spark-package" % "0.2.6")
 
