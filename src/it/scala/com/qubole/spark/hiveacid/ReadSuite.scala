@@ -26,7 +26,7 @@ import org.scalatest._
 
 import scala.util.control.NonFatal
 
-@Ignore
+//@Ignore
 class ReadSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll {
 
   val log: Logger = LogManager.getLogger(this.getClass)
@@ -222,9 +222,10 @@ class ReadSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll 
           // Special case of comparing result read before conversion
           // and after conversion.
           log.info("++ Compare result across conversion")
-          val (dfFromSql, dfFromScala) = helper.sparkGetDF(table)
+          val (dfFromSql, dfFromScala, dfFromSqlV2) = helper.sparkGetDF(table)
           helper.compareResult(hiveResStr, dfFromSql.collect())
           helper.compareResult(hiveResStr, dfFromScala.collect())
+          helper.compareResult(hiveResStr, dfFromSqlV2.collect())
 
           helper.verify(table, insertOnly = false)
         }
@@ -272,11 +273,12 @@ class ReadSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll 
 
           val hiveResStr = helper.hiveExecuteQuery(table.hiveSelect)
 
-          val (df1, df2) = helper.sparkGetDF(table)
+          val (df1, df2, dfV2) = helper.sparkGetDF(table)
 
           // Materialize it once
           helper.compareResult(hiveResStr, df1.collect())
           helper.compareResult(hiveResStr, df2.collect())
+          helper.compareResult(hiveResStr, dfV2.collect())
 
           helper.hiveExecute(table.insertIntoHiveTableKey(11))
           helper.hiveExecute(table.insertIntoHiveTableKey(12))
@@ -284,9 +286,9 @@ class ReadSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll 
           helper.hiveExecute(table.insertIntoHiveTableKey(14))
           helper.hiveExecute(table.insertIntoHiveTableKey(15))
           if (isPartitioned) {
-            compactPartitionedAndTest(hiveResStr, df1, df2, Seq(11,12,13,14,15))
+            compactPartitionedAndTest(hiveResStr, df1, df2, dfV2, Seq(11,12,13,14,15))
           } else {
-            compactAndTest(hiveResStr, df1, df2)
+            compactAndTest(hiveResStr, df1, df2, dfV2)
           }
 
           // Shortcut for insert Only
@@ -296,9 +298,9 @@ class ReadSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll 
             helper.hiveExecute(table.deleteFromHiveTableKey(5))
             helper.hiveExecute(table.deleteFromHiveTableKey(6))
             if (isPartitioned) {
-              compactPartitionedAndTest(hiveResStr, df1, df2, Seq(3,4,5,6))
+              compactPartitionedAndTest(hiveResStr, df1, df2, dfV2, Seq(3,4,5,6))
             } else {
-              compactAndTest(hiveResStr, df1, df2)
+              compactAndTest(hiveResStr, df1, df2, dfV2)
             }
 
             helper.hiveExecute(table.updateInHiveTableKey(7))
@@ -306,33 +308,39 @@ class ReadSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll 
             helper.hiveExecute(table.updateInHiveTableKey(9))
             helper.hiveExecute(table.updateInHiveTableKey(10))
             if (isPartitioned) {
-              compactPartitionedAndTest(hiveResStr, df1, df2, Seq(7,8,9,10))
+              compactPartitionedAndTest(hiveResStr, df1, df2, dfV2, Seq(7,8,9,10))
             } else {
-              compactAndTest(hiveResStr, df1, df2)
+              compactAndTest(hiveResStr, df1, df2, dfV2)
             }
           }
         }
 
-        def compactAndTest(hiveResStr: String, df1: DataFrame, df2: DataFrame): Unit = {
+        def compactAndTest(hiveResStr: String, df1: DataFrame, df2: DataFrame, dfV2: DataFrame): Unit = {
           helper.compareResult(hiveResStr, df1.collect())
           helper.compareResult(hiveResStr, df2.collect())
+          helper.compareResult(hiveResStr, dfV2.collect())
           helper.hiveExecute(table.minorCompaction)
           helper.compareResult(hiveResStr, df1.collect())
           helper.compareResult(hiveResStr, df2.collect())
+          helper.compareResult(hiveResStr, dfV2.collect())
           helper.hiveExecute(table.majorCompaction)
           helper.compareResult(hiveResStr, df1.collect())
           helper.compareResult(hiveResStr, df2.collect())
+          helper.compareResult(hiveResStr, dfV2.collect())
         }
 
-        def compactPartitionedAndTest(hiveResStr: String, df1: DataFrame, df2: DataFrame, keys: Seq[Int]): Unit = {
+        def compactPartitionedAndTest(hiveResStr: String, df1: DataFrame, df2: DataFrame, dfV2: DataFrame, keys: Seq[Int]): Unit = {
           helper.compareResult(hiveResStr, df1.collect())
           helper.compareResult(hiveResStr, df2.collect())
+          helper.compareResult(hiveResStr, dfV2.collect())
           keys.foreach(k => helper.hiveExecute(table.minorPartitionCompaction(k)))
           helper.compareResult(hiveResStr, df1.collect())
           helper.compareResult(hiveResStr, df2.collect())
+          helper.compareResult(hiveResStr, dfV2.collect())
           keys.foreach((k: Int) => helper.hiveExecute(table.majorPartitionCompaction(k)))
           helper.compareResult(hiveResStr, df1.collect())
           helper.compareResult(hiveResStr, df2.collect())
+          helper.compareResult(hiveResStr, dfV2.collect())
         }
 
         helper.myRun(testName, code)
@@ -365,7 +373,7 @@ class ReadSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll 
             helper.hiveExecute(table2.insertIntoHiveTableKeyRange(10, 25))
 
             var hiveResStr = helper.hiveExecuteQuery(Table.hiveJoin(table1, table2))
-            val sparkRes1 = helper.sparkCollect(Table.sparkJoin(table1, table2))
+            val sparkRes1 = helper.sparkCollect(Table.hiveJoin(table1, table2))
             helper.compareResult(hiveResStr, sparkRes1)
           }
 

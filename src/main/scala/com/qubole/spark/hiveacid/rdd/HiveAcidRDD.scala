@@ -140,7 +140,7 @@ private[hiveacid] class HiveAcidRDD[K, V](sc: SparkContext,
     sparkContext.getConf.getBoolean("spark.hadoopRDD.ignoreEmptySplits", defaultValue = false)
 
   // Returns a JobConf that will be used on slaves to obtain input splits for Hadoop reads.
-  protected def getJobConf: JobConf = {
+  def getJobConf: JobConf = {
     val conf: Configuration = broadcastedConf.value.value
     if (shouldCloneJobConf) {
       // Hadoop Configuration objects are not thread-safe, which may lead to various problems if

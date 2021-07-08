@@ -231,7 +231,7 @@ object HiveAcidTable {
   * This wrapper can be used just once for running an operation. That operation is not allowed to recursively call this again
   * @param sparkSession
   */
-private class HiveTxnWrapper(sparkSession: SparkSession) extends Logging {
+private[hiveacid] class HiveTxnWrapper(sparkSession: SparkSession) extends Logging {
 
   private var isLocalTxn: Boolean = _
   private var curTxn: HiveAcidTxn = _

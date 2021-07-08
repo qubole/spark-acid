@@ -183,6 +183,8 @@ class TestLockHelper extends TestHelper {
       .config("spark.hadoop.hive.txn.timeout", "6")
       //.config("spark.ui.enabled", "true")
       //.config("spark.ui.port", "4041")
+      // All V1 tests are executed USING HiveAcid
+      .config("spark.hive.acid.datasource.version", "v2")
       .enableHiveSupport()
       .getOrCreate()
   }

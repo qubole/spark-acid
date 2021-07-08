@@ -76,26 +76,29 @@ class TestHelper extends SQLImplicits {
   def compare(table: Table, msg: String): Unit = {
     log.info(s"Verify simple $msg")
     val hiveResStr = hiveExecuteQuery(table.hiveSelect)
-    val (dfFromSql, dfFromScala) = sparkGetDF(table)
+    val (dfFromSql, dfFromScala, dfFromSqlV2) = sparkGetDF(table)
     compareResult(hiveResStr, dfFromSql.collect())
     compareResult(hiveResStr, dfFromScala.collect())
+    compareResult(hiveResStr, dfFromSqlV2.collect())
   }
 
   // With Predicate
   private def compareWithPred(table: Table, msg: String, pred: String): Unit = {
     log.info(s"Verify with predicate $msg")
     val hiveResStr = hiveExecuteQuery(table.hiveSelectWithPred(pred))
-    val (dfFromSql, dfFromScala) = sparkGetDFWithPred(table, pred)
+    val (dfFromSql, dfFromScala, dfFromSqlV2) = sparkGetDFWithPred(table, pred)
     compareResult(hiveResStr, dfFromSql.collect())
     compareResult(hiveResStr, dfFromScala.collect())
+    compareResult(hiveResStr, dfFromSqlV2.collect())
   }
   // With Projection
   private def compareWithProj(table: Table, msg: String): Unit = {
     log.info(s"Verify with projection $msg")
     val hiveResStr = hiveExecuteQuery(table.hiveSelectWithProj)
-    val (dfFromSql, dfFromScala) = sparkGetDFWithProj(table)
+    val (dfFromSql, dfFromScala, dfFromSqlV2) = sparkGetDFWithProj(table)
     compareResult(hiveResStr, dfFromSql.collect())
     compareResult(hiveResStr, dfFromScala.collect())
+    compareResult(hiveResStr, dfFromSqlV2.collect())
   }
 
   // Compare result of 2 tables via hive
@@ -198,28 +201,31 @@ class TestHelper extends SQLImplicits {
     compareWithProj(table, "After Delete")
   }
 
-  def sparkGetDFWithProj(table: Table): (DataFrame, DataFrame) = {
+  def sparkGetDFWithProj(table: Table): (DataFrame, DataFrame, DataFrame) = {
     val dfSql = sparkSQL(table.sparkSelect)
+    val dfSqlV2 = sparkSQL(table.hiveSelect)
 
     var dfScala = spark.read.format("HiveAcid").options(Map("table" -> table.hiveTname)).load().select(table.sparkDFProj)
     dfScala = totalOrderBy(table, dfScala)
-    (dfSql, dfScala)
+    (dfSql, dfScala, dfSqlV2)
   }
 
-  def sparkGetDFWithPred(table: Table, pred: String): (DataFrame, DataFrame) = {
+  def sparkGetDFWithPred(table: Table, pred: String): (DataFrame, DataFrame, DataFrame) = {
     val dfSql = sparkSQL(table.sparkSelectWithPred(pred))
+    val dfSqlV2 = sparkSQL(table.hiveSelectWithPred(pred))
 
     var dfScala = spark.read.format("HiveAcid").options(Map("table" -> table.hiveTname)).load().where(col("intCol") < "5")
     dfScala = totalOrderBy(table, dfScala)
-    (dfSql, dfScala)
+    (dfSql, dfScala, dfSqlV2)
   }
 
-  def sparkGetDF(table: Table): (DataFrame, DataFrame) = {
+  def sparkGetDF(table: Table): (DataFrame, DataFrame, DataFrame) = {
     val dfSql = sparkSQL(table.sparkSelect)
+    val dfSqlV2 = sparkSQL(table.hiveSelect)
 
     var dfScala = spark.read.format("HiveAcid").options(Map("table" -> table.hiveTname)).load()
     dfScala = totalOrderBy(table, dfScala)
-    (dfSql, dfScala)
+    (dfSql, dfScala, dfSqlV2)
   }
 
   def sparkSQL(cmd: String): DataFrame = {
